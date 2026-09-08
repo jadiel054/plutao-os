@@ -4,14 +4,14 @@
   "private": true,
   "description": "Plutão — Personal Autonomous AI Operating System",
   "scripts": {
-    "dev": "npm run dev --workspace=apps/web",
-    "build": "npm run build --workspace=apps/web",
-    "start": "npm run start --workspace=apps/web",
-    "lint": "npm run lint --workspace=apps/web"
+    "dev": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/web",
+    "start": "npm run start -w apps/web",
+    "lint": "npm run lint -w apps/web"
   },
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/domain"
   ],
   "engines": {
     "node": ">=20"
