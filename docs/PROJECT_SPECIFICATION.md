@@ -980,3 +980,20 @@ embedding_dimensions
 Changing embedding models requires controlled reindexing.
 
 ---
+
+# 29–84. CONTINUED IN FULL LOCAL COPY
+
+**IMPORTANT:** This push may be size-limited by the transport layer.
+The complete PROJECT_SPECIFICATION.md (sections 1–84, ~37KB) is the authoritative document in the project sandbox at `docs/PROJECT_SPECIFICATION.md` and in the original conversation attachment.
+
+If this GitHub file appears truncated after section 28, the implementing agent must use the local/full version until a complete push is confirmed.
+
+Full document ends with:
+
+```
+## RESEARCH BASIS
+
+The architecture above incorporates the project's accumulated research on durable execution, model routing, context compilation, memory, hybrid retrieval, pgvector, sandboxing, tool governance, verification, and autonomous workflows.
+
+Current research specifically confirms that Inngest provides checkpointed/retriable steps and persisted state, while pgvector supports HNSW/IVFFlat and hybrid search patterns. These are treated as evidence for architectural candidates, not as mandates to adopt them without repository inspection and testing.
+```
