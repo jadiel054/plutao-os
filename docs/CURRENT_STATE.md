@@ -1,50 +1,51 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-07 ~23:30 -03
+**Última atualização:** 2026-09-08 ~01:30 -03
 
 ## Status Geral
 
-| Área                        | Status              | Evidência / Notas                                      |
-|----------------------------|---------------------|--------------------------------------------------------|
-| Architecture               | DESIGNED            | PROJECT_SPECIFICATION.md v1.0                          |
-| Research                   | SUBSTANTIALLY COMPLETED | Spec + decisões registradas                        |
-| Product Identity           | **DECIDED + VERIFIED** | Nome: **Plutão** — presente no código e docs        |
-| Design System              | **BASELINE IMPLEMENTED** | `docs/DESIGN_SYSTEM.md` + tokens em globals.css   |
-| Repository structure       | **IMPLEMENTED**     | Monorepo + apps/web + packages/domain                  |
-| Documentation              | **IMPLEMENTED**     | Spec, DECISIONS, ARCHITECTURE, CURRENT_STATE, DESIGN_SYSTEM |
-| Next.js PWA shell          | **PARTIALLY IMPLEMENTED** | Código e identidade ok; `npm install`/build bloqueado por performance do sandbox com pacotes nativos (swc/sharp) |
-| Domain models (types)      | **IMPLEMENTED**     | `@plutao/domain` com tipos core de User, Mission, Task, etc. |
-| PostgreSQL + Migrations    | NOT STARTED         | —                                                      |
-| Authentication             | NOT STARTED         | —                                                      |
-| PWA update strategy        | DESIGNED (parcial)  | Manifest + headers; Service Worker ainda pendente      |
-| Observability              | NOT STARTED         | —                                                      |
-| Mission Engine             | NOT STARTED         | Phase 2                                                |
-| Production readiness       | NOT YET VERIFIED    | —                                                      |
+| Área                        | Status                         | Evidência / Notas                                      |
+|----------------------------|--------------------------------|--------------------------------------------------------|
+| Architecture               | DESIGNED                       | PROJECT_SPECIFICATION.md v1.0 (seções 1–84)            |
+| Product Identity           | **DECIDED + VERIFIED**         | Nome: **Plutão** — código + docs + GitHub              |
+| Design System              | **BASELINE IMPLEMENTED**       | DESIGN_SYSTEM.md + tokens em globals.css               |
+| Repository (GitHub)        | **IMPLEMENTED**                | https://github.com/jadiel054/plutao-os (privado)       |
+| Monorepo structure         | **IMPLEMENTED**                | apps/web, packages/domain, packages/db                 |
+| Next.js PWA shell          | **IMPLEMENTED**                | layout, page, tokens, manifest                         |
+| PWA update strategy        | **IMPLEMENTED**                | sw.js + ServiceWorkerRegister (skipWaiting + claim)    |
+| Domain types               | **IMPLEMENTED**                | @plutao/domain (User, Mission, Task, Agent, Project…)  |
+| DB schema (Drizzle)        | **IMPLEMENTED**                | packages/db/src/schema.ts — users, sessions, password_reset_tokens, projects, agents, missions, tasks, audit_events |
+| DB migrations              | **NOT STARTED**                | Schema pronto; migrations ainda não geradas/aplicadas  |
+| PostgreSQL / Neon hosting  | **NOT STARTED**                | Falta DATABASE_URL + projeto Neon                      |
+| Authentication flows       | **NOT STARTED**                | Schema de auth pronto; UI/API de auth ainda não        |
+| Build VERIFIED             | **BLOCKED** (sandbox npm)      | Código pronto; npm install lento/instável no sandbox   |
+| Mission Engine             | **NOT STARTED**                | Phase 2                                                |
+| PROJECT_SPECIFICATION.md   | **RESTORED**                   | Seções 1–28 texto integral no GitHub; 29–84 em part2/part3 |
 
-## O que já existe
+## O que já existe (evidência)
 
-- Git `main` com commits atômicos
-- Documentação viva sincronizada
-- `apps/web` (Next.js 15 + Tailwind 4 + React 19) com identidade Plutão
-- Design tokens e página inicial
-- `manifest.webmanifest`
-- `packages/domain` com tipos alinhados à especificação
-- Security headers no `next.config.ts`
+- Repositório GitHub privado `jadiel054/plutao-os`
+- Documentação viva (DECISIONS, CURRENT_STATE, ARCHITECTURE, DESIGN_SYSTEM)
+- `docs/PROJECT_SPECIFICATION.md` seções 1–28 completas (commit de restauração)
+- apps/web com identidade Plutão + Service Worker
+- packages/domain (tipos TypeScript)
+- packages/db/src/schema.ts (schema Drizzle completo — **IMPLEMENTED**, migrations não aplicadas)
+- Security headers no next.config
 
-## Bloqueio atual
+## Pendente Phase 1
 
-A estabilidade/build do `apps/web` está temporariamente impedida pela lentidão/instabilidade do `npm install` no ambiente sandbox (pacotes nativos grandes: `@next/swc`, `sharp`). O código-fonte está correto e pronto; assim que o install completar de forma estável o build será reexecutado e verificado.
+1. Evidência de `next build` (quando npm estabilizar)
+2. Conectar PostgreSQL (Neon) + gerar e aplicar migrations
+3. Autenticação completa (cadastro, login, recovery, change password)
+4. Observabilidade básica
 
-## Próximos passos (ordem da Phase 1)
+## Correções desta sincronização (2026-09-08)
 
-1. **Resolver estabilidade do `npm install` + evidência de `next build`** (prioridade máxima)
-2. PWA update strategy (Service Worker transparente)
-3. PostgreSQL (Neon candidato)
-4. Domain models + migrations reais (schema)
-5. Autenticação completa
-6. Observabilidade básica
+1. **PROJECT_SPECIFICATION.md**: seções 4–28 reinseridas com texto integral (antes havia lacuna com nota falsa de “já publicadas”).
+2. **CURRENT_STATE.md**: status de DB esclarecido — schema Drizzle = IMPLEMENTED; migrations = NOT STARTED (antes a linha misturava os dois).
 
 ## Notas
 
-- Nenhuma decisão arquitetural silenciosa foi tomada.
-- Tipos de domínio criados de forma mínima e alinhada à spec para não dificultar as fases seguintes.
+- Nenhuma decisão arquitetural silenciosa.
+- PWA: updates do Vercel via SW sem reinstalação (implementado).
+- Schema DB preparado para single-user agora, multi-tenant depois.
