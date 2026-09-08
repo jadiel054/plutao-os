@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Plutão Design Tokens — Baseline v0.1
+   Dark-first, professional, light rendering
+   ============================================================ */
+
+:root {
+  /* Backgrounds */
+  --bg: #0B0F19;
+  --surface: #111827;
+  --surface-elevated: #1F2937;
+
+  /* Borders */
+  --border: #374151;
+  --border-subtle: #1F2937;
+
+  /* Text */
+  --text-primary: #F9FAFB;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+
+  /* Accent */
+  --accent: #6366F1;
+  --accent-hover: #818CF8;
+  --accent-muted: #312E81;
+
+  /* Status */
+  --cyan: #22D3EE;
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+
+  /* Semantic aliases for Tailwind */
+  --background: var(--bg);
+  --foreground: var(--text-primary);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-muted: var(--accent-muted);
+  --color-cyan: var(--cyan);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  min-height: 100dvh;
+}
+
+/* Utility helpers for Plutão */
+.bg-plutao {
+  background-color: var(--bg);
+}
+.bg-surface {
+  background-color: var(--surface);
+}
+.text-secondary {
+  color: var(--text-secondary);
+}
+.text-muted {
+  color: var(--text-muted);
+}
+.border-plutao {
+  border-color: var(--border);
+}
+.accent {
+  color: var(--accent);
+}
+.bg-accent {
+  background-color: var(--accent);
+}
