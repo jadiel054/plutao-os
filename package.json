@@ -1,0 +1,19 @@
+{
+  "name": "plutao",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plutão — Personal Autonomous AI Operating System",
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspace=apps/web",
+    "start": "npm run start --workspace=apps/web",
+    "lint": "npm run lint --workspace=apps/web"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
