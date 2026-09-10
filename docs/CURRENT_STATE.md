@@ -1,51 +1,56 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-08 ~01:30 -03
+**Última atualização:** 2026-09-10
 
-## Status Geral
+## Fase atual
 
-| Área                        | Status                         | Evidência / Notas                                      |
-|----------------------------|--------------------------------|--------------------------------------------------------|
-| Architecture               | DESIGNED                       | PROJECT_SPECIFICATION.md v1.0 (seções 1–84)            |
-| Product Identity           | **DECIDED + VERIFIED**         | Nome: **Plutão** — código + docs + GitHub              |
-| Design System              | **BASELINE IMPLEMENTED**       | DESIGN_SYSTEM.md + tokens em globals.css               |
-| Repository (GitHub)        | **IMPLEMENTED**                | https://github.com/jadiel054/plutao-os (privado)       |
-| Monorepo structure         | **IMPLEMENTED**                | apps/web, packages/domain, packages/db                 |
-| Next.js PWA shell          | **IMPLEMENTED**                | layout, page, tokens, manifest                         |
-| PWA update strategy        | **IMPLEMENTED**                | sw.js + ServiceWorkerRegister (skipWaiting + claim)    |
-| Domain types               | **IMPLEMENTED**                | @plutao/domain (User, Mission, Task, Agent, Project…)  |
-| DB schema (Drizzle)        | **IMPLEMENTED**                | packages/db/src/schema.ts — users, sessions, password_reset_tokens, projects, agents, missions, tasks, audit_events |
-| DB migrations              | **NOT STARTED**                | Schema pronto; migrations ainda não geradas/aplicadas  |
-| PostgreSQL / Neon hosting  | **NOT STARTED**                | Falta DATABASE_URL + projeto Neon                      |
-| Authentication flows       | **NOT STARTED**                | Schema de auth pronto; UI/API de auth ainda não        |
-| Build VERIFIED             | **BLOCKED** (sandbox npm)      | Código pronto; npm install lento/instável no sandbox   |
-| Mission Engine             | **NOT STARTED**                | Phase 2                                                |
-| PROJECT_SPECIFICATION.md   | **RESTORED**                   | Seções 1–28 texto integral no GitHub; 29–84 em part2/part3 |
+**Phase 1 — Foundation** (IMPLEMENTED parcial; **não VERIFIED** no critério build + conexão Neon)
 
-## O que já existe (evidência)
+## Status por área
 
-- Repositório GitHub privado `jadiel054/plutao-os`
-- Documentação viva (DECISIONS, CURRENT_STATE, ARCHITECTURE, DESIGN_SYSTEM)
-- `docs/PROJECT_SPECIFICATION.md` seções 1–28 completas (commit de restauração)
-- apps/web com identidade Plutão + Service Worker
-- packages/domain (tipos TypeScript)
-- packages/db/src/schema.ts (schema Drizzle completo — **IMPLEMENTED**, migrations não aplicadas)
-- Security headers no next.config
+| Área | Status | Evidência |
+|------|--------|-----------|
+| Architecture / Spec | DESIGNED | PROJECT_SPECIFICATION.md |
+| Product Identity | DECIDED | Nome Plutão |
+| Design System | IMPLEMENTED | DESIGN_SYSTEM.md + globals.css |
+| GitHub repo | IMPLEMENTED | jadiel054/plutao-os |
+| Monorepo | IMPLEMENTED | apps/web, packages/domain, packages/db |
+| PWA shell + SW updates | IMPLEMENTED | sw.js, ServiceWorkerRegister |
+| Domain types | IMPLEMENTED | @plutao/domain |
+| Drizzle schema | IMPLEMENTED | packages/db/src/schema.ts |
+| Neon hosting (8 tables) | **VERIFIED (operator)** | Projeto Plutao, SP, Postgres 17, schema aplicado fora do CI |
+| Migrations versionadas | **IMPLEMENTED** | packages/db/drizzle/0000_baseline.sql (já no Neon — não reaplicar) |
+| Neon client (Drizzle HTTP) | **IMPLEMENTED** | packages/db/src/client.ts |
+| GET /api/health | **IMPLEMENTED** | apps/web — erros de DB ofuscados em production |
+| package-lock.json | **MISSING** | Não existe no GitHub nem gerado de forma estável no sandbox |
+| next build (monorepo) | **NOT VERIFIED** | Sandbox npm instável (EIO/hang); sem evidência de build no path real |
+| DATABASE_URL no runtime | **NOT CONFIGURED** | Ausente no sandbox; .env.example documenta |
+| App → Neon connection | **NOT VERIFIED** | Depende de DATABASE_URL + runtime estável |
+| Authentication | NOT STARTED | Schema pronto; fluxos não |
+| Mission Engine | NOT STARTED | Phase 2 |
 
-## Pendente Phase 1
+## Critério VERIFIED (Phase 1 Foundation)
 
-1. Evidência de `next build` (quando npm estabilizar)
-2. Conectar PostgreSQL (Neon) + gerar e aplicar migrations
-3. Autenticação completa (cadastro, login, recovery, change password)
-4. Observabilidade básica
+Só sobe para VERIFIED com:
 
-## Correções desta sincronização (2026-09-08)
+1. lockfile commitado e instalável
+2. `next build` (ou typecheck+build) com saída de sucesso
+3. `/api/health` com `database.ok: true` contra Neon real
 
-1. **PROJECT_SPECIFICATION.md**: seções 4–28 reinseridas com texto integral (antes havia lacuna com nota falsa de “já publicadas”).
-2. **CURRENT_STATE.md**: status de DB esclarecido — schema Drizzle = IMPLEMENTED; migrations = NOT STARTED (antes a linha misturava os dois).
+Nenhum dos três está completo neste ambiente de sandbox.
 
-## Notas
+## Neon — regras
 
-- Nenhuma decisão arquitetural silenciosa.
-- PWA: updates do Vercel via SW sem reinstalação (implementado).
-- Schema DB preparado para single-user agora, multi-tenant depois.
+- Não rodar `drizzle-kit migrate` no Neon existente sem aprovação
+- Baseline 0000 já reflete o banco; não reaplicar
+- Stamp/baseline no migrator: explicar SQL e aguardar aprovação antes de qualquer alteração no banco
+
+## Próximo (após verificação)
+
+Auth (cadastro/login/recovery) — **aguardar** build + health VERIFIED.
+
+## Commits recentes (GitHub)
+
+- d656cfc… baseline SQL + schema status
+- 9c19a0d… client + health + workspaces
+- fd9ac532… health sem expor erros de DB em production
