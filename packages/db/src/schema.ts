@@ -2,8 +2,9 @@
  * @plutao/db — Drizzle schema (Phase 1 foundation)
  * Aligned with @plutao/domain and PROJECT_SPECIFICATION.md baseline entities.
  *
- * Status: DESIGNED → IMPLEMENTED (schema only; migrations not yet applied)
- * Hosting: Neon (candidate) — connection via DATABASE_URL / DATABASE_URL_UNPOOLED
+ * Status: IMPLEMENTED on Neon (plutao DB, 8 tables verified 2026-09-09)
+ * Hosting: Neon São Paulo — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
+ * Migrations: baseline 0000 in packages/db/drizzle/ (already applied on Neon — do not re-run)
  */
 
 import {
