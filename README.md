@@ -1,38 +1,41 @@
-# Plutão OS
+# Plutão
 
-**Plutão** — Personal Autonomous AI Operating System
+Personal Autonomous AI Operating System — mission-first cockpit.
 
-Seu sistema operacional autônomo de IA.
+**Repo:** private — `jadiel054/plutao-os`  
+**Phase:** 1 — Foundation (IMPLEMENTED; verification pending on stable environment)
 
-> Missão → Entendimento → Planejamento → Execução → Verificação → Evidência
+## Stack
 
-## Status
+- Next.js 15 (App Router) + PWA shell
+- TypeScript monorepo (`apps/web`, `packages/domain`, `packages/db`)
+- PostgreSQL on Neon (São Paulo) + Drizzle ORM
+- Tailwind 4 design tokens (dark-first)
 
-Phase 1 — Foundation (em andamento)
+## Quick start
 
-## Documentação
-
-- [PROJECT_SPECIFICATION.md](docs/PROJECT_SPECIFICATION.md) — especificação autoritativa
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [DECISIONS.md](docs/DECISIONS.md)
-- [CURRENT_STATE.md](docs/CURRENT_STATE.md)
-- [DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md)
-
-## Estrutura
-
-```
-plutao-os/
-├── apps/web/          # Next.js PWA (cockpit)
-├── packages/domain/   # Tipos e entidades de domínio
-├── docs/              # Documentação viva
-└── package.json
-```
-
-## Desenvolvimento
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ```bash
 npm install
+cp .env.example .env.local   # fill Neon URLs
 npm run dev
 ```
 
-Repositório privado. Uso pessoal.
+Health: `GET /api/health`
+
+## Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/PROJECT_SPECIFICATION.md](docs/PROJECT_SPECIFICATION.md) | Architecture baseline |
+| [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) | Live status |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Decision log |
+| [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | UI tokens |
+| [docs/NEON_SETUP.md](docs/NEON_SETUP.md) | Database connection |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local workflow |
+| [docs/VERIFICATION.md](docs/VERIFICATION.md) | Phase 1 VERIFIED criteria |
+
+## Important
+
+The Neon schema is **already applied**. Do not run baseline migrations against the live database without explicit approval.
