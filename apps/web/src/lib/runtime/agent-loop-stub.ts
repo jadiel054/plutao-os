@@ -8,8 +8,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, notInArray } from "drizzle-orm";
-import { missions, tasks } from "@plutao/db";
+import { and, asc, eq } from "drizzle-orm";
+import { executions, missions, tasks } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { completeExecution, getOwnedExecution } from "./service";
@@ -35,10 +35,6 @@ function asCheckpoint(raw: unknown): CheckpointShape {
   return {};
 }
 
-/**
- * One deterministic step on a RUNNING execution.
- * Completes the next open task on the mission, appends evidence, checkpoints.
- */
 export async function runStubStep(executionId: string, userId: string) {
   const execution = await getOwnedExecution(executionId, userId);
   if (!execution) return { error: "NOT_FOUND" as const };
@@ -56,10 +52,8 @@ export async function runStubStep(executionId: string, userId: string) {
 
   const cp = asCheckpoint(execution.checkpoint);
   const done = new Set(cp.completedTaskIds ?? []);
-
   const db = getDb();
 
-  // Prefer currentTaskId if still open; else first non-terminal task not yet stub-completed
   const missionTasks = await db
     .select()
     .from(tasks)
@@ -76,7 +70,6 @@ export async function runStubStep(executionId: string, userId: string) {
   );
 
   if (open.length === 0) {
-    // All tasks done by stub → complete execution (idempotent if already terminal handled above)
     const finished = await completeExecution(executionId, userId, "COMPLETED");
     if ("error" in finished) return { error: finished.error };
     return {
@@ -87,12 +80,10 @@ export async function runStubStep(executionId: string, userId: string) {
     };
   }
 
-  let target =
-    execution.currentTaskId && open.find((t) => t.id === execution.currentTaskId)
-      ? open.find((t) => t.id === execution.currentTaskId)!
-      : open[0];
+  const target =
+    (execution.currentTaskId && open.find((t) => t.id === execution.currentTaskId)) ||
+    open[0];
 
-  // Idempotent: if this task id already in completedTaskIds (race), skip
   if (done.has(target.id)) {
     return {
       done: false as const,
@@ -117,7 +108,6 @@ export async function runStubStep(executionId: string, userId: string) {
     createdAt: now.toISOString(),
   };
 
-  // Load mission evidence and append
   const missionRows = await db
     .select({ evidence: missions.evidence })
     .from(missions)
@@ -126,7 +116,6 @@ export async function runStubStep(executionId: string, userId: string) {
   if (!missionRows[0]) return { error: "NOT_FOUND" as const };
 
   const prevEv = parseEvidence(missionRows[0].evidence);
-  // Idempotency on evidence: same taskId + source agent_loop_stub already present
   const alreadyEv = prevEv.some(
     (e) => e.taskId === target.id && e.source === SOURCE && e.type === "agent_step"
   );
@@ -141,10 +130,14 @@ export async function runStubStep(executionId: string, userId: string) {
       completedTaskIds: [...done],
       note: "idempotent: evidence already present",
     };
-    const { executions } = await import("@plutao/db");
     const updated = await db
       .update(executions)
-      .set({ checkpoint: nextCp, checkpointAt: now, updatedAt: now, currentTaskId: target.id })
+      .set({
+        checkpoint: nextCp,
+        checkpointAt: now,
+        updatedAt: now,
+        currentTaskId: target.id,
+      })
       .where(eq(executions.id, executionId))
       .returning();
     return {
@@ -155,7 +148,6 @@ export async function runStubStep(executionId: string, userId: string) {
     };
   }
 
-  // Apply: complete task + evidence + checkpoint
   await db
     .update(tasks)
     .set({
@@ -186,7 +178,6 @@ export async function runStubStep(executionId: string, userId: string) {
     after: { taskStatus: "COMPLETED" },
   };
 
-  const { executions } = await import("@plutao/db");
   const updated = await db
     .update(executions)
     .set({
@@ -199,7 +190,6 @@ export async function runStubStep(executionId: string, userId: string) {
     .where(eq(executions.id, executionId))
     .returning();
 
-  // If no more open tasks, complete execution
   if (nextOpen.length === 0) {
     const finished = await completeExecution(executionId, userId, "COMPLETED");
     if ("error" in finished) {
