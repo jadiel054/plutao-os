@@ -1,10 +1,8 @@
 /**
- * @plutao/db — Drizzle schema (Phase 1 foundation)
- * Aligned with @plutao/domain and PROJECT_SPECIFICATION.md baseline entities.
+ * @plutao/db — Drizzle schema
  *
- * Status: IMPLEMENTED on Neon (plutao DB, 8 tables verified 2026-09-09)
- * Hosting: Neon São Paulo — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
- * Migrations: baseline 0000 in packages/db/drizzle/ (already applied on Neon — do not re-run)
+ * Neon São Paulo — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
+ * Baseline 0000 applied. Additive: 0001_executions.
  */
 
 import {
@@ -14,6 +12,7 @@ import {
   uuid,
   jsonb,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -126,6 +125,41 @@ export const tasks = pgTable(
   (t) => [
     index("tasks_mission_id_idx").on(t.missionId),
     index("tasks_status_idx").on(t.status),
+  ]
+);
+
+/**
+ * Durable Runtime — one execution attempt for a Mission (not Mission state itself).
+ * Recoverable statuses: RUNNING | PAUSED | INTERRUPTED
+ */
+export const executions = pgTable(
+  "executions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    missionId: uuid("mission_id")
+      .notNull()
+      .references(() => missions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    currentTaskId: uuid("current_task_id"),
+    status: text("status").notNull().default("PENDING"),
+    /** Last confirmed progress: { step?, taskId?, note?, data? } */
+    checkpoint: jsonb("checkpoint").notNull().default({}),
+    checkpointAt: timestamp("checkpoint_at", { withTimezone: true }),
+    /** mission-scoped key so start is idempotent while recoverable */
+    idempotencyKey: text("idempotency_key").notNull(),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("executions_mission_id_idx").on(t.missionId),
+    index("executions_user_id_idx").on(t.userId),
+    index("executions_status_idx").on(t.status),
+    uniqueIndex("executions_idempotency_key_uidx").on(t.idempotencyKey),
   ]
 );
 
