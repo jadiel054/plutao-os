@@ -16,6 +16,16 @@ type MissionRow = {
 
 type User = { id: string; email: string; name: string | null };
 
+const NEXT: Record<string, string[]> = {
+  CREATED: ["UNDERSTANDING"],
+  UNDERSTANDING: ["PLANNING", "BLOCKED", "FAILED"],
+  PLANNING: ["EXECUTING", "BLOCKED", "FAILED"],
+  EXECUTING: ["VERIFYING", "CORRECTING", "BLOCKED", "FAILED"],
+  VERIFYING: ["COMPLETED", "CORRECTING", "BLOCKED", "FAILED"],
+  CORRECTING: ["EXECUTING", "VERIFYING", "BLOCKED", "FAILED"],
+  BLOCKED: ["UNDERSTANDING", "PLANNING", "EXECUTING", "FAILED"],
+};
+
 export default function CockpitPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -89,6 +99,20 @@ export default function CockpitPage() {
     if (res.ok) await load();
   }
 
+  async function onTransition(id: string, toStatus: string) {
+    const res = await fetch(`/api/missions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "transition", toStatus }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Transição recusada");
+      return;
+    }
+    await load();
+  }
+
   async function onLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
@@ -121,7 +145,7 @@ export default function CockpitPage() {
         <section className="space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight">Missões</h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            Phase 2 · Mission Core — criar, listar e cancelar.
+            Phase 2 · Lifecycle — avance estados manualmente (sem Agent Runtime ainda).
           </p>
         </section>
 
@@ -154,21 +178,39 @@ export default function CockpitPage() {
             </p>
           ) : (
             <ul className="space-y-3">
-              {missions.map((m) => (
-                <li key={m.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-medium leading-snug">{m.objective}</p>
-                    <span className="shrink-0 text-[10px] font-mono uppercase tracking-wide rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--nucleo)]">{m.status}</span>
-                  </div>
-                  {m.definitionOfDone && <p className="text-xs text-[var(--text-muted)]">DoD: {m.definitionOfDone}</p>}
-                  <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
-                    <span className="font-mono">{new Date(m.createdAt).toLocaleString("pt-BR")}</span>
-                    {m.status !== "CANCELLED" && m.status !== "COMPLETED" && (
-                      <button type="button" onClick={() => void onCancel(m.id)} className="text-[var(--danger)] hover:underline">Cancelar</button>
-                    )}
-                  </div>
-                </li>
-              ))}
+              {missions.map((m) => {
+                const advances = NEXT[m.status] ?? [];
+                const terminal = m.status === "CANCELLED" || m.status === "COMPLETED" || m.status === "FAILED";
+                return (
+                  <li key={m.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm font-medium leading-snug">{m.objective}</p>
+                      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wide rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--nucleo)]">{m.status}</span>
+                    </div>
+                    {m.definitionOfDone && <p className="text-xs text-[var(--text-muted)]">DoD: {m.definitionOfDone}</p>}
+                    <div className="flex flex-wrap gap-2">
+                      {advances.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => void onTransition(m.id, s)}
+                          className="text-[10px] font-mono uppercase rounded border border-[var(--border)] px-2 py-1 text-[var(--text-secondary)] hover:border-[var(--selo)] hover:text-[var(--nucleo)]"
+                        >
+                          → {s}
+                        </button>
+                      ))}
+                      {!terminal && (
+                        <button type="button" onClick={() => void onCancel(m.id)} className="text-[10px] font-mono uppercase text-[var(--danger)] hover:underline px-1">
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)] font-mono">
+                      {new Date(m.createdAt).toLocaleString("pt-BR")}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
