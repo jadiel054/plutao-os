@@ -12,7 +12,9 @@
     "next": "15.5.25",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "@plutao/db": "*"
+    "@plutao/db": "*",
+    "drizzle-orm": "^0.39.0",
+    "@plutao/domain": "*"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
