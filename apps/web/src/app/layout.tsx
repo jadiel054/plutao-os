@@ -29,10 +29,14 @@ export const metadata: Metadata = {
   formatDetection: {
     telephone: false,
   },
+  icons: {
+    icon: [{ url: "/icon_192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icon_192.png", sizes: "192x192", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0B0F19",
+  themeColor: "#0B0D0C",
   colorScheme: "dark",
   width: "device-width",
   initialScale: 1,
