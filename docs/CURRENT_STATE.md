@@ -5,25 +5,21 @@
 ## Fase
 
 **Phase 1 — Foundation** → **VERIFIED**  
-**Phase 2 — Mission Core** → **IN PROGRESS** (lifecycle + tasks + evidence mínima)
+**Phase 2 — Mission Core** → **IN PROGRESS** (lifecycle + tasks + evidence **VERIFIED** em prod)
 
 ## Matriz
 
 | Área | Status |
 |------|--------|
-| Neon + /api/health prod | VERIFIED |
-| Brand / PWA | VERIFIED |
-| Auth (register/login/session) | VERIFIED |
-| Mission create/list/cancel + lifecycle | VERIFIED |
-| Tasks (CRUD + transitions) | IMPLEMENTED → verificar prod |
-| Evidence mínima (mission.evidence jsonb) | IMPLEMENTED → verificar prod |
-| Cockpit (missions + tasks + evidence) | IMPLEMENTED |
+| Neon + /api/health | VERIFIED |
+| Auth | VERIFIED |
+| Mission lifecycle | VERIFIED |
+| Tasks CRUD + transitions | **VERIFIED** (prod 2026-09-11) |
+| Evidence mínima | **VERIFIED** (prod via missions.evidence jsonb) |
+| Isolamento por usuário | VERIFIED (cross-user 404 / unauth 401) |
 | package-lock.json | PENDING |
 | Agent / Durable Runtime | Phase 3+ |
 
-## Schema Neon (sem migrate nesta fatia)
+## Schema
 
-- `tasks` — tabela baseline já existente
-- `missions.evidence` — jsonb array; itens com `{id,type,content,source,taskId,missionId,createdAt}`
-
-Não rodar migrate/stamp/drop sem aprovação.
+Sem migrate nesta fatia: `tasks` (baseline) + `missions.evidence` jsonb.
