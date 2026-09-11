@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" role="img" aria-label="Plutão">
+  <rect width="24" height="24" rx="5" fill="#0B0D0C"/>
+  <path d="M5 5v8M5 5h5" stroke="#5FA88C" stroke-width="1.5" stroke-linecap="square"/>
+  <path d="M19 19v-5M19 19h-3" stroke="#5FA88C" stroke-width="1.5" stroke-linecap="square"/>
+  <path d="M12 9 L15 12 L12 15 L9 12 Z" fill="#9CD9C2"/>
+</svg>
