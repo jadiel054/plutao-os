@@ -4,22 +4,26 @@
 
 ## Fase
 
-**Phase 1 — Foundation** → **VERIFIED** (prod health + brand + Auth)  
-**Phase 2 — Mission Core** → **IN PROGRESS** (create / list / cancel + cockpit)
+**Phase 1 — Foundation** → **VERIFIED**  
+**Phase 2 — Mission Core** → **IN PROGRESS** (lifecycle + tasks + evidence mínima)
 
 ## Matriz
 
 | Área | Status |
 |------|--------|
 | Neon + /api/health prod | VERIFIED |
-| Brand PNGs PWA | VERIFIED |
-| Auth register/login/session | IMPLEMENTED |
-| Mission create/list/cancel | IMPLEMENTED |
-| Cockpit `/cockpit` | IMPLEMENTED |
-| package-lock.json | PENDING commit se CI exigir |
-| Mission lifecycle completo | NOT STARTED |
-| Durable Runtime | Phase 3 |
+| Brand / PWA | VERIFIED |
+| Auth (register/login/session) | VERIFIED |
+| Mission create/list/cancel + lifecycle | VERIFIED |
+| Tasks (CRUD + transitions) | IMPLEMENTED → verificar prod |
+| Evidence mínima (mission.evidence jsonb) | IMPLEMENTED → verificar prod |
+| Cockpit (missions + tasks + evidence) | IMPLEMENTED |
+| package-lock.json | PENDING |
+| Agent / Durable Runtime | Phase 3+ |
 
-## Neon
+## Schema Neon (sem migrate nesta fatia)
 
-Não rodar migrate/stamp/drop sem aprovação. Auth e Mission usam tabelas já existentes.
+- `tasks` — tabela baseline já existente
+- `missions.evidence` — jsonb array; itens com `{id,type,content,source,taskId,missionId,createdAt}`
+
+Não rodar migrate/stamp/drop sem aprovação.
