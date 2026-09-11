@@ -1,33 +1,17 @@
 # ARCHITECTURE.md — Plutão
 
-**Status:** Living document  
-**Fonte autoritativa de requisitos:** `PROJECT_SPECIFICATION.md`
+**Status:** DESIGNED (runtime engines not implemented)  
+**Aligned with:** PROJECT_SPECIFICATION.md Architecture Baseline v1.0
 
-## Visão de alto nível
+## Runtime target (spec)
 
-```
-USER
-  │
-  ▼
-PWA (Plutão Cockpit)          ← apps/web (Next.js)
-  │
-  ▼
-Agent Gateway / API Layer
-  │
-  ▼
-Mission Engine
-  │
-  ▼
-Workflow Core + Durable Execution (adapter)
-  │
-  ▼
-Agent Runtime
-  ├── Context Engine
-  ├── Model Router → Model Gateway → Providers
-  └── Tool Broker → Policy → Approval → Sandbox
-  │
-  ▼
-Evidence → Verification → State
+```text
+USER → PWA → AGENT GATEWAY → MISSION ENGINE → WORKFLOW CORE
+  → DURABLE EXECUTION → AGENT RUNTIME
+       ├── Context Engine
+       ├── Model Router → Model Gateway → Providers
+       └── Tool Broker → Policy → Approval → Sandbox
+  → Evidence → Verification → State
 ```
 
 ## Princípios arquiteturais ativos
@@ -41,40 +25,42 @@ Evidence → Verification → State
 7. Evidence e provenance
 8. Progressive complexity
 
-## Estrutura de repositório (atual)
+## Estrutura de repositório (atual — Phase 1)
 
-```
-plutao/
+```text
+plutao-os/
 ├── apps/
-│   └── web/                 # Next.js PWA (cockpit)
+│   └── web/                 # Next.js 15 PWA cockpit
 ├── packages/
-│   ├── domain/              # Tipos e entidades de domínio
-│   ├── ui/                  # (futuro) componentes e tokens
-│   └── config/              # (futuro) configs compartilhadas
-├── services/                # Reservado para extração futura
+│   ├── domain/              # Shared TypeScript domain types
+│   └── db/                  # Drizzle schema, Neon client, migrations
+├── services/                # Reserved for future extraction (empty)
 ├── docs/
-│   ├── PROJECT_SPECIFICATION.md
-│   ├── ARCHITECTURE.md
-│   ├── CURRENT_STATE.md
-│   ├── DECISIONS.md
-│   └── DESIGN_SYSTEM.md
-└── ...
+├── .github/workflows/ci.yml
+├── package.json             # npm workspaces root
+└── .env.example
 ```
 
-## Decisões de stack (resumo)
+## Phase 1 surface (implemented in code)
 
-| Camada              | Escolha atual                          | Observação                          |
-|---------------------|----------------------------------------|-------------------------------------|
-| Frontend / PWA      | Next.js (App Router) + TS + Tailwind   | Atualizações transparentes via SW   |
-| Estilo              | Tailwind + Design Tokens               | Dark-first, leve                    |
-| Banco               | PostgreSQL                             | Neon como candidato forte           |
-| Auth                | Completa desde Phase 1                 | Provider a ser escolhido            |
-| Durable Execution   | Adapter + Inngest (candidato)          | Não acoplar domínio                 |
-| Ícones              | Lucide + oficiais de marcas            | —                                   |
-| Loaders             | LDRS                                   | Apenas espera real                  |
+| Component | Location | Role |
+|-----------|----------|------|
+| PWA shell | `apps/web` | UI + Service Worker updates |
+| Domain types | `packages/domain` | Mission/Task/User types (no runtime logic) |
+| Schema | `packages/db/src/schema.ts` | 8 tables aligned with Neon |
+| Baseline SQL | `packages/db/drizzle/0000_baseline.sql` | Versioned mirror of Neon (already applied) |
+| DB client | `packages/db/src/client.ts` | Neon HTTP + Drizzle |
+| Health | `apps/web/src/app/api/health` | Process + optional DB ping |
 
-## Fases de implementação
+## Not implemented yet (by design)
 
-Ver `PROJECT_SPECIFICATION.md` seção 66.
+- Mission Engine, Agent Runtime, Tool Broker, durable execution
+- Authentication flows
+- Model gateway / router
+- Observability pipeline beyond health
 
-Atualmente executando **Phase 1 — Foundation**.
+## Data store
+
+- **Neon** PostgreSQL 17 (São Paulo), database `plutao`
+- App uses **pooled** `DATABASE_URL`
+- Migrations (future) use **direct** `DATABASE_URL_UNPOOLED` only after approval

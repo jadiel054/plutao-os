@@ -1,56 +1,36 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-10
+**Última atualização:** 2026-09-11
 
-## Fase atual
+## Fase
 
-**Phase 1 — Foundation** (IMPLEMENTED parcial; **não VERIFIED** no critério build + conexão Neon)
+**Phase 1 — Foundation** → status agregado: **IMPLEMENTED** (não VERIFIED)
 
-## Status por área
+## Matriz de status
 
-| Área | Status | Evidência |
-|------|--------|-----------|
-| Architecture / Spec | DESIGNED | PROJECT_SPECIFICATION.md |
-| Product Identity | DECIDED | Nome Plutão |
-| Design System | IMPLEMENTED | DESIGN_SYSTEM.md + globals.css |
-| GitHub repo | IMPLEMENTED | jadiel054/plutao-os |
-| Monorepo | IMPLEMENTED | apps/web, packages/domain, packages/db |
-| PWA shell + SW updates | IMPLEMENTED | sw.js, ServiceWorkerRegister |
-| Domain types | IMPLEMENTED | @plutao/domain |
-| Drizzle schema | IMPLEMENTED | packages/db/src/schema.ts |
-| Neon hosting (8 tables) | **VERIFIED (operator)** | Projeto Plutao, SP, Postgres 17, schema aplicado fora do CI |
-| Migrations versionadas | **IMPLEMENTED** | packages/db/drizzle/0000_baseline.sql (já no Neon — não reaplicar) |
-| Neon client (Drizzle HTTP) | **IMPLEMENTED** | packages/db/src/client.ts |
-| GET /api/health | **IMPLEMENTED** | apps/web — erros de DB ofuscados em production |
-| package-lock.json | **MISSING** | Não existe no GitHub nem gerado de forma estável no sandbox |
-| next build (monorepo) | **NOT VERIFIED** | Sandbox npm instável (EIO/hang); sem evidência de build no path real |
-| DATABASE_URL no runtime | **NOT CONFIGURED** | Ausente no sandbox; .env.example documenta |
-| App → Neon connection | **NOT VERIFIED** | Depende de DATABASE_URL + runtime estável |
-| Authentication | NOT STARTED | Schema pronto; fluxos não |
+| Área | Status | Notas |
+|------|--------|-------|
+| Spec / architecture docs | DESIGNED | Spec normativa; ARCHITECTURE alinhada ao repo |
+| Identidade Plutão | DECIDED | DECISIONS.md |
+| Design system baseline | IMPLEMENTED | tokens + DESIGN_SYSTEM.md |
+| Monorepo workspaces | IMPLEMENTED | apps/*, packages/* |
+| apps/web Next PWA | IMPLEMENTED | layout, page, SW, manifest |
+| packages/domain | IMPLEMENTED | types only |
+| packages/db schema + baseline | IMPLEMENTED | 8 tables; Neon já aplicado (operator) |
+| Neon hosting | VERIFIED (operator) | Fora do CI; schema validado manualmente |
+| Neon client + /api/health | IMPLEMENTED | server-only; prod não vaza erro bruto de DB |
+| Docs DEV / VERIFY / DEPLOY / NEON | IMPLEMENTED | checklists e prep Vercel |
+| CI workflow | IMPLEMENTED | install+build; lockfile opcional (warn) |
+| package-lock.json | MISSING | pendência operacional (máquina/CI estável) |
+| next build evidence | NOT VERIFIED | depende de ambiente real |
+| App→Neon health ok | NOT VERIFIED | depende de DATABASE_URL real |
+| Auth | NOT STARTED | — |
 | Mission Engine | NOT STARTED | Phase 2 |
 
-## Critério VERIFIED (Phase 1 Foundation)
+## O que NÃO fazer no Neon agora
 
-Só sobe para VERIFIED com:
+- migrate / stamp / drop / recreate / alter das 8 tabelas sem aprovação explícita
 
-1. lockfile commitado e instalável
-2. `next build` (ou typecheck+build) com saída de sucesso
-3. `/api/health` com `database.ok: true` contra Neon real
+## Critério VERIFIED
 
-Nenhum dos três está completo neste ambiente de sandbox.
-
-## Neon — regras
-
-- Não rodar `drizzle-kit migrate` no Neon existente sem aprovação
-- Baseline 0000 já reflete o banco; não reaplicar
-- Stamp/baseline no migrator: explicar SQL e aguardar aprovação antes de qualquer alteração no banco
-
-## Próximo (após verificação)
-
-Auth (cadastro/login/recovery) — **aguardar** build + health VERIFIED.
-
-## Commits recentes (GitHub)
-
-- d656cfc… baseline SQL + schema status
-- 9c19a0d… client + health + workspaces
-- fd9ac532… health sem expor erros de DB em production
+Ver `docs/VERIFICATION.md`: lockfile + build exit 0 + health `database.ok: true`.

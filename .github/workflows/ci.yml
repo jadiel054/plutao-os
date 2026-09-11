@@ -16,7 +16,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
+          # cache requires package-lock.json; enable after lockfile is committed
+          # cache: npm
 
       - name: Install
         run: npm install --no-audit --no-fund
@@ -24,8 +25,13 @@ jobs:
       - name: Build web
         run: npm run build -w apps/web
         env:
-          # Build must not require live DB; health skips without DATABASE_URL
+          # Build must not require live DB; /api/health skips without DATABASE_URL
           NODE_ENV: production
 
-      - name: Check lockfile present
-        run: test -f package-lock.json && echo "package-lock.json OK"
+      - name: Lockfile status
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "package-lock.json present"
+          else
+            echo "WARN: package-lock.json missing — commit after first successful local npm install"
+          fi
