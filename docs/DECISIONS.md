@@ -19,6 +19,24 @@ Plutão transmite autonomia, independência e peso científico/mítico, alinhado
 
 ---
 
+## 2026-09-11 — Brand System (BRAND-001)
+
+**Decisão:** Lockup + paleta **Grafite e Platina Esverdeada** + grade **24×24** + razão **φ 1.618**.
+
+**Rationale:**  
+- §3.4 núcleo intocável → losango central fixo `(12,9)(15,12)(12,15)(9,12)`  
+- §11 subagents / φ → braços 8:5 e 5:3  
+- §9 runtime assimetria → equilíbrio sem simetria espelhada  
+
+**Tokens:** `#0B0D0C` base · `#182420` surface · `#2E5C4C` mid · `#5FA88C` selo · `#9CD9C2` núcleo · `#1F3D33` pinho · `#F5F3EE` papel  
+
+**Fonte de verdade:** `docs/BRAND.md` · assets em `assets/brand/`  
+**Substitui** indigo/cyan como accent de **marca** (status semânticos permanecem).
+
+**Status:** DECIDED
+
+---
+
 ## 2026-09-07 — Modelo de Negócio / Tenancy (V1)
 
 **Decisão:** V1 é single-user / uso pessoal (ferramenta de trabalho do proprietário).  
@@ -34,13 +52,13 @@ O modelo de dados manterá a estrutura `ACCOUNT → Agents → Projects` prepara
 - Visual profissional, sóbrio e leve.  
 - Dark mode como padrão + Light mode desde o início.  
 - Mobile-first PWA.  
-- Cores: fundo quase preto azulado (`#0B0F19`), accent indigo (`#6366F1`) + cyan (`#22D3EE`) para status vivos.  
+- Cores de marca: ver BRAND-001 (Grafite / Platina Esverdeada).  
 - Tipografia: Inter (UI) + mono para código/logs.  
 - Ícones: Lucide (principal) + ícones oficiais de marcas terceiras.  
 - Loaders: LDRS (uiball/ldrs) apenas onde houver espera real.  
 - Densidade informacional alta, porém respirável. Missão atual + status + o que precisa do usuário sempre em destaque.
 
-**Status:** ACEITA (detalhamento em `DESIGN_SYSTEM.md`)
+**Status:** ACEITA (detalhamento em `DESIGN_SYSTEM.md` + `BRAND.md`)
 
 ---
 
@@ -104,7 +122,5 @@ Começamos simples e extraímos conforme a complexidade justificar (princípio 3
 ## Decisões em aberto (a serem resolvidas com evidência)
 
 - Provider de autenticação exato (Auth.js, better-auth, Lucia, ou custom)
-- Hosting do PostgreSQL (Neon vs outro)
 - Runtime durable exato (Inngest continua como candidato forte atrás de adapter)
-- Biblioteca de ícones final (Lucide confirmado como baseline)
-- Estratégia exata de Service Worker / PWA (next-pwa, Serwist, ou manual)
+- Estratégia exata de Service Worker / PWA (manual já em uso; next-pwa/Serwist opcional)
