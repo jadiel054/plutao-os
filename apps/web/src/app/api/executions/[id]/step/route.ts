@@ -6,10 +6,6 @@ export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/**
- * POST — run one deterministic Agent Loop stub step on this execution.
- * No LLM. Auth + ownership enforced via getOwnedExecution inside stub.
- */
 export async function POST(_req: NextRequest, ctx: Ctx) {
   const user = await getSessionUser();
   if (!user) {
@@ -21,15 +17,11 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     const result = await runStubStep(id, user.id);
 
     if ("error" in result) {
-      const map: Record<string, number> = {
-        NOT_FOUND: 404,
-        NOT_RUNNING: 409,
-        TERMINAL: 409,
-      };
-      return NextResponse.json(
-        { error: result.error, hint: "hint" in result ? result.hint : undefined },
-        { status: map[result.error] ?? 400 }
-      );
+      const code = result.error;
+      const status =
+        code === "NOT_FOUND" ? 404 : code === "NOT_RUNNING" || code === "TERMINAL" ? 409 : 400;
+      const hint = "hint" in result ? result.hint : undefined;
+      return NextResponse.json({ error: code, hint }, { status });
     }
 
     return NextResponse.json(result);
