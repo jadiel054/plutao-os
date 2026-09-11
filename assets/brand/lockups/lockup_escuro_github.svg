@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="180" viewBox="0 0 640 180" role="img" aria-label="Plutão OS">
+  <rect width="640" height="180" fill="#0B0D0C"/>
+  <g transform="translate(48,42) scale(4)">
+    <path d="M5 5v8M5 5h5" stroke="#5FA88C" stroke-width="1.5" stroke-linecap="square" fill="none"/>
+    <path d="M19 19v-5M19 19h-3" stroke="#5FA88C" stroke-width="1.5" stroke-linecap="square" fill="none"/>
+    <path d="M12 9 L15 12 L12 15 L9 12 Z" fill="#9CD9C2"/>
+  </g>
+  <text x="180" y="88" fill="#F5F3EE" font-family="Inter, system-ui, sans-serif" font-size="42" font-weight="600" letter-spacing="0.04em">PLUTÃO</text>
+  <text x="180" y="118" fill="#5FA88C" font-family="Inter, system-ui, sans-serif" font-size="16">sistema operacional autônomo</text>
+</svg>

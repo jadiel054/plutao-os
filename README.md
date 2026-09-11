@@ -1,6 +1,6 @@
 # Plutão
 
-![Plutão OS](assets/brand/lockups/lockup_escuro_github.png)
+![Plutão OS](assets/brand/lockups/lockup_escuro_github.svg)
 
 Personal Autonomous AI Operating System — mission-first cockpit.
 
