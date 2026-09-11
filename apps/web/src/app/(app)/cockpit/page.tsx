@@ -33,6 +33,17 @@ type EvidenceItem = {
   createdAt: string;
 };
 
+type ExecutionRow = {
+  id: string;
+  missionId: string;
+  currentTaskId: string | null;
+  status: string;
+  checkpoint: Record<string, unknown> | null;
+  checkpointAt: string | null;
+  startedAt: string | null;
+  updatedAt: string;
+};
+
 type User = { id: string; email: string; name: string | null };
 
 const MISSION_NEXT: Record<string, string[]> = {
@@ -68,6 +79,8 @@ export default function CockpitPage() {
   const [taskTitle, setTaskTitle] = useState("");
   const [evidenceByTask, setEvidenceByTask] = useState<Record<string, EvidenceItem[]>>({});
   const [evDraft, setEvDraft] = useState<Record<string, string>>({});
+  const [execution, setExecution] = useState<ExecutionRow | null>(null);
+  const [cpNote, setCpNote] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -116,15 +129,26 @@ export default function CockpitPage() {
     setEvidenceByTask(map);
   }
 
+  async function loadRuntime(missionId: string) {
+    const res = await fetch(`/api/missions/${missionId}/executions`);
+    if (!res.ok) {
+      setExecution(null);
+      return;
+    }
+    const data = await res.json();
+    setExecution(data.recoverable ?? null);
+  }
+
   async function openMission(id: string) {
     if (openId === id) {
       setOpenId(null);
       setTasks([]);
+      setExecution(null);
       return;
     }
     setOpenId(id);
     setTaskTitle("");
-    await loadTasks(id);
+    await Promise.all([loadTasks(id), loadRuntime(id)]);
   }
 
   async function onCreate(e: FormEvent) {
@@ -233,6 +257,40 @@ export default function CockpitPage() {
     if (openId) await loadTasks(openId);
   }
 
+  async function onStartRuntime(missionId: string) {
+    const taskId = tasks[0]?.id ?? null;
+    const res = await fetch(`/api/missions/${missionId}/executions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentTaskId: taskId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error ?? "Falha ao iniciar runtime");
+      return;
+    }
+    setExecution(data.execution);
+  }
+
+  async function onRuntimeAction(action: string, extra?: Record<string, unknown>) {
+    if (!execution) return;
+    const res = await fetch(`/api/executions/${execution.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...extra }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error ?? "Ação de runtime falhou");
+      return;
+    }
+    setExecution(data.execution);
+    if (action === "complete" || action === "fail") {
+      setExecution(null);
+      if (openId) await loadRuntime(openId);
+    }
+  }
+
   async function onLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
@@ -263,9 +321,9 @@ export default function CockpitPage() {
 
       <main className="flex-1 mx-auto max-w-3xl w-full px-4 py-8 space-y-8">
         <section className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">Missões · Tasks · Evidence</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Missões · Runtime</h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            Phase 2 — abra uma missão para gerenciar tasks e evidências mínimas.
+            Phase 3 — execução durável (checkpoint / pause / resume). Sem Agent Loop ainda.
           </p>
         </section>
 
@@ -308,12 +366,50 @@ export default function CockpitPage() {
                         <button type="button" onClick={() => void onMissionCancel(m.id)} className="text-[10px] font-mono uppercase text-[var(--danger)] hover:underline">Cancelar</button>
                       )}
                       <button type="button" onClick={() => void openMission(m.id)} className="text-[10px] font-mono text-[var(--nucleo)] hover:underline ml-auto">
-                        {open ? "Fechar tasks" : "Tasks"}
+                        {open ? "Fechar" : "Abrir"}
                       </button>
                     </div>
 
                     {open && (
-                      <div className="border-t border-[var(--border)] pt-3 space-y-3">
+                      <div className="border-t border-[var(--border)] pt-3 space-y-4">
+                        {/* Runtime */}
+                        <div className="rounded-md border border-[var(--border)] bg-[var(--base)] p-3 space-y-2">
+                          <div className="text-[10px] font-mono text-[var(--text-muted)]">DURABLE RUNTIME</div>
+                          {execution ? (
+                            <>
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                <span className="font-mono text-[var(--nucleo)]">{execution.status}</span>
+                                <span className="text-[var(--text-muted)]">id {execution.id.slice(0, 8)}…</span>
+                                {execution.checkpointAt && (
+                                  <span className="text-[var(--text-muted)]">cp {new Date(execution.checkpointAt).toLocaleTimeString("pt-BR")}</span>
+                                )}
+                              </div>
+                              {execution.checkpoint && Object.keys(execution.checkpoint).length > 0 && (
+                                <pre className="text-[10px] text-[var(--text-secondary)] overflow-x-auto">{JSON.stringify(execution.checkpoint)}</pre>
+                              )}
+                              <div className="flex flex-wrap gap-2">
+                                <input value={cpNote} onChange={(e) => setCpNote(e.target.value)} placeholder="nota checkpoint"
+                                  className="flex-1 min-w-[8rem] rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
+                                <button type="button" className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded"
+                                  onClick={() => void onRuntimeAction("checkpoint", { step: "manual", note: cpNote, taskId: tasks[0]?.id })}>checkpoint</button>
+                                <button type="button" className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded"
+                                  onClick={() => void onRuntimeAction("pause")}>pause</button>
+                                <button type="button" className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded"
+                                  onClick={() => void onRuntimeAction("interrupt")}>interrupt</button>
+                                <button type="button" className="text-[10px] font-mono border border-[var(--selo)] text-[var(--nucleo)] px-2 py-1 rounded"
+                                  onClick={() => void onRuntimeAction("resume")}>resume</button>
+                                <button type="button" className="text-[10px] font-mono text-[var(--danger)] px-2"
+                                  onClick={() => void onRuntimeAction("complete")}>complete</button>
+                              </div>
+                            </>
+                          ) : (
+                            <button type="button" onClick={() => void onStartRuntime(m.id)}
+                              className="text-xs rounded-lg bg-[var(--selo)] text-[var(--base)] px-3 py-1.5 font-medium">
+                              Iniciar execução
+                            </button>
+                          )}
+                        </div>
+
                         <div className="flex gap-2">
                           <input value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="Nova task…"
                             className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--base)] px-3 py-1.5 text-sm outline-none focus:border-[var(--selo)]" />
