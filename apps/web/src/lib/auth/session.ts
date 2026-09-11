@@ -18,12 +18,15 @@ export async function createSession(opts: {
 }): Promise<{ token: string; expiresAt: Date }> {
   const db = getDb();
   const token = generateSessionToken();
+  const now = new Date();
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
 
+  // Neon HTTP + Drizzle: do not rely on ORM defaultNow() for NOT NULL columns.
   await db.insert(sessions).values({
     userId: opts.userId,
     token,
     expiresAt,
+    createdAt: now,
     userAgent: opts.userAgent ?? null,
     ip: opts.ip ?? null,
   });
