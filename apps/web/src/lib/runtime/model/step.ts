@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
-import { executions, missions, tasks } from "@plutao/db";
+import { agents, executions, missions, tasks } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { getOwnedExecution } from "@/lib/runtime/service";
@@ -10,8 +10,25 @@ import { chatCompletion } from "./client";
 import { getModelConfig } from "./config";
 import type { ModelMessage } from "./types";
 
-const SYSTEM = `You are the decision component of Plutão OS runtime.
+function buildSystemPrompt(agent: {
+  name: string;
+  identity: string | null;
+  personality: string | null;
+} | null) {
+  const identityLines = agent
+    ? [
+        `Agent name: ${agent.name}`,
+        agent.identity ? `Identity: ${agent.identity}` : null,
+        agent.personality ? `Personality: ${agent.personality}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "Agent: Plutão (default)";
+
+  return `You are the decision component of Plutão OS runtime.
 You do NOT control the runtime. You only propose the next action.
+
+${identityLines}
 
 You may either:
 1) Reply with short reasoning in plain text, OR
@@ -20,9 +37,11 @@ You may either:
 
 Available tools: note
 Rules:
+- Stay consistent with the agent identity above.
 - Prefer a tool call only when recording a concrete note helps the mission.
 - Never invent other tool names.
 - Keep replies concise.`;
+}
 
 type CheckpointShape = {
   step?: string;
@@ -66,6 +85,17 @@ export async function runModelStep(executionId: string, userId: string) {
   const mission = missionRows[0];
   if (!mission) return { error: "NOT_FOUND" as const };
 
+  const agentRows = await db
+    .select({
+      name: agents.name,
+      identity: agents.identity,
+      personality: agents.personality,
+    })
+    .from(agents)
+    .where(eq(agents.userId, userId))
+    .limit(1);
+  const agent = agentRows[0] ?? null;
+
   const taskRows = await db
     .select()
     .from(tasks)
@@ -91,7 +121,7 @@ export async function runModelStep(executionId: string, userId: string) {
     .join("\n");
 
   const messages: ModelMessage[] = [
-    { role: "system", content: SYSTEM },
+    { role: "system", content: buildSystemPrompt(agent) },
     { role: "user", content: userPrompt },
   ];
 
