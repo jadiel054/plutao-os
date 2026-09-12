@@ -250,7 +250,15 @@ export default function CockpitPage() {
     <div className="min-h-dvh flex flex-col">
       <header className="border-b border-[var(--border)] bg-[var(--surface)]/80 sticky top-0 z-10">
         <div className="mx-auto max-w-3xl px-4 h-14 flex items-center justify-between">
-          <span className="font-semibold tracking-tight">Cockpit</span>
+          <div className="flex items-center gap-3">
+            <span className="font-semibold tracking-tight">Cockpit</span>
+            <Link
+              href="/chat"
+              className="px-2.5 py-1 rounded bg-[var(--selo)] text-[var(--base)] text-xs font-medium hover:bg-[var(--nucleo)] transition-colors"
+            >
+              💬 Chat
+            </Link>
+          </div>
           <div className="flex items-center gap-3 text-xs">
             <span className="text-[var(--text-muted)] font-mono">{userEmail}</span>
             <button

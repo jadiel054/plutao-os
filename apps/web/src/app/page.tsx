@@ -14,7 +14,10 @@ export default async function Home() {
           </div>
           <div className="flex items-center gap-3 text-xs">
             {user ? (
-              <Link href="/cockpit" className="rounded-lg bg-[var(--selo)] text-[var(--base)] px-3 py-1.5 font-medium hover:bg-[var(--nucleo)]">Cockpit</Link>
+              <>
+                <Link href="/chat" className="rounded-lg bg-[var(--selo)] text-[var(--base)] px-3 py-1.5 font-medium hover:bg-[var(--nucleo)]">Abrir Chat</Link>
+                <Link href="/cockpit" className="rounded-lg border border-[var(--border)] px-3 py-1.5 font-medium hover:border-[var(--selo)] text-[var(--text-secondary)]">Cockpit</Link>
+              </>
             ) : (
               <>
                 <Link href="/login" className="text-[var(--nucleo)] hover:underline">Entrar</Link>
@@ -39,7 +42,10 @@ export default async function Home() {
           </p>
           <div className="pt-2 flex flex-col sm:flex-row gap-3 justify-center">
             {user ? (
-              <Link href="/cockpit" className="rounded-lg bg-[var(--selo)] text-[var(--base)] font-medium px-5 py-2.5 text-sm hover:bg-[var(--nucleo)]">Abrir cockpit</Link>
+              <>
+                <Link href="/chat" className="rounded-lg bg-[var(--selo)] text-[var(--base)] font-medium px-5 py-2.5 text-sm hover:bg-[var(--nucleo)]">Abrir Chat</Link>
+                <Link href="/cockpit" className="rounded-lg border border-[var(--border)] font-medium px-5 py-2.5 text-sm hover:border-[var(--selo)] text-[var(--text-secondary)]">Abrir Cockpit</Link>
+              </>
             ) : (
               <>
                 <Link href="/register" className="rounded-lg bg-[var(--selo)] text-[var(--base)] font-medium px-5 py-2.5 text-sm hover:bg-[var(--nucleo)]">Começar</Link>
