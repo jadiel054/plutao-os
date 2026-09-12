@@ -63,7 +63,11 @@ function asCp(raw: unknown): CheckpointShape {
   return {};
 }
 
-export async function runModelStep(executionId: string, userId: string) {
+export async function runModelStep(
+  executionId: string,
+  userId: string,
+  additionalMessages: ModelMessage[] = []
+) {
   const config = getModelConfig();
   if (!config) {
     return { error: "MODEL_NOT_CONFIGURED" as const };
@@ -127,6 +131,7 @@ export async function runModelStep(executionId: string, userId: string) {
   const messages: ModelMessage[] = [
     { role: "system", content: buildSystemPrompt(agent) },
     { role: "user", content: userPrompt },
+    ...additionalMessages,
   ];
 
   let modelResult;

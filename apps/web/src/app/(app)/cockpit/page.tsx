@@ -344,6 +344,9 @@ export default function CockpitPage() {
                           <button type="button" disabled={busy || !modelConfigured} className="text-[10px] font-mono border border-[var(--selo)] text-[var(--nucleo)] px-2 py-1 rounded disabled:opacity-50" onClick={() => void postExec("/model-step")}>
                             model step
                           </button>
+                          <button type="button" disabled={busy || !modelConfigured} className="text-[10px] font-mono bg-[var(--nucleo)] text-[var(--base)] px-2 py-1 rounded disabled:opacity-50" onClick={() => void postExec("/run")}>
+                            run loop
+                          </button>
                           <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded" onClick={() => void runtimePatch("pause")}>
                             pause
                           </button>
