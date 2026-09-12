@@ -33,6 +33,7 @@ export const metadata: Metadata = {
     icon: [{ url: "/icon_192.png", sizes: "192x192", type: "image/png" }],
     apple: [{ url: "/icon_192.png", sizes: "192x192", type: "image/png" }],
   },
+  other: { "google": "notranslate" },
 };
 
 export const viewport: Viewport = {
@@ -50,9 +51,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" className="dark">
+    <html lang="pt-BR" className="dark notranslate" translate="no">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[var(--bg)] text-[var(--text-primary)]`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[var(--bg)] text-[var(--text-primary)] notranslate`}
       >
         <ServiceWorkerRegister />
         {children}
