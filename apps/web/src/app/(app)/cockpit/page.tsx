@@ -48,37 +48,49 @@ export default function CockpitPage() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const me = await fetch("/api/auth/me");
-    if (!me.ok) {
-      router.replace("/login");
-      return;
-    }
-    const meData = await me.json();
-    setUserEmail(meData.user?.email ?? "");
-    const res = await fetch("/api/missions");
-    if (res.ok) {
+    setError(null);
+    try {
+      const me = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!me.ok) {
+        router.replace("/login");
+        return;
+      }
+      const meData = await me.json();
+      setUserEmail(meData.user?.email ?? "");
+      const res = await fetch("/api/missions", { cache: "no-store" });
+      if (!res.ok) {
+        setError("Falha ao carregar missões");
+        return;
+      }
       const data = await res.json();
       setMissions(data.missions ?? []);
+    } catch {
+      setError("Erro de rede ao carregar cockpit");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [router]);
 
   useEffect(() => {
     void load();
     void (async () => {
-      const s = await fetch("/api/model/status");
-      if (s.ok) {
-        const d = await s.json();
-        setModelConfigured(!!d.configured);
-        if (d.configured) setModelInfo(`${d.provider}/${d.model}`);
-      }
-      const a = await fetch("/api/agent");
-      if (a.ok) {
-        const d = await a.json();
-        if (d.agent) {
-          setAgentName(d.agent.name || "Plutão");
-          setAgentIdentity(d.agent.identity || "");
+      try {
+        const s = await fetch("/api/model/status", { cache: "no-store" });
+        if (s.ok) {
+          const d = await s.json();
+          setModelConfigured(!!d.configured);
+          if (d.configured) setModelInfo(`${d.provider}/${d.model}`);
         }
+        const a = await fetch("/api/agent", { cache: "no-store" });
+        if (a.ok) {
+          const d = await a.json();
+          if (d.agent) {
+            setAgentName(d.agent.name || "Plutão");
+            setAgentIdentity(d.agent.identity || "");
+          }
+        }
+      } catch {
+        /* ignore */
       }
     })();
   }, [load]);
@@ -93,9 +105,9 @@ export default function CockpitPage() {
     }
     setOpenId(id);
     const [tRes, rRes, eRes] = await Promise.all([
-      fetch(`/api/missions/${id}/tasks`),
-      fetch(`/api/missions/${id}/executions`),
-      fetch(`/api/missions/${id}/evidence`),
+      fetch(`/api/missions/${id}/tasks`, { cache: "no-store" }),
+      fetch(`/api/missions/${id}/executions`, { cache: "no-store" }),
+      fetch(`/api/missions/${id}/evidence`, { cache: "no-store" }),
     ]);
     if (tRes.ok) {
       const d = await tRes.json();
@@ -139,10 +151,6 @@ export default function CockpitPage() {
     } finally {
       setBusy(false);
     }
-  }
-
-  async function refreshOpen() {
-    if (openId) await openMission(openId);
   }
 
   async function startRuntime() {
@@ -199,12 +207,12 @@ export default function CockpitPage() {
       }
       if (d.execution) setExecution(d.execution);
       if (openId) {
-        const eRes = await fetch(`/api/missions/${openId}/evidence`);
+        const eRes = await fetch(`/api/missions/${openId}/evidence`, { cache: "no-store" });
         if (eRes.ok) {
           const ed = await eRes.json();
           setMissionEvidence(ed.evidence ?? []);
         }
-        const tRes = await fetch(`/api/missions/${openId}/tasks`);
+        const tRes = await fetch(`/api/missions/${openId}/tasks`, { cache: "no-store" });
         if (tRes.ok) {
           const td = await tRes.json();
           setTasks((td.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
@@ -223,7 +231,7 @@ export default function CockpitPage() {
       body: JSON.stringify({ title: taskTitle.trim() }),
     });
     setTaskTitle("");
-    const tRes = await fetch(`/api/missions/${openId}/tasks`);
+    const tRes = await fetch(`/api/missions/${openId}/tasks`, { cache: "no-store" });
     if (tRes.ok) {
       const td = await tRes.json();
       setTasks((td.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
