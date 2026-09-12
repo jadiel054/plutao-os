@@ -81,6 +81,9 @@ export default function CockpitPage() {
   const [evDraft, setEvDraft] = useState<Record<string, string>>({});
   const [execution, setExecution] = useState<ExecutionRow | null>(null);
   const [cpNote, setCpNote] = useState("");
+  const [modelConfigured, setModelConfigured] = useState<boolean | null>(null);
+  const [modelInfo, setModelInfo] = useState<string>("");
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -103,8 +106,28 @@ export default function CockpitPage() {
     setLoading(false);
   }, [router]);
 
+  async function loadModelStatus() {
+    try {
+      const res = await fetch("/api/model/status");
+      if (!res.ok) {
+        setModelConfigured(false);
+        return;
+      }
+      const data = await res.json();
+      setModelConfigured(!!data.configured);
+      if (data.configured) {
+        setModelInfo(`${data.provider}/${data.model}`);
+      } else {
+        setModelInfo("");
+      }
+    } catch {
+      setModelConfigured(false);
+    }
+  }
+
   useEffect(() => {
     void load();
+    void loadModelStatus();
   }, [load]);
 
   async function loadTasks(missionId: string) {
@@ -291,6 +314,76 @@ export default function CockpitPage() {
     }
   }
 
+  async function onStubStep() {
+    if (!execution) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/executions/${execution.id}/step`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? data.hint ?? "Stub step falhou");
+        return;
+      }
+      setExecution(data.execution ?? null);
+      if (openId) {
+        await loadTasks(openId);
+        await loadRuntime(openId);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onModelStep() {
+    if (!execution) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/executions/${execution.id}/model-step`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(
+          data.error === "MODEL_NOT_CONFIGURED"
+            ? "Configure MODEL_API_KEY no Vercel e faça redeploy"
+            : data.detail ?? data.error ?? "Model step falhou"
+        );
+        return;
+      }
+      setExecution(data.execution ?? null);
+      if (openId) {
+        await loadTasks(openId);
+        await loadRuntime(openId);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onToolNote() {
+    if (!execution) return;
+    const input = (cpNote || "nota do cockpit").trim();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/executions/${execution.id}/tools`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "note", input }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Tool note falhou");
+        return;
+      }
+      setExecution(data.execution ?? null);
+      setCpNote("");
+      if (openId) await loadRuntime(openId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
@@ -323,7 +416,7 @@ export default function CockpitPage() {
         <section className="space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight">Missões · Runtime</h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            Phase 3 — execução durável (checkpoint / pause / resume). Sem Agent Loop ainda.
+            Runtime · stub · tools · model — abra uma missão e inicie uma execução.
           </p>
         </section>
 
@@ -372,7 +465,6 @@ export default function CockpitPage() {
 
                     {open && (
                       <div className="border-t border-[var(--border)] pt-3 space-y-4">
-                        {/* Runtime */}
                         <div className="rounded-md border border-[var(--border)] bg-[var(--base)] p-3 space-y-2">
                           <div className="text-[10px] font-mono text-[var(--text-muted)]">DURABLE RUNTIME</div>
                           {execution ? (
@@ -387,18 +479,27 @@ export default function CockpitPage() {
                               {execution.checkpoint && Object.keys(execution.checkpoint).length > 0 && (
                                 <pre className="text-[10px] text-[var(--text-secondary)] overflow-x-auto">{JSON.stringify(execution.checkpoint)}</pre>
                               )}
+                              <div className="text-[10px] font-mono text-[var(--text-muted)]">
+                                model: {modelConfigured === null ? "…" : modelConfigured ? modelInfo : "não configurado (MODEL_API_KEY)"}
+                              </div>
                               <div className="flex flex-wrap gap-2">
-                                <input value={cpNote} onChange={(e) => setCpNote(e.target.value)} placeholder="nota checkpoint"
-                                  className="flex-1 min-w-[8rem] rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" />
-                                <button type="button" className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded"
+                                <input value={cpNote} onChange={(e) => setCpNote(e.target.value)} placeholder="nota / checkpoint"
+                                  className="flex-1 min-w-[8rem] rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs" disabled={busy} />
+                                <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded disabled:opacity-50"
                                   onClick={() => void onRuntimeAction("checkpoint", { step: "manual", note: cpNote, taskId: tasks[0]?.id })}>checkpoint</button>
-                                <button type="button" className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded"
+                                <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded disabled:opacity-50"
+                                  onClick={() => void onToolNote()}>tool note</button>
+                                <button type="button" disabled={busy} className="text-[10px] font-mono bg-[var(--selo)] text-[var(--base)] px-2 py-1 rounded disabled:opacity-50"
+                                  onClick={() => void onStubStep()}>stub step</button>
+                                <button type="button" disabled={busy || modelConfigured === false} className="text-[10px] font-mono border border-[var(--selo)] text-[var(--nucleo)] px-2 py-1 rounded disabled:opacity-50"
+                                  onClick={() => void onModelStep()}>model step</button>
+                                <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded disabled:opacity-50"
                                   onClick={() => void onRuntimeAction("pause")}>pause</button>
-                                <button type="button" className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded"
+                                <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded disabled:opacity-50"
                                   onClick={() => void onRuntimeAction("interrupt")}>interrupt</button>
-                                <button type="button" className="text-[10px] font-mono border border-[var(--selo)] text-[var(--nucleo)] px-2 py-1 rounded"
+                                <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--selo)] text-[var(--nucleo)] px-2 py-1 rounded disabled:opacity-50"
                                   onClick={() => void onRuntimeAction("resume")}>resume</button>
-                                <button type="button" className="text-[10px] font-mono text-[var(--danger)] px-2"
+                                <button type="button" disabled={busy} className="text-[10px] font-mono text-[var(--danger)] px-2 disabled:opacity-50"
                                   onClick={() => void onRuntimeAction("complete")}>complete</button>
                               </div>
                             </>
