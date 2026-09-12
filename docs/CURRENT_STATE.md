@@ -1,10 +1,10 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-12
+**Última atualização:** 2026-09-12 → 2026-09-14
 
 ## Fase
 
-Runtime completo (Phases 1–3 + loop + tools + model provider) **VERIFIED** / model real **PENDING key**.  
+Runtime completo (Phases 1–3 + loop + tools + model provider) **VERIFIED** / model real (Groq) **VERIFIED** em produção.  
 **Agent profile + mission evidence** → **VERIFIED** (prod).
 
 ## Matriz
@@ -13,11 +13,48 @@ Runtime completo (Phases 1–3 + loop + tools + model provider) **VERIFIED** / m
 |------|--------|
 | Durable Runtime / Loop / Tools / Cockpit | VERIFIED |
 | Model provider code | IMPLEMENTED |
-| LLM real | PENDING `MODEL_API_KEY` |
+| LLM real | **VERIFIED** (Groq openai/gpt-oss-120b via OpenAI-compatible endpoint) |
 | `GET/PUT /api/agent` | **VERIFIED** |
 | `GET /api/missions/:id/evidence` | **VERIFIED** |
-| Agent no system prompt do model-step | IMPLEMENTED |
-| **Filesystem Tool V1** | **IMPLEMENTED** |
+| Agent no system prompt do model-step | **VERIFIED** |
+| **Filesystem Tool V1** | **VERIFIED** |
+
+## Agent Loop V1 — Model→Tool→Result (VERIFIED)
+
+### Status: VERIFIED em produção (missão 163d1a28-7346-413e-af7b-14f838e6cdd4, commit 9d4e630)
+
+### Provider Real
+- **Provider:** Groq via endpoint OpenAI-compatible
+- **MODEL_BASE_URL:** `https://api.groq.com/openai/v1`
+- **MODEL_NAME:** `openai/gpt-oss-120b`
+- **MODEL_PROVIDER:** `openai` (compatível com Groq)
+
+### Trace Comprovado
+```
+model_step (Groq) 
+  ↓
+tool proposal: {"tool":"filesystem","input":"{\"action\":\"write\",\"payload\":{\"path\":\"notes/teste-groq.txt\",\"content\":\"groq ok\"}}"}
+  ↓
+Tool Dispatcher (dispatchTool)
+  ↓
+Filesystem Tool (runFilesystem)
+  ↓
+Storage (InMemoryStorage)
+  ↓
+Tool Result: {"path":"notes/teste-groq.txt","size":7}
+  ↓
+Evidence: tool_result → tool:filesystem → {"path":"notes/teste-groq.txt","size":7}
+  ↓
+Checkpoint: step:"tool:filesystem", after:{"ok":true,"outputLen":40}
+```
+
+### Limitações Atuais do Loop
+- **Reinjeção automática do resultado no modelo: NOT IMPLEMENTED**
+- **Loop com terminação automática: NOT IMPLEMENTED**
+- Cada `model-step` é uma chamada **manual/isolada** que requer trigger externo
+- O fluxo completo (Model → Tool → Result → Model) **NÃO é automático**
+
+---
 
 ## Filesystem Tool V1
 
@@ -113,4 +150,8 @@ npm test
 
 ## Próximo marco recomendado
 
-Teste controlado com key: mission → execution → model step → tool (note + filesystem) → evidence → checkpoint.
+Teste controlado com key **JÁ FOI REALIZADO** e passou com Groq em produção.
+
+Próximas opções:
+- (a) Testar mais variações do filesystem (read/list) manualmente antes de automatizar, ou
+- (b) Implementar o **Agent Loop Controller** que fecha o ciclo automático (Model → Tool → Result → Model).
