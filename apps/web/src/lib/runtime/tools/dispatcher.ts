@@ -6,16 +6,19 @@ import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { getOwnedExecution } from "@/lib/runtime/service";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { runNote } from "./note";
+import { runFilesystem } from "./filesystem";
 import { isToolName, type ToolName, type ToolResult } from "./types";
 
 function inputHash(name: string, input: string): string {
   return createHash("sha256").update(`${name}\0${input}`).digest("hex").slice(0, 16);
 }
 
-function dispatchLocal(name: ToolName, input: string): ToolResult {
+async function dispatchLocal(name: ToolName, input: string, executionId?: string): Promise<ToolResult> {
   switch (name) {
     case "note":
       return runNote(input);
+    case "filesystem":
+      return await runFilesystem(input, executionId);
     default: {
       const _exhaustive: never = name;
       return {
@@ -59,7 +62,7 @@ export async function dispatchTool(opts: {
   taskId?: string | null;
 }) {
   if (!isToolName(opts.name)) {
-    return { error: "UNKNOWN_TOOL" as const, known: ["note"] as const };
+    return { error: "UNKNOWN_TOOL" as const, known: ["note", "filesystem"] as const };
   }
 
   const execution = await getOwnedExecution(opts.executionId, opts.userId);
@@ -88,7 +91,7 @@ export async function dispatchTool(opts: {
     };
   }
 
-  const result = dispatchLocal(opts.name, String(opts.input ?? ""));
+  const result = await dispatchLocal(opts.name, String(opts.input ?? ""), opts.executionId);
   const now = new Date();
   const evidenceId = randomUUID();
   const taskId = opts.taskId ?? execution.currentTaskId ?? null;
