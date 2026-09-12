@@ -1,19 +1,25 @@
 /**
  * Plutão Service Worker — transparent update strategy
  *
- * Goals:
- * - Cache app shell for offline/fast load
- * - On new Vercel deployment, activate new SW without requiring PWA reinstall
- * - Use skipWaiting + clients.claim so updates apply on next navigation/open
- *
- * Status: FOUNDATION (Phase 1)
- * Full caching strategy will evolve with the cockpit.
+ * - Network-first for navigations
+ * - NEVER cache /api/* (stale JSON breaks cockpit: empty missions, etc.)
+ * - Cache static shell assets only
+ * - skipWaiting + clients.claim for fast deploys
  */
 
-const CACHE_VERSION = "plutao-v0.1.0";
+const CACHE_VERSION = "plutao-v0.2.0";
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 
 const SHELL_ASSETS = ["/", "/manifest.webmanifest"];
+
+function isApiRequest(url) {
+  try {
+    const u = new URL(url);
+    return u.pathname.startsWith("/api/");
+  } catch {
+    return false;
+  }
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -43,6 +49,20 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
+  // API must always hit the network — never serve stale JSON.
+  if (isApiRequest(request.url)) {
+    event.respondWith(
+      fetch(request).catch(
+        () =>
+          new Response(JSON.stringify({ error: "OFFLINE" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          })
+      )
+    );
+    return;
+  }
+
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
@@ -56,11 +76,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Static assets: cache-first, then network
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
-        if (response.ok && request.url.startsWith(self.location.origin)) {
+        if (
+          response.ok &&
+          request.url.startsWith(self.location.origin) &&
+          !isApiRequest(request.url)
+        ) {
           const copy = response.clone();
           caches.open(SHELL_CACHE).then((cache) => cache.put(request, copy));
         }
