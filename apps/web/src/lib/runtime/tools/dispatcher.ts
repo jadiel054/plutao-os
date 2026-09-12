@@ -13,12 +13,12 @@ function inputHash(name: string, input: string): string {
   return createHash("sha256").update(`${name}\0${input}`).digest("hex").slice(0, 16);
 }
 
-async function dispatchLocal(name: ToolName, input: string): Promise<ToolResult> {
+async function dispatchLocal(name: ToolName, input: string, executionId?: string): Promise<ToolResult> {
   switch (name) {
     case "note":
       return runNote(input);
     case "filesystem":
-      return await runFilesystem(input);
+      return await runFilesystem(input, executionId);
     default: {
       const _exhaustive: never = name;
       return {
@@ -91,7 +91,7 @@ export async function dispatchTool(opts: {
     };
   }
 
-  const result = await dispatchLocal(opts.name, String(opts.input ?? ""));
+  const result = await dispatchLocal(opts.name, String(opts.input ?? ""), opts.executionId);
   const now = new Date();
   const evidenceId = randomUUID();
   const taskId = opts.taskId ?? execution.currentTaskId ?? null;

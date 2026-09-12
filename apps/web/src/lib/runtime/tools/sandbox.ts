@@ -2,6 +2,7 @@ import { resolve, normalize, isAbsolute, sep } from "node:path";
 import { stat, lstat, realpath } from "node:fs/promises";
 
 // Configuração da sandbox - raiz segura para operações de filesystem
+// Suporta sandbox per-user/per-mission via variáveis de ambiente
 const SANDBOX_ROOT = process.env.FILESYSTEM_SANDBOX_ROOT ?? 
   resolve(process.cwd(), "apps", "web", "sandbox");
 
@@ -37,62 +38,53 @@ export class SandboxSecurityError extends Error {
 export type SandboxError = SandboxSecurityError;
 
 /**
- * Resolve um caminho dentro da sandbox de forma segura.
- * Garante que o caminho final esteja dentro da raiz da sandbox.
- * 
- * @param inputPath - Caminho de entrada fornecido pelo usuário/modelo
- * @returns Caminho absoluto resolvido dentro da sandbox
- * @throws SandboxSecurityError se o caminho escapar da sandbox
+ * Obtém a raiz da sandbox
  */
-export async function resolveSandboxPath(inputPath: string): Promise<string> {
-  if (!inputPath || typeof inputPath !== "string") {
-    throw new SandboxSecurityError("INVALID_INPUT", "Caminho inválido ou vazio");
-  }
+export function getSandboxRoot(): string {
+  return SANDBOX_ROOT;
+}
 
-  // Normaliza o caminho (resolve .., ., etc)
-  const normalizedPath = normalize(inputPath);
+/**
+ * Verifica se um caminho está dentro da sandbox (sem resolver symlinks)
+ */
+export function isInsideSandbox(path: string): boolean {
+  const normalized = normalize(path);
+  const sandboxRoot = normalize(SANDBOX_ROOT);
+  return normalized.startsWith(sandboxRoot + sep) || normalized === sandboxRoot;
+}
 
-  // Rejeita caminhos absolutos diretos
-  if (isAbsolute(normalizedPath)) {
-    throw new SandboxSecurityError("PATH_OUTSIDE_SANDBOX", "Caminhos absolutos não são permitidos");
-  }
-
-  // Rejeita tentativas óbvias de traversal
-  if (normalizedPath.includes(`..${sep}`) || normalizedPath.startsWith(`..${sep}`)) {
-    throw new SandboxSecurityError("PATH_TRAVERSAL", "Tentativa de path traversal detectada");
-  }
-
-  // Resolve o caminho relativo à raiz da sandbox
-  let resolvedPath = resolve(SANDBOX_ROOT, normalizedPath);
-
-  // Normaliza novamente para garantir consistência
-  resolvedPath = normalize(resolvedPath);
-
-  // Verifica se o caminho resolvido está dentro da sandbox
-  // Usa realpath para resolver symlinks e verificar o caminho real
+/**
+ * Verifica se um caminho é um symlink
+ */
+export async function isSymlink(path: string): Promise<boolean> {
   try {
-    const realResolvedPath = await realpath(resolvedPath);
-    const realSandboxRoot = await realpath(SANDBOX_ROOT);
-    
-    // Verifica se o caminho real começa com a raiz real da sandbox
-    if (!realResolvedPath.startsWith(realSandboxRoot + sep) && 
-        realResolvedPath !== realSandboxRoot) {
-      throw new SandboxSecurityError("PATH_OUTSIDE_SANDBOX", "Caminho resolve fora da sandbox");
-    }
-    
-    return realResolvedPath;
+    const stats = await lstat(path);
+    return stats.isSymbolicLink();
   } catch {
-    // Se não conseguir resolver (arquivo não existe, etc), verifica o caminho lógico
-    const realSandboxRoot = await realpath(SANDBOX_ROOT);
-    
-    // Verifica se o caminho resolvido começa com a raiz da sandbox
-    if (!resolvedPath.startsWith(realSandboxRoot + sep) && 
-        resolvedPath !== realSandboxRoot) {
-      throw new SandboxSecurityError("PATH_OUTSIDE_SANDBOX", "Caminho resolve fora da sandbox");
-    }
-    
-    return resolvedPath;
+    return false;
   }
+}
+
+/**
+ * Valida recursivamente que um caminho não contém symlinks que escapam da sandbox
+ * @param path - Caminho a ser validado
+ * @returns O caminho real se for seguro
+ * @throws SandboxSecurityError se algum symlink escapar
+ */
+async function validateNoSymlinkEscape(path: string): Promise<string> {
+  const realSandboxRoot = await realpath(SANDBOX_ROOT);
+  const realPath = await realpath(path);
+  
+  // Verifica se o caminho real está dentro da sandbox
+  if (!realPath.startsWith(realSandboxRoot + sep) && 
+      realPath !== realSandboxRoot) {
+    throw new SandboxSecurityError(
+      "SYMLINK_ESCAPE",
+      `Caminho resolve para fora da sandbox via symlink: ${path} -> ${realPath}`
+    );
+  }
+  
+  return realPath;
 }
 
 /**
@@ -132,29 +124,120 @@ export async function exists(path: string): Promise<boolean> {
 }
 
 /**
- * Verifica se um caminho é um symlink
+ * Resolve um caminho dentro da sandbox de forma segura.
+ * Garante que o caminho final esteja dentro da raiz da sandbox.
+ * 
+ * @param inputPath - Caminho de entrada fornecido pelo usuário/modelo
+ * @returns Caminho absoluto resolvido dentro da sandbox
+ * @throws SandboxSecurityError se o caminho escapar da sandbox
  */
-export async function isSymlink(path: string): Promise<boolean> {
+export async function resolveSandboxPath(inputPath: string): Promise<string> {
+  if (!inputPath || typeof inputPath !== "string") {
+    throw new SandboxSecurityError("INVALID_INPUT", "Caminho inválido ou vazio");
+  }
+
+  // Normaliza o caminho (resolve .., ., etc)
+  const normalizedPath = normalize(inputPath);
+
+  // Rejeita caminhos absolutos diretos
+  if (isAbsolute(normalizedPath)) {
+    throw new SandboxSecurityError("PATH_OUTSIDE_SANDBOX", "Caminhos absolutos não são permitidos");
+  }
+
+  // Rejeita tentativas óbvias de traversal
+  if (normalizedPath.includes(`..${sep}`) || normalizedPath.startsWith(`..${sep}`)) {
+    throw new SandboxSecurityError("PATH_TRAVERSAL", "Tentativa de path traversal detectada");
+  }
+
+  // Resolve o caminho relativo à raiz da sandbox
+  let resolvedPath = resolve(SANDBOX_ROOT, normalizedPath);
+
+  // Normaliza novamente para garantir consistência
+  resolvedPath = normalize(resolvedPath);
+
+  // Verifica se o caminho resolvido está dentro da sandbox
+  const realSandboxRoot = await realpath(SANDBOX_ROOT);
+  
+  // Verifica se o caminho lógico já está fora da sandbox
+  if (!resolvedPath.startsWith(realSandboxRoot + sep) && 
+      resolvedPath !== realSandboxRoot) {
+    throw new SandboxSecurityError("PATH_OUTSIDE_SANDBOX", "Caminho resolve fora da sandbox");
+  }
+
+  // Usa realpath para resolver symlinks e verificar o caminho real
   try {
-    const stats = await lstat(path);
-    return stats.isSymbolicLink();
+    const realResolvedPath = await realpath(resolvedPath);
+    
+    // Verifica se o caminho real começa com a raiz real da sandbox
+    if (!realResolvedPath.startsWith(realSandboxRoot + sep) && 
+        realResolvedPath !== realSandboxRoot) {
+      throw new SandboxSecurityError("SYMLINK_ESCAPE", "Caminho resolve para fora da sandbox via symlink");
+    }
+    
+    // Verificação adicional: se o caminho for um symlink, valida o destino
+    if (await isSymlink(resolvedPath)) {
+      await validateNoSymlinkEscape(resolvedPath);
+    }
+    
+    return realResolvedPath;
   } catch {
-    return false;
+    // Se não conseguir resolver (arquivo não existe, etc), verifica o caminho lógico
+    // Mas ainda precisa validar que está dentro da sandbox
+    if (!resolvedPath.startsWith(realSandboxRoot + sep) && 
+        resolvedPath !== realSandboxRoot) {
+      throw new SandboxSecurityError("PATH_OUTSIDE_SANDBOX", "Caminho resolve fora da sandbox");
+    }
+    
+    return resolvedPath;
   }
 }
 
 /**
- * Obtém a raiz da sandbox
+ * Cria um caminho seguro para sandbox per-user/per-mission
+ * @param userId - ID do usuário
+ * @param missionId - ID da missão (opcional)
+ * @returns Raiz da sandbox para este usuário/missão
  */
-export function getSandboxRoot(): string {
-  return SANDBOX_ROOT;
+export function getUserSandboxRoot(userId: string, missionId?: string): string {
+  // Se SANDBOX_ROOT for configurado, usa como base
+  const baseRoot = SANDBOX_ROOT;
+  
+  // Cria path per-user
+  let userSandbox = resolve(baseRoot, userId);
+  
+  // Se missionId fornecido, adiciona ao path
+  if (missionId) {
+    userSandbox = resolve(userSandbox, missionId);
+  }
+  
+  return normalize(userSandbox);
 }
 
 /**
- * Verifica se um caminho está dentro da sandbox (sem resolver symlinks)
+ * Resolve um caminho dentro da sandbox do usuário de forma segura
+ * @param inputPath - Caminho de entrada
+ * @param userId - ID do usuário
+ * @param missionId - ID da missão (opcional)
+ * @returns Caminho absoluto resolvido dentro da sandbox do usuário
  */
-export function isInsideSandbox(path: string): boolean {
-  const normalized = normalize(path);
-  const sandboxRoot = normalize(SANDBOX_ROOT);
-  return normalized.startsWith(sandboxRoot + sep) || normalized === sandboxRoot;
+export async function resolveUserSandboxPath(
+  inputPath: string,
+  userId: string,
+  missionId?: string
+): Promise<string> {
+  // Define a raiz da sandbox do usuário
+  const userSandboxRoot = getUserSandboxRoot(userId, missionId);
+  
+  // Temporariamente substitui a raiz global
+  const originalRoot = process.env.FILESYSTEM_SANDBOX_ROOT;
+  process.env.FILESYSTEM_SANDBOX_ROOT = userSandboxRoot;
+  
+  try {
+    // Resolve o caminho usando a sandbox do usuário
+    const resolved = await resolveSandboxPath(inputPath);
+    return resolved;
+  } finally {
+    // Restaura a raiz original
+    process.env.FILESYSTEM_SANDBOX_ROOT = originalRoot;
+  }
 }

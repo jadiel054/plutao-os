@@ -34,11 +34,15 @@ You may either:
 1) Reply with short reasoning in plain text, OR
 2) Propose exactly one tool call as JSON only:
 {"tool":"note","input":"text to record"}
+or
+{"tool":"filesystem","input":"{\"action\":\"list\",\"payload\":{\"path\":\"dir\"}}"}
 
-Available tools: note
+Available tools: note, filesystem
 Rules:
 - Stay consistent with the agent identity above.
-- Prefer a tool call only when recording a concrete note helps the mission.
+- Prefer a tool call only when it helps the mission.
+- For filesystem: use valid JSON input with action (list/read/write/mkdir/stat) and payload.path
+- filesystem paths are relative to a secure sandbox
 - Never invent other tool names.
 - Keep replies concise.`;
 }
