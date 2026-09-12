@@ -10,9 +10,12 @@ import type { ModelMessage } from "@/lib/runtime/model/types";
 export const runtime = "nodejs";
 
 type ChatInputMessage = {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant";
   content: string;
 };
+
+const MAX_MESSAGE_LENGTH = 4000;
+const MAX_TOTAL_HISTORY_LENGTH = 16000;
 
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
@@ -29,13 +32,17 @@ export async function POST(req: NextRequest) {
         (m: unknown): m is Record<string, unknown> => typeof m === "object" && m !== null
       );
       history = rawList
-        .map(
-          (m: Record<string, unknown>): ChatInputMessage => ({
-            role: m.role === "assistant" || m.role === "system" ? (m.role as "assistant" | "system") : "user",
-            content: String(m.content ?? "").trim(),
-          })
-        )
-        .filter((m: ChatInputMessage) => m.content.length > 0);
+        .map((m: Record<string, unknown>): ChatInputMessage | null => {
+          // Aceita estritamente apenas 'user' ou 'assistant'. Descarta 'system' enviado pelo cliente.
+          if (m.role !== "user" && m.role !== "assistant") return null;
+          const content = String(m.content ?? "").trim();
+          if (!content) return null;
+          return {
+            role: m.role,
+            content,
+          };
+        })
+        .filter((m: ChatInputMessage | null): m is ChatInputMessage => m !== null);
     } else if (typeof body.message === "string" && body.message.trim().length > 0) {
       history = [{ role: "user", content: body.message.trim() }];
     }
@@ -43,6 +50,24 @@ export async function POST(req: NextRequest) {
     if (history.length === 0) {
       return NextResponse.json(
         { error: "Mensagem inválida ou vazia" },
+        { status: 400 }
+      );
+    }
+
+    // Validação de limites explícitos de entrada
+    for (const msg of history) {
+      if (msg.content.length > MAX_MESSAGE_LENGTH) {
+        return NextResponse.json(
+          { error: "Mensagem excede o limite permitido (máximo 4000 caracteres)" },
+          { status: 400 }
+        );
+      }
+    }
+
+    const totalHistoryLength = history.reduce((sum, m) => sum + m.content.length, 0);
+    if (totalHistoryLength > MAX_TOTAL_HISTORY_LENGTH) {
+      return NextResponse.json(
+        { error: "Histórico excede o limite total permitido" },
         { status: 400 }
       );
     }
@@ -90,6 +115,8 @@ Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom prof
       });
     }
 
+    // Apenas mensagens 'user' e 'assistant' do histórico entram no payload do modelo.
+    // O 'systemPrompt' permanece exclusivamente gerado pelo servidor.
     const payloadMessages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
       ...history.slice(-10).map((m) => ({
@@ -110,10 +137,12 @@ Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom prof
       model: result.model,
     });
   } catch (e) {
+    // Log interno detalhado no servidor
     console.error("[chat POST]", e);
-    const errorMsg = e instanceof Error ? e.message : "Falha ao processar mensagem";
+
+    // Resposta genérica e segura ao cliente, sem expor detalhes do provider/infraestrutura
     return NextResponse.json(
-      { error: errorMsg },
+      { error: "Não foi possível processar a mensagem no momento." },
       { status: 500 }
     );
   }
