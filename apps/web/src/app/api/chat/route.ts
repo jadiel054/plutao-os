@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { agents } from "@plutao/db";
+import { eq, inArray, and } from "drizzle-orm";
+import { agents, artifacts as artifactsTable } from "@plutao/db";
 import { getDb } from "@/lib/db";
+import { formatFileSize } from "@/lib/artifacts";
 import { getSessionUser } from "@/lib/auth/session";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
@@ -72,11 +73,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Processa referências a artifacts enviados
+    const db = getDb();
+    let rawArtifactIds: string[] = [];
+    if (Array.isArray(body.artifactIds)) {
+      rawArtifactIds = body.artifactIds.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0);
+    }
+
+    type AttachedArtifactMeta = {
+      id: string;
+      name: string;
+      type: string;
+      size: number;
+    };
+    let validatedArtifacts: AttachedArtifactMeta[] = [];
+
+    if (rawArtifactIds.length > 0) {
+      try {
+        const found = await db
+          .select({
+            id: artifactsTable.id,
+            name: artifactsTable.name,
+            type: artifactsTable.type,
+            size: artifactsTable.size,
+          })
+          .from(artifactsTable)
+          .where(
+            and(
+              eq(artifactsTable.userId, user.id),
+              inArray(artifactsTable.id, rawArtifactIds)
+            )
+          );
+        validatedArtifacts = found;
+      } catch {
+        /* ignore DB read error on artifacts */
+      }
+    }
+
     // Carrega identidade do Agente do usuário
     let agentName = "Plutão";
     let agentIdentity = "Assistente pessoal autônomo do usuário";
     try {
-      const db = getDb();
       const agentRows = await db
         .select({
           name: agents.name,
@@ -95,8 +132,19 @@ export async function POST(req: NextRequest) {
       /* fallback */
     }
 
+    let artifactContextPrompt = "";
+    if (validatedArtifacts.length > 0) {
+      const listStr = validatedArtifacts
+        .map((a) => `"${a.name}" (ID: ${a.id}, tamanho: ${formatFileSize(a.size)}, tipo: ${a.type})`)
+        .join(", ");
+      artifactContextPrompt = `\n\nContexto de Artifacts disponíveis nesta conversa: ${listStr}.
+Para ler o conteúdo integral de um artifact quando necessário para responder com precisão ao usuário, você pode propor a ferramenta:
+{"tool":"read_artifact","input":"<ID_DO_ARTIFACT>"}
+Caso não seja necessário ler o conteúdo completo para responder à pergunta do usuário, responda diretamente em texto plano.`;
+    }
+
     const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
-Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom profissional e amigável.`;
+Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom profissional e amigável.${artifactContextPrompt}`;
 
     const modelConfig = getModelConfig();
 
@@ -104,13 +152,15 @@ Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom prof
       // Fallback amigável quando a API Key do modelo ainda não está configurada
       const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
       const userText = lastUserMsg?.content || "";
-      const replyContent = `[${agentName}] Recebi sua mensagem: "${userText}". O ambiente atual não possui MODEL_API_KEY configurada. Configure a chave de API nas variáveis de ambiente para respostas inteligentes com LLM.`;
+      const artNotice = validatedArtifacts.length > 0 ? ` (com ${validatedArtifacts.length} arquivo(s) anexado(s))` : "";
+      const replyContent = `[${agentName}] Recebi sua mensagem: "${userText}"${artNotice}. O ambiente atual não possui MODEL_API_KEY configurada. Configure a chave de API nas variáveis de ambiente para respostas inteligentes com LLM.`;
 
       return NextResponse.json({
         message: {
           role: "assistant",
           content: replyContent,
         },
+        readArtifacts: [],
         modelConfigured: false,
       });
     }
@@ -125,13 +175,73 @@ Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom prof
       })),
     ];
 
-    const result = await chatCompletion(modelConfig, payloadMessages);
+    let result = await chatCompletion(modelConfig, payloadMessages);
+    const readArtifactIds: string[] = [];
+
+    // Verificação de Tool Proposal para leitura de artifact sob demanda (1 nível de resolução max)
+    if (result.toolProposal && (result.toolProposal.name === "read_artifact" || result.toolProposal.name === "read")) {
+      let rawInput = result.toolProposal.input.trim();
+      if (rawInput.startsWith("{") && rawInput.endsWith("}")) {
+        try {
+          const parsed = JSON.parse(rawInput);
+          rawInput = String(parsed.artifactId || parsed.id || parsed.input || rawInput).trim();
+        } catch {
+          /* ignore json parse */
+        }
+      }
+
+      // Valida se o ID solicitado foi previamente validado para este usuário e mensagem
+      const targetArtifact = validatedArtifacts.find((a) => a.id === rawInput);
+      if (targetArtifact) {
+        try {
+          const artRows = await db
+            .select({
+              id: artifactsTable.id,
+              name: artifactsTable.name,
+              content: artifactsTable.content,
+            })
+            .from(artifactsTable)
+            .where(
+              and(
+                eq(artifactsTable.id, targetArtifact.id),
+                eq(artifactsTable.userId, user.id)
+              )
+            )
+            .limit(1);
+
+          if (artRows[0]) {
+            readArtifactIds.push(artRows[0].id);
+
+            const followUpMessages: ModelMessage[] = [
+              ...payloadMessages,
+              {
+                role: "assistant",
+                content: JSON.stringify({
+                  tool: "read_artifact",
+                  input: artRows[0].id,
+                }),
+              },
+              {
+                role: "user",
+                content: `[Conteúdo retornado da ferramenta read_artifact para "${artRows[0].name}" (${artRows[0].id})]:\n${artRows[0].content}`,
+              },
+            ];
+
+            const secondResult = await chatCompletion(modelConfig, followUpMessages);
+            result = secondResult;
+          }
+        } catch (readErr) {
+          console.error("[read_artifact tool error]", readErr);
+        }
+      }
+    }
 
     return NextResponse.json({
       message: {
         role: "assistant",
         content: result.content,
       },
+      readArtifacts: readArtifactIds,
       modelConfigured: true,
       provider: result.provider,
       model: result.model,

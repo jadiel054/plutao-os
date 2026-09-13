@@ -11,6 +11,7 @@ import {
   timestamp,
   uuid,
   jsonb,
+  integer,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -173,4 +174,28 @@ export const auditEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("audit_events_user_id_idx").on(t.userId), index("audit_events_type_idx").on(t.type)]
+);
+
+export const artifacts = pgTable(
+  "artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    missionId: uuid("mission_id").references(() => missions.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    type: text("type").notNull().default("text/plain"),
+    size: integer("size").notNull(),
+    content: text("content").notNull(),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("artifacts_user_id_idx").on(t.userId),
+    index("artifacts_mission_id_idx").on(t.missionId),
+  ]
 );
