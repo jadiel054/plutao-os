@@ -119,7 +119,6 @@ export class VercelBlobStorage implements StorageBackend {
     // Upload para o Vercel Blob
     await put(key, blob, {
       access: "public",
-      addRandomSuffix: false,
     });
     
     return {
@@ -294,3 +293,4 @@ export class VercelBlobStorage implements StorageBackend {
 export function createVercelBlobStorage(): VercelBlobStorage {
   return new VercelBlobStorage();
 }
+
