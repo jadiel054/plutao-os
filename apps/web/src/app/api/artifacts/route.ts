@@ -4,7 +4,6 @@ import { artifacts } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
 import { detectArtifactType, suggestArtifactName } from "@/lib/artifacts";
-import { storageWrite } from "@/lib/runtime/tools/storage";
 
 export const runtime = "nodejs";
 
@@ -52,16 +51,6 @@ export async function POST(req: NextRequest) {
         metadata,
       })
       .returning();
-
-    // Sync to storage abstraction layer for runtime tool access
-    try {
-      await storageWrite(user.id, {
-        path: `artifacts/${inserted.id}/${name}`,
-        content,
-      });
-    } catch {
-      /* ignore non-blocking storage sync error */
-    }
 
     return NextResponse.json({
       artifact: {
