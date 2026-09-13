@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0",
+    "@vercel/blob": "^0.10.0",
     "drizzle-orm": "^0.39.0"
   },
   "devDependencies": {

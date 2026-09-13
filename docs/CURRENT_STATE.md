@@ -49,10 +49,12 @@ Checkpoint: step:"tool:filesystem", after:{"ok":true,"outputLen":40}
 ```
 
 ### Limitações Atuais do Loop
-- **Reinjeção automática do resultado no modelo: NOT IMPLEMENTED**
-- **Loop com terminação automática: NOT IMPLEMENTED**
-- Cada `model-step` é uma chamada **manual/isolada** que requer trigger externo
-- O fluxo completo (Model → Tool → Result → Model) **NÃO é automático**
+- **Reinjeção automática do resultado no modelo: IMPLEMENTED**
+- **Loop com terminação automática: IMPLEMENTED**
+- Agent Loop Controller implementado com reinjeção automática de tool results
+- Fluxo completo (Model → Tool → Result → Model) **é automático**
+- Limite de iterações configurável (5-15, default: 8)
+- Critério de parada: modelo não propõe tool (objetivo alcançado)
 
 ---
 
@@ -153,5 +155,6 @@ npm test
 Teste controlado com key **JÁ FOI REALIZADO** e passou com Groq em produção.
 
 Próximas opções:
-- (a) Testar mais variações do filesystem (read/list) manualmente antes de automatizar, ou
-- (b) Implementar o **Agent Loop Controller** que fecha o ciclo automático (Model → Tool → Result → Model).
+- (a) Testar mais variações do filesystem (read/list) manualmente
+- (b) Testar o **Agent Loop Controller** em produção com o Vercel Blob Storage
+- (c) Implementar persistência de estado do Agent Loop entre execuções

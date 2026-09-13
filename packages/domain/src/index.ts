@@ -148,3 +148,22 @@ export interface AuditEvent {
   payload: Record<string, unknown>;
   createdAt: Date;
 }
+
+// ============================================================
+// Agent Loop (Runtime)
+// ============================================================
+
+export {
+  AgentLoopState,
+  LoopIterationResult,
+  AgentLoopResult,
+  ModelProvider,
+  ToolDispatcher,
+  MIN_ITERATIONS,
+  MAX_ITERATIONS,
+  DEFAULT_ITERATIONS,
+  createInitialState,
+  runAgentLoop,
+  formatLoopState,
+  formatLoopResult,
+} from "./runtime/agentLoop";
