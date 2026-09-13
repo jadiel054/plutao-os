@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { agents } from "@plutao/db";
+import { eq, inArray, and } from "drizzle-orm";
+import { agents, artifacts as artifactsTable } from "@plutao/db";
 import { getDb } from "@/lib/db";
+import { formatFileSize } from "@/lib/artifacts";
 import { getSessionUser } from "@/lib/auth/session";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
@@ -72,11 +73,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Processa referências a artifacts enviados
+    const db = getDb();
+    let rawArtifactIds: string[] = [];
+    if (Array.isArray(body.artifactIds)) {
+      rawArtifactIds = body.artifactIds.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0);
+    }
+
+    type AttachedArtifactMeta = {
+      id: string;
+      name: string;
+      type: string;
+      size: number;
+    };
+    let validatedArtifacts: AttachedArtifactMeta[] = [];
+
+    if (rawArtifactIds.length > 0) {
+      try {
+        const found = await db
+          .select({
+            id: artifactsTable.id,
+            name: artifactsTable.name,
+            type: artifactsTable.type,
+            size: artifactsTable.size,
+          })
+          .from(artifactsTable)
+          .where(
+            and(
+              eq(artifactsTable.userId, user.id),
+              inArray(artifactsTable.id, rawArtifactIds)
+            )
+          );
+        validatedArtifacts = found;
+      } catch {
+        /* ignore DB read error on artifacts */
+      }
+    }
+
     // Carrega identidade do Agente do usuário
     let agentName = "Plutão";
     let agentIdentity = "Assistente pessoal autônomo do usuário";
     try {
-      const db = getDb();
       const agentRows = await db
         .select({
           name: agents.name,
@@ -95,8 +132,16 @@ export async function POST(req: NextRequest) {
       /* fallback */
     }
 
+    let artifactContextPrompt = "";
+    if (validatedArtifacts.length > 0) {
+      const listStr = validatedArtifacts
+        .map((a) => `"${a.name}" (ID: ${a.id}, tamanho: ${formatFileSize(a.size)}, tipo: ${a.type})`)
+        .join(", ");
+      artifactContextPrompt = `\n\nContexto de Artifacts: O usuário anexou os seguintes arquivos a esta mensagem: ${listStr}. O conteúdo integral do arquivo está salvo de forma persistente. Reconheça a existência do arquivo e responda com base na instrução do usuário.`;
+    }
+
     const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
-Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom profissional e amigável.`;
+Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom profissional e amigável.${artifactContextPrompt}`;
 
     const modelConfig = getModelConfig();
 

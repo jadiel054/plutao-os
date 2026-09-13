@@ -15,6 +15,7 @@ export type AgentId = string;
 export type ProjectId = string;
 export type MissionId = string;
 export type TaskId = string;
+export type ArtifactId = string;
 
 export interface User {
   id: UserId;
@@ -122,6 +123,31 @@ export interface Project {
   userId: UserId;
   name: string;
   description: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============================================================
+// Artifact (Context Layer persistence)
+// ============================================================
+
+export type ArtifactType =
+  | "text/plain"
+  | "text/markdown"
+  | "application/json"
+  | "text/csv"
+  | "text/x-log"
+  | string;
+
+export interface Artifact {
+  id: ArtifactId;
+  userId: UserId;
+  missionId: MissionId | null;
+  name: string;
+  type: ArtifactType;
+  size: number;
+  content: string;
+  metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }

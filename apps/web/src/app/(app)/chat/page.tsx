@@ -3,12 +3,23 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatFileSize } from "@/lib/artifacts";
+
+const LONG_INPUT_THRESHOLD = 1500;
+
+type AttachedArtifact = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+};
 
 type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  artifacts?: AttachedArtifact[];
 };
 
 export default function ChatPage() {
@@ -18,6 +29,8 @@ export default function ChatPage() {
   const [agentIdentity, setAgentIdentity] = useState("Assistente Pessoal Autônomo");
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+  const [pendingArtifacts, setPendingArtifacts] = useState<AttachedArtifact[]>([]);
+  const [convertingArtifact, setConvertingArtifact] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,22 +96,66 @@ export default function ChatPage() {
     }
   }, [messages, userEmail]);
 
+  async function handleConvertToArtifact() {
+    if (!inputMessage.trim() || convertingArtifact) return;
+
+    setConvertingArtifact(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/artifacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: inputMessage,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Falha ao converter texto em artifact");
+        return;
+      }
+
+      if (data.artifact) {
+        const newArt: AttachedArtifact = {
+          id: data.artifact.id,
+          name: data.artifact.name,
+          type: data.artifact.type,
+          size: data.artifact.size,
+        };
+        setPendingArtifacts((prev) => [...prev, newArt]);
+        setInputMessage("");
+      }
+    } catch {
+      setError("Erro ao se comunicar com servidor para criar artifact");
+    } finally {
+      setConvertingArtifact(false);
+    }
+  }
+
   async function handleSend(e?: FormEvent) {
     if (e) e.preventDefault();
     const text = inputMessage.trim();
-    if (!text || sending) return;
+    if ((!text && pendingArtifacts.length === 0) || sending) return;
 
     setError(null);
+    const activeArtifacts = [...pendingArtifacts];
+    const displayContent =
+      text || (activeArtifacts.length > 0 ? `[Arquivo anexado: ${activeArtifacts.map((a) => a.name).join(", ")}]` : "");
+
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: "user",
-      content: text,
+      content: displayContent,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      artifacts: activeArtifacts.length > 0 ? activeArtifacts : undefined,
     };
 
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInputMessage("");
+    setPendingArtifacts([]);
     setSending(true);
 
     try {
@@ -107,6 +164,7 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+          artifactIds: activeArtifacts.map((a) => a.id),
         }),
       });
 
@@ -150,6 +208,8 @@ export default function ChatPage() {
       </div>
     );
   }
+
+  const isLongInput = inputMessage.length >= LONG_INPUT_THRESHOLD;
 
   return (
     <div className="min-h-dvh flex flex-col bg-[var(--base)] text-[var(--text-primary)]">
@@ -253,6 +313,29 @@ export default function ChatPage() {
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{m.content}</div>
+
+                  {/* Visual Compact Artifact Chip inside message */}
+                  {m.artifacts && m.artifacts.length > 0 && (
+                    <div className="mt-2.5 pt-2 border-t border-[var(--base)]/20 flex flex-wrap gap-1.5">
+                      {m.artifacts.map((art) => (
+                        <div
+                          key={art.id}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono tracking-tight ${
+                            m.role === "user"
+                              ? "bg-[var(--base)]/20 text-[var(--base)]"
+                              : "bg-[var(--base)] border border-[var(--border)] text-[var(--text-primary)]"
+                          }`}
+                        >
+                          <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                          </svg>
+                          <span className="font-semibold truncate max-w-[160px]">{art.name}</span>
+                          <span className="opacity-75 text-[10px]">({formatFileSize(art.size)})</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div
                     className={`text-[9px] mt-1 text-right font-mono ${
                       m.role === "user" ? "text-[var(--base)]/70" : "text-[var(--text-muted)]"
@@ -294,19 +377,69 @@ export default function ChatPage() {
         )}
 
         {/* Input Bar */}
-        <form onSubmit={handleSend} className="pt-2 sticky bottom-0 bg-[var(--base)]">
+        <form onSubmit={handleSend} className="pt-2 sticky bottom-0 bg-[var(--base)] space-y-2">
+          {/* Smart Long-Input Detection Action Banner */}
+          {isLongInput && (
+            <div className="p-2.5 rounded-xl border border-[var(--selo)]/50 bg-[var(--surface)] flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-[var(--text-secondary)]">
+                <svg className="w-4 h-4 text-[var(--selo)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Texto longo detectado ({inputMessage.length.toLocaleString()} caracteres).</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleConvertToArtifact}
+                disabled={convertingArtifact}
+                className="px-3 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] text-xs font-medium hover:bg-[var(--nucleo)] transition-colors shrink-0 disabled:opacity-50"
+              >
+                {convertingArtifact ? "Convertendo…" : "Transformar em arquivo"}
+              </button>
+            </div>
+          )}
+
+          {/* Pending Attached Artifact Cards */}
+          {pendingArtifacts.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {pendingArtifacts.map((art) => (
+                <div
+                  key={art.id}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs text-[var(--text-primary)] shadow-sm"
+                >
+                  <svg className="w-3.5 h-3.5 text-[var(--selo)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  <span className="font-medium truncate max-w-[150px]">{art.name}</span>
+                  <span className="text-[10px] text-[var(--text-muted)] font-mono">{formatFileSize(art.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingArtifacts((prev) => prev.filter((a) => a.id !== art.id))}
+                    className="text-[var(--text-muted)] hover:text-[var(--danger)] transition-colors text-xs font-bold ml-1"
+                    title="Remover anexo"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 p-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--selo)] transition-all">
             <input
               type="text"
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
-              placeholder={`Enviar mensagem para ${agentName}…`}
-              disabled={sending}
+              placeholder={
+                pendingArtifacts.length > 0
+                  ? "Adicionar instrução curta sobre o arquivo anexado…"
+                  : `Enviar mensagem para ${agentName}…`
+              }
+              disabled={sending || convertingArtifact}
               className="flex-1 bg-transparent px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-50"
             />
             <button
               type="submit"
-              disabled={sending || !inputMessage.trim()}
+              disabled={sending || convertingArtifact || (!inputMessage.trim() && pendingArtifacts.length === 0)}
               className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-medium hover:bg-[var(--nucleo)] disabled:opacity-40 disabled:hover:bg-[var(--selo)] transition-colors shrink-0"
             >
               Enviar
