@@ -2,8 +2,8 @@ export * from "./schema";
 export { createDb, checkDatabaseConnection, type Db } from "./client";
 
 // Storage Abstraction
-export type { StorageBackend } from "./storage/vercelBlob";
-export { VercelBlobStorage, createVercelBlobStorage } from "./storage/vercelBlob";
+export type { StorageBackend } from "./storage/vercelBlob.ts";
+export { VercelBlobStorage, createVercelBlobStorage } from "./storage/vercelBlob.ts";
 
 // Storage Mode Types
 export type StorageMode = "memory" | "vercel-blob";
