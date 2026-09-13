@@ -167,3 +167,44 @@ export {
   formatLoopState,
   formatLoopResult,
 } from "./runtime/agentLoop";
+
+// ============================================================
+// Model Providers
+// ============================================================
+
+export {
+  LocalProvider,
+  LocalModelConfig,
+  LocalModelStatus,
+  DEFAULT_LOCAL_MODEL_ID,
+  FALLBACK_LOCAL_MODEL_ID,
+  DEFAULT_LOCAL_CONFIG,
+  createLocalProvider,
+  getLocalProvider,
+  resetLocalProvider,
+} from "./runtime/providers/localProvider";
+
+// ============================================================
+// Model Selector (Híbrido Online/Offline)
+// ============================================================
+
+export {
+  ModelMode,
+  ModelProviderSelection,
+  ModelSelectorConfig,
+  DEFAULT_MODEL_MODE,
+  DEFAULT_OFFLINE_MODEL_ID,
+  DEFAULT_ONLINE_MODEL_ID,
+  STORAGE_KEY,
+  DEFAULT_SELECTOR_CONFIG,
+  checkOnlineStatus,
+  checkWebGPUSupport,
+  getStoredMode,
+  saveMode,
+  clearStoredMode,
+  ModelSelector,
+  createModelSelector,
+  getModelSelector,
+  resetModelSelector,
+  getModelProvider,
+} from "./runtime/modelSelector";

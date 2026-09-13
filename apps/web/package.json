@@ -14,7 +14,8 @@
     "react-dom": "19.1.0",
     "@plutao/db": "*",
     "drizzle-orm": "^0.39.0",
-    "@plutao/domain": "*"
+    "@plutao/domain": "*",
+    "@huggingface/transformers": "^3.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
