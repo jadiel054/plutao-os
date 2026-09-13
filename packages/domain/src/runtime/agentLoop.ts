@@ -152,7 +152,7 @@ export function createInitialState(
  * Verifica se uma tool deve ser executada
  */
 function shouldExecuteTool(toolProposal: { name: string; input: string } | null | undefined): boolean {
-  return !!toolProposal && typeof toolProposal === "object" && toolProposal.name;
+  return !!toolProposal && typeof toolProposal === "object" && !!toolProposal.name;
 }
 
 /**
@@ -222,8 +222,8 @@ export async function runAgentLoop(
           toolCalled: null,
           toolInput: null,
           toolOutput: null,
-          toolError: modelResult.error,
-          evidenceId: modelResult.evidenceId,
+          toolError: modelResult.error || null,
+          evidenceId: modelResult.evidenceId || null,
           stopped: true,
           stopReason: `MODEL_ERROR: ${modelResult.error}`,
         };
@@ -297,7 +297,7 @@ export async function runAgentLoop(
           toolInput: toolInput,
           toolOutput: toolResult.output,
           toolError: null,
-          evidenceId: toolResult.evidenceId,
+          evidenceId: toolResult.evidenceId || null,
           stopped: true,
           stopReason: "IDEMPOTENT_TOOL_CALL",
         };
@@ -324,8 +324,8 @@ export async function runAgentLoop(
           toolCalled: toolName,
           toolInput: toolInput,
           toolOutput: toolResult.output,
-          toolError: toolResult.error,
-          evidenceId: toolResult.evidenceId,
+          toolError: toolResult.error || null,
+          evidenceId: toolResult.evidenceId || null,
           stopped: true,
           stopReason: `TOOL_ERROR: ${toolResult.error}`,
         };
