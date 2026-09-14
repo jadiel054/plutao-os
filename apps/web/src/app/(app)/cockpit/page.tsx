@@ -1,8 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Header } from "@/components/Header";
+import { MobileNav } from "@/components/MobileNav";
+import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
+import { ConfirmModal } from "@/components/ConfirmModal";
 
 type MissionRow = {
   id: string;
@@ -45,7 +48,31 @@ export default function CockpitPage() {
   const [modelInfo, setModelInfo] = useState("");
   const [agentName, setAgentName] = useState("Plutão");
   const [agentIdentity, setAgentIdentity] = useState("");
+
+  // Loading states for actions
   const [busy, setBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  // Modals & Toasts
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [confirmModalState, setConfirmModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
+
+  const addToast = (message: string, type: ToastType = "info", title?: string) => {
+    setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
+  };
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   const load = useCallback(async () => {
     setError(null);
@@ -60,12 +87,14 @@ export default function CockpitPage() {
       const res = await fetch("/api/missions", { cache: "no-store" });
       if (!res.ok) {
         setError("Falha ao carregar missões");
+        addToast("Falha ao carregar lista de missões", "error");
         return;
       }
       const data = await res.json();
       setMissions(data.missions ?? []);
     } catch {
       setError("Erro de rede ao carregar cockpit");
+      addToast("Erro de rede ao carregar o cockpit", "error");
     } finally {
       setLoading(false);
     }
@@ -104,70 +133,120 @@ export default function CockpitPage() {
       return;
     }
     setOpenId(id);
-    const [tRes, rRes, eRes] = await Promise.all([
-      fetch(`/api/missions/${id}/tasks`, { cache: "no-store" }),
-      fetch(`/api/missions/${id}/executions`, { cache: "no-store" }),
-      fetch(`/api/missions/${id}/evidence`, { cache: "no-store" }),
-    ]);
-    if (tRes.ok) {
-      const d = await tRes.json();
-      setTasks((d.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
-    }
-    if (rRes.ok) {
-      const d = await rRes.json();
-      setExecution(d.recoverable ?? null);
-    }
-    if (eRes.ok) {
-      const d = await eRes.json();
-      setMissionEvidence(d.evidence ?? []);
+    setActionBusy("load_mission");
+    try {
+      const [tRes, rRes, eRes] = await Promise.all([
+        fetch(`/api/missions/${id}/tasks`, { cache: "no-store" }),
+        fetch(`/api/missions/${id}/executions`, { cache: "no-store" }),
+        fetch(`/api/missions/${id}/evidence`, { cache: "no-store" }),
+      ]);
+      if (tRes.ok) {
+        const d = await tRes.json();
+        setTasks((d.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
+      }
+      if (rRes.ok) {
+        const d = await rRes.json();
+        setExecution(d.recoverable ?? null);
+      }
+      if (eRes.ok) {
+        const d = await eRes.json();
+        setMissionEvidence(d.evidence ?? []);
+      }
+    } finally {
+      setActionBusy(null);
     }
   }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
+    if (!objective.trim()) return;
     setError(null);
-    const res = await fetch("/api/missions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ objective }),
-    });
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      setError(d.error ?? "Falha");
-      return;
+    setActionBusy("create_mission");
+    try {
+      const res = await fetch("/api/missions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ objective }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        const errMsg = d.error ?? "Falha ao criar missão";
+        setError(errMsg);
+        addToast(errMsg, "error");
+        return;
+      }
+      setObjective("");
+      addToast("Missão criada com sucesso!", "success");
+      await load();
+    } finally {
+      setActionBusy(null);
     }
-    setObjective("");
-    await load();
   }
 
   async function saveAgent() {
     setBusy(true);
+    setActionBusy("save_agent");
     try {
       await fetch("/api/agent", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: agentName, identity: agentIdentity }),
       });
+      addToast("Perfil do agente salvo com sucesso!", "success");
+    } catch {
+      addToast("Erro ao salvar dados do agente", "error");
     } finally {
       setBusy(false);
+      setActionBusy(null);
     }
   }
 
   async function startRuntime() {
     if (!openId) return;
-    const res = await fetch(`/api/missions/${openId}/executions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ currentTaskId: tasks[0]?.id ?? null }),
-    });
-    const d = await res.json();
-    if (res.ok) setExecution(d.execution);
-    else setError(d.error ?? "Falha runtime");
+    setBusy(true);
+    setActionBusy("start_runtime");
+    try {
+      const res = await fetch(`/api/missions/${openId}/executions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentTaskId: tasks[0]?.id ?? null }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setExecution(d.execution);
+        addToast("Execução do runtime iniciada", "success");
+      } else {
+        const errMsg = d.error ?? "Falha ao iniciar runtime";
+        setError(errMsg);
+        addToast(errMsg, "error");
+      }
+    } finally {
+      setBusy(false);
+      setActionBusy(null);
+    }
   }
 
   async function runtimePatch(action: string, extra?: Record<string, unknown>) {
     if (!execution) return;
+
+    if (action === "complete") {
+      setConfirmModalState({
+        isOpen: true,
+        title: "Finalizar Execução?",
+        message: "Esta ação marcará o runtime da missão como concluído.",
+        onConfirm: () => void doRuntimePatch(action, extra),
+      });
+      return;
+    }
+
+    await doRuntimePatch(action, extra);
+  }
+
+  async function doRuntimePatch(action: string, extra?: Record<string, unknown>) {
+    if (!execution) return;
+    setConfirmModalState((prev) => ({ ...prev, isOpen: false }));
     setBusy(true);
+    setActionBusy(`patch_${action}`);
     try {
       const res = await fetch(`/api/executions/${execution.id}`, {
         method: "PATCH",
@@ -176,19 +255,28 @@ export default function CockpitPage() {
       });
       const d = await res.json();
       if (!res.ok) {
-        setError(d.error ?? "Falha");
+        const errMsg = d.error ?? "Falha";
+        setError(errMsg);
+        addToast(errMsg, "error");
         return;
       }
-      if (action === "complete" || action === "fail") setExecution(null);
-      else setExecution(d.execution);
+      if (action === "complete" || action === "fail") {
+        setExecution(null);
+        addToast(`Execução ${action === "complete" ? "concluída" : "falhou"}`, "info");
+      } else {
+        setExecution(d.execution);
+        addToast(`Ação '${action}' executada com sucesso`, "success");
+      }
     } finally {
       setBusy(false);
+      setActionBusy(null);
     }
   }
 
   async function postExec(path: string, body?: unknown) {
     if (!execution) return;
     setBusy(true);
+    setActionBusy(`post_${path}`);
     setError(null);
     try {
       const res = await fetch(`/api/executions/${execution.id}${path}`, {
@@ -198,14 +286,17 @@ export default function CockpitPage() {
       });
       const d = await res.json();
       if (!res.ok) {
-        setError(
+        const errMsg =
           d.error === "MODEL_NOT_CONFIGURED"
             ? "Configure MODEL_API_KEY no Vercel"
-            : d.detail ?? d.error ?? "Falha"
-        );
+            : d.detail ?? d.error ?? "Falha na execução";
+        setError(errMsg);
+        addToast(errMsg, "error");
         return;
       }
       if (d.execution) setExecution(d.execution);
+      addToast(`Execução de '${path}' finalizada`, "success");
+
       if (openId) {
         const eRes = await fetch(`/api/missions/${openId}/evidence`, { cache: "no-store" });
         if (eRes.ok) {
@@ -220,218 +311,366 @@ export default function CockpitPage() {
       }
     } finally {
       setBusy(false);
+      setActionBusy(null);
     }
   }
 
   async function addTask() {
     if (!openId || taskTitle.trim().length < 2) return;
-    await fetch(`/api/missions/${openId}/tasks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: taskTitle.trim() }),
-    });
-    setTaskTitle("");
-    const tRes = await fetch(`/api/missions/${openId}/tasks`, { cache: "no-store" });
-    if (tRes.ok) {
-      const td = await tRes.json();
-      setTasks((td.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
+    setActionBusy("add_task");
+    try {
+      const res = await fetch(`/api/missions/${openId}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: taskTitle.trim() }),
+      });
+      if (res.ok) {
+        addToast("Tarefa adicionada com sucesso", "success");
+      }
+      setTaskTitle("");
+      const tRes = await fetch(`/api/missions/${openId}/tasks`, { cache: "no-store" });
+      if (tRes.ok) {
+        const td = await tRes.json();
+        setTasks((td.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
+      }
+    } finally {
+      setActionBusy(null);
     }
   }
 
   if (loading) {
     return (
-      <div className="min-h-dvh flex items-center justify-center text-[var(--text-muted)] text-sm">
+      <div className="min-h-dvh flex items-center justify-center text-[var(--text-muted)] text-sm font-mono">
         Carregando cockpit…
       </div>
     );
   }
 
   return (
-    <div className="min-h-dvh flex flex-col">
-      <header className="border-b border-[var(--border)] bg-[var(--surface)]/80 sticky top-0 z-10">
-        <div className="mx-auto max-w-3xl px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold tracking-tight">Cockpit</span>
-            <Link
-              href="/chat"
-              className="px-2.5 py-1 rounded bg-[var(--selo)] text-[var(--base)] text-xs font-medium hover:bg-[var(--nucleo)] transition-colors"
-            >
-              💬 Chat
-            </Link>
+    <div className="min-h-dvh flex flex-col bg-[var(--base)] text-[var(--text-primary)] pb-20 sm:pb-8">
+      {/* Header Unificado com Seletor do Modo Híbrido & Menu de Usuário */}
+      <Header
+        userEmail={userEmail}
+        onNotify={(msg, type) => addToast(msg, type)}
+      />
+
+      <main className="flex-1 mx-auto max-w-4xl w-full px-4 py-8 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--border)] pb-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Cockpit de Operações</h1>
+            <p className="text-xs text-[var(--text-muted)]">
+              Gerencie missões, controle o runtime loop e configure parâmetros do agente
+            </p>
           </div>
-          <div className="flex items-center gap-3 text-xs">
-            <span className="text-[var(--text-muted)] font-mono">{userEmail}</span>
-            <button
-              type="button"
-              className="text-[var(--nucleo)]"
-              onClick={() => void fetch("/api/auth/logout", { method: "POST" }).then(() => router.replace("/login"))}
-            >
-              Sair
-            </button>
+          <div className="px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs font-mono text-[var(--selo)] self-start sm:self-auto">
+            Missões: {missions.length}
           </div>
         </div>
-      </header>
 
-      <main className="flex-1 mx-auto max-w-3xl w-full px-4 py-8 space-y-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Missões · Runtime · Agente</h1>
-
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2">
-          <div className="text-xs font-mono text-[var(--text-muted)]">AGENTE</div>
-          <div className="flex flex-col sm:flex-row gap-2">
+        {/* Form Agente */}
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3 shadow-xs">
+          <div className="text-xs font-mono font-semibold text-[var(--text-muted)] flex items-center gap-1.5">
+            <span>🤖</span> PERFIL E IDENTIDADE DO AGENTE
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3">
             <input
-              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-sm"
+              className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
               value={agentName}
               onChange={(e) => setAgentName(e.target.value)}
-              placeholder="Nome"
+              placeholder="Nome do Agente (ex: Plutão)"
             />
             <input
-              className="flex-[2] rounded-lg border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-sm"
+              className="flex-[2] rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
               value={agentIdentity}
               onChange={(e) => setAgentIdentity(e.target.value)}
-              placeholder="Identidade"
+              placeholder="Identidade (ex: Assistente Autônomo)"
             />
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || actionBusy === "save_agent"}
               onClick={() => void saveAgent()}
-              className="rounded-lg border border-[var(--selo)] text-[var(--nucleo)] px-3 py-2 text-xs"
+              className="rounded-xl border border-[var(--selo)] bg-[var(--selo)]/10 text-[var(--nucleo)] hover:bg-[var(--selo)] hover:text-[var(--base)] px-4 py-2 text-xs font-medium transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer shrink-0"
             >
-              Salvar
+              {actionBusy === "save_agent" ? (
+                <>
+                  <span className="w-3 h-3 rounded-full border-2 border-[var(--nucleo)] border-t-transparent animate-spin" />
+                  Salvar
+                </>
+              ) : (
+                <>Salvar Perfil</>
+              )}
             </button>
           </div>
         </section>
 
-        <form onSubmit={onCreate} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
-          <div className="text-xs font-mono text-[var(--text-muted)]">NOVA MISSÃO</div>
+        {/* Form Nova Missão */}
+        <form onSubmit={onCreate} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3 shadow-xs">
+          <div className="text-xs font-mono font-semibold text-[var(--text-muted)] flex items-center gap-1.5">
+            <span>🎯</span> CRIAR NOVA MISSÃO
+          </div>
           <textarea
             required
             minLength={3}
             rows={2}
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-sm"
-            placeholder="Objetivo"
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-2.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--selo)] transition-colors resize-none"
+            placeholder="Descreva o objetivo principal da missão..."
           />
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-          <button type="submit" className="rounded-lg bg-[var(--selo)] text-[var(--base)] px-4 py-2 text-sm font-medium">
-            Criar missão
+          {error && <p className="text-xs text-[var(--danger)] font-mono">{error}</p>}
+          <button
+            type="submit"
+            disabled={actionBusy === "create_mission" || !objective.trim()}
+            className="rounded-xl bg-[var(--selo)] text-[var(--base)] px-5 py-2 text-xs font-semibold hover:bg-[var(--nucleo)] transition-colors disabled:opacity-40 flex items-center gap-2 cursor-pointer"
+          >
+            {actionBusy === "create_mission" ? (
+              <>
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
+                Criando Missão…
+              </>
+            ) : (
+              <>Criar Missão</>
+            )}
           </button>
         </form>
 
-        <ul className="space-y-3">
-          {missions.map((m) => (
-            <li key={m.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
-              <button type="button" className="w-full text-left flex justify-between gap-2" onClick={() => void openMission(m.id)}>
-                <span className="text-sm font-medium">{m.objective}</span>
-                <span className="text-[10px] font-mono text-[var(--nucleo)]">{m.status}</span>
-              </button>
+        {/* Lista de Missões */}
+        <div className="space-y-3">
+          <h2 className="text-xs font-mono text-[var(--text-muted)]">MISSÕES CADASTRADAS</h2>
+          {missions.length === 0 ? (
+            <div className="p-8 text-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-xs text-[var(--text-muted)]">
+              Nenhuma missão cadastrada ainda. Crie uma missão acima para iniciar.
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {missions.map((m) => (
+                <li key={m.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 shadow-xs">
+                  <button
+                    type="button"
+                    className="w-full text-left flex justify-between items-center gap-3 cursor-pointer group"
+                    onClick={() => void openMission(m.id)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-base group-hover:scale-110 transition-transform">
+                        {openId === m.id ? "📂" : "📁"}
+                      </span>
+                      <span className="text-sm font-semibold group-hover:text-[var(--selo)] transition-colors">
+                        {m.objective}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-[var(--base)] border border-[var(--border)] text-[var(--nucleo)]">
+                      {m.status}
+                    </span>
+                  </button>
 
-              {openId === m.id && (
-                <div className="border-t border-[var(--border)] pt-3 space-y-3">
-                  <div className="rounded-md border border-[var(--border)] bg-[var(--base)] p-3 space-y-2">
-                    <div className="text-[10px] font-mono text-[var(--text-muted)]">RUNTIME</div>
-                    {execution ? (
-                      <>
-                        <div className="text-xs font-mono text-[var(--nucleo)]">{execution.status}</div>
-                        {execution.checkpoint && (
-                          <pre className="text-[10px] overflow-x-auto text-[var(--text-secondary)]">
-                            {JSON.stringify(execution.checkpoint)}
-                          </pre>
-                        )}
-                        <div className="text-[10px] font-mono text-[var(--text-muted)]">
-                          model: {modelConfigured ? modelInfo : "não configurado"}
+                  {openId === m.id && (
+                    <div className="border-t border-[var(--border)] pt-4 space-y-4 animate-in fade-in duration-150">
+                      {/* Section Runtime */}
+                      <div className="rounded-xl border border-[var(--border)] bg-[var(--base)] p-4 space-y-3">
+                        <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-muted)]">
+                          <span>RUNTIME CONTROLLER</span>
+                          <span>Model: {modelConfigured ? modelInfo : "Offline / Local"}</span>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <input
-                            value={cpNote}
-                            onChange={(e) => setCpNote(e.target.value)}
-                            placeholder="nota"
-                            className="flex-1 min-w-[8rem] rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
-                          />
-                          <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded" onClick={() => void runtimePatch("checkpoint", { note: cpNote })}>
-                            checkpoint
-                          </button>
-                          <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded" onClick={() => void postExec("/tools", { name: "note", input: cpNote || "nota" })}>
-                            tool note
-                          </button>
-                          <button type="button" disabled={busy} className="text-[10px] font-mono bg-[var(--selo)] text-[var(--base)] px-2 py-1 rounded" onClick={() => void postExec("/step")}>
-                            stub step
-                          </button>
-                          <button type="button" disabled={busy || !modelConfigured} className="text-[10px] font-mono border border-[var(--selo)] text-[var(--nucleo)] px-2 py-1 rounded disabled:opacity-50" onClick={() => void postExec("/model-step")}>
-                            model step
-                          </button>
-                          <button type="button" disabled={busy || !modelConfigured} className="text-[10px] font-mono bg-[var(--nucleo)] text-[var(--base)] px-2 py-1 rounded disabled:opacity-50" onClick={() => void postExec("/run")}>
-                            run loop
-                          </button>
-                          <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded" onClick={() => void runtimePatch("pause")}>
-                            pause
-                          </button>
-                          <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--border)] px-2 py-1 rounded" onClick={() => void runtimePatch("interrupt")}>
-                            interrupt
-                          </button>
-                          <button type="button" disabled={busy} className="text-[10px] font-mono border border-[var(--selo)] px-2 py-1 rounded" onClick={() => void runtimePatch("resume")}>
-                            resume
-                          </button>
-                          <button type="button" disabled={busy} className="text-[10px] font-mono text-[var(--danger)] px-2" onClick={() => void runtimePatch("complete")}>
-                            complete
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <button type="button" onClick={() => void startRuntime()} className="text-xs rounded-lg bg-[var(--selo)] text-[var(--base)] px-3 py-1.5">
-                        Iniciar execução
-                      </button>
-                    )}
-                  </div>
 
-                  {missionEvidence.length > 0 && (
-                    <div className="rounded-md border border-[var(--border)] bg-[var(--base)] p-3 space-y-1 max-h-40 overflow-y-auto">
-                      <div className="text-[10px] font-mono text-[var(--text-muted)]">EVIDENCE ({missionEvidence.length})</div>
-                      {missionEvidence
-                        .slice()
-                        .reverse()
-                        .map((e) => (
-                          <div key={e.id} className="text-xs border-l-2 border-[var(--selo)] pl-2">
-                            <span className="font-mono text-[10px] text-[var(--text-muted)]">
-                              {e.source}/{e.type}
-                            </span>
-                            <div>{e.content}</div>
+                        {execution ? (
+                          <>
+                            <div className="flex items-center gap-2 text-xs font-mono">
+                              <span className="text-[var(--text-muted)]">Status do Runtime:</span>
+                              <span className="text-[var(--nucleo)] font-bold">{execution.status}</span>
+                            </div>
+
+                            {execution.checkpoint && (
+                              <div className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[10px] font-mono overflow-x-auto text-[var(--text-secondary)]">
+                                {JSON.stringify(execution.checkpoint, null, 2)}
+                              </div>
+                            )}
+
+                            {/* Controls buttons for execution */}
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  value={cpNote}
+                                  onChange={(e) => setCpNote(e.target.value)}
+                                  placeholder="Nota de checkpoint..."
+                                  className="flex-1 min-w-[8rem] rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--text-primary)]"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void runtimePatch("checkpoint", { note: cpNote })}
+                                  className="text-[10px] font-mono border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--base)] px-3 py-1.5 rounded-xl disabled:opacity-50 cursor-pointer"
+                                >
+                                  Checkpoint
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void postExec("/tools", { name: "note", input: cpNote || "nota" })}
+                                  className="text-[10px] font-mono border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--base)] px-3 py-1.5 rounded-xl disabled:opacity-50 cursor-pointer"
+                                >
+                                  Tool Note
+                                </button>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void postExec("/step")}
+                                  className="text-[10px] font-mono bg-[var(--selo)] text-[var(--base)] font-bold px-3 py-1.5 rounded-xl hover:bg-[var(--nucleo)] disabled:opacity-50 cursor-pointer"
+                                >
+                                  Stub Step
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy || !modelConfigured}
+                                  onClick={() => void postExec("/model-step")}
+                                  className="text-[10px] font-mono border border-[var(--selo)] text-[var(--nucleo)] px-3 py-1.5 rounded-xl hover:bg-[var(--selo)]/10 disabled:opacity-50 cursor-pointer"
+                                >
+                                  Model Step
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy || !modelConfigured}
+                                  onClick={() => void postExec("/run")}
+                                  className="text-[10px] font-mono bg-[var(--nucleo)] text-[var(--base)] font-bold px-3 py-1.5 rounded-xl hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                                >
+                                  Run Loop
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void runtimePatch("pause")}
+                                  className="text-[10px] font-mono border border-[var(--border)] px-3 py-1.5 rounded-xl hover:bg-[var(--surface)] disabled:opacity-50 cursor-pointer"
+                                >
+                                  Pausar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void runtimePatch("interrupt")}
+                                  className="text-[10px] font-mono border border-[var(--border)] px-3 py-1.5 rounded-xl hover:bg-[var(--surface)] disabled:opacity-50 cursor-pointer"
+                                >
+                                  Interromper
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void runtimePatch("resume")}
+                                  className="text-[10px] font-mono border border-[var(--selo)] text-[var(--selo)] px-3 py-1.5 rounded-xl hover:bg-[var(--selo)]/10 disabled:opacity-50 cursor-pointer"
+                                >
+                                  Retomar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void runtimePatch("complete")}
+                                  className="text-[10px] font-mono bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded-xl disabled:opacity-50 cursor-pointer"
+                                >
+                                  Concluir Execução
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex items-center justify-between pt-1">
+                            <span className="text-xs text-[var(--text-muted)]">Nenhum runtime ativo</span>
+                            <button
+                              type="button"
+                              disabled={actionBusy === "start_runtime"}
+                              onClick={() => void startRuntime()}
+                              className="text-xs font-semibold rounded-xl bg-[var(--selo)] text-[var(--base)] px-4 py-1.5 hover:bg-[var(--nucleo)] transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                            >
+                              {actionBusy === "start_runtime" ? (
+                                <>
+                                  <span className="w-3 h-3 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
+                                  Iniciando…
+                                </>
+                              ) : (
+                                <>🚀 Iniciar Execução</>
+                              )}
+                            </button>
                           </div>
-                        ))}
+                        )}
+                      </div>
+
+                      {/* Evidence Section */}
+                      {missionEvidence.length > 0 && (
+                        <div className="rounded-xl border border-[var(--border)] bg-[var(--base)] p-3 space-y-2 max-h-48 overflow-y-auto">
+                          <div className="text-[10px] font-mono text-[var(--text-muted)] font-semibold">
+                            EVIDÊNCIAS COLETADAS ({missionEvidence.length})
+                          </div>
+                          {missionEvidence
+                            .slice()
+                            .reverse()
+                            .map((e) => (
+                              <div key={e.id} className="text-xs border-l-2 border-[var(--selo)] pl-3 py-1 bg-[var(--surface)]/40 rounded-r-lg space-y-0.5">
+                                <span className="font-mono text-[10px] text-[var(--text-muted)]">
+                                  {e.source} · {e.type}
+                                </span>
+                                <div className="text-[var(--text-primary)] leading-relaxed">{e.content}</div>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
+                      {/* Tasks Section */}
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-mono text-[var(--text-muted)] font-semibold">TAREFAS DA MISSÃO</div>
+                        <div className="flex gap-2">
+                          <input
+                            value={taskTitle}
+                            onChange={(e) => setTaskTitle(e.target.value)}
+                            placeholder="Adicionar nova sub-tarefa..."
+                            className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-1.5 text-xs text-[var(--text-primary)]"
+                          />
+                          <button
+                            type="button"
+                            disabled={actionBusy === "add_task" || !taskTitle.trim()}
+                            onClick={() => void addTask()}
+                            className="rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold px-4 py-1.5 hover:bg-[var(--nucleo)] disabled:opacity-40 cursor-pointer"
+                          >
+                            + Add
+                          </button>
+                        </div>
+                        {tasks.length === 0 ? (
+                          <p className="text-xs text-[var(--text-muted)] italic">Nenhuma sub-tarefa criada ainda.</p>
+                        ) : (
+                          <ul className="space-y-1.5 pt-1">
+                            {tasks.map((t) => (
+                              <li key={t.id} className="text-xs flex items-center justify-between p-2 rounded-lg border border-[var(--border)] bg-[var(--base)]">
+                                <span className="text-[var(--text-primary)]">{t.title}</span>
+                                <span className="text-[10px] font-mono text-[var(--nucleo)] px-2 py-0.5 rounded bg-[var(--surface)]">
+                                  {t.status}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     </div>
                   )}
-
-                  <div className="flex gap-2">
-                    <input
-                      value={taskTitle}
-                      onChange={(e) => setTaskTitle(e.target.value)}
-                      placeholder="Nova task"
-                      className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--base)] px-3 py-1.5 text-sm"
-                    />
-                    <button type="button" onClick={() => void addTask()} className="rounded-lg bg-[var(--selo)] text-[var(--base)] px-3 text-xs">
-                      Add
-                    </button>
-                  </div>
-                  <ul className="space-y-1">
-                    {tasks.map((t) => (
-                      <li key={t.id} className="text-sm flex justify-between">
-                        <span>{t.title}</span>
-                        <span className="text-[10px] font-mono text-[var(--nucleo)]">{t.status}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-
-        <p className="text-center text-xs text-[var(--text-muted)]">
-          <Link href="/" className="hover:text-[var(--nucleo)]">
-            ← Início
-          </Link>
-        </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </main>
+
+      {/* Mobile Navigation */}
+      <MobileNav />
+
+      {/* Confirmation Modal for Destructive Runtime Actions */}
+      <ConfirmModal
+        isOpen={confirmModalState.isOpen}
+        title={confirmModalState.title}
+        message={confirmModalState.message}
+        onConfirm={confirmModalState.onConfirm}
+        onCancel={() => setConfirmModalState((prev) => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
