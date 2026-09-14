@@ -214,3 +214,22 @@ export {
   resetModelSelector,
   getModelProvider,
 } from "./runtime/modelSelector";
+
+// ============================================================
+// Model Registry & Management
+// ============================================================
+
+export {
+  PRESET_MODELS,
+  filterModels,
+} from "./models/registry";
+
+export type {
+  AIModel,
+  ModelProviderType,
+  ModelCategory,
+  HardwareRequirement,
+  ModelStatusState,
+  ModelDownloadProgress,
+  ModelFilterOptions,
+} from "./models/registry";
