@@ -1,160 +1,63 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-12 → 2026-09-14
+**Última atualização:** 2026-09-14
 
 ## Fase
 
-Runtime completo (Phases 1–3 + loop + tools + model provider) **VERIFIED** / model real (Groq) **VERIFIED** em produção.  
+Runtime completo (Phases 1–3 + loop + tools + model provider) **VERIFIED** / model real (Groq) **VERIFIED** em produção.
 **Agent profile + mission evidence** → **VERIFIED** (prod).
+**Cockpit autonomia V1 (Executar missão)** → **VERIFIED** (prod, 2026-09-14).
+**DoD determinístico (VERIFYING → COMPLETED)** → **IMPLEMENTED** (API + gate).
 
 ## Matriz
 
 | Área | Status |
 |------|--------|
 | Durable Runtime / Loop / Tools / Cockpit | VERIFIED |
-| Model provider code | IMPLEMENTED |
-| LLM real | **VERIFIED** (Groq openai/gpt-oss-120b via OpenAI-compatible endpoint) |
-| `GET/PUT /api/agent` | **VERIFIED** |
-| `GET /api/missions/:id/evidence` | **VERIFIED** |
-| Agent no system prompt do model-step | **VERIFIED** |
-| **Filesystem Tool V1** | **VERIFIED** |
+| Model provider (Groq gpt-oss-120b) | VERIFIED |
+| `GET/PUT /api/agent` | VERIFIED |
+| `GET /api/missions/:id/evidence` | VERIFIED |
+| Filesystem Tool V1 | VERIFIED |
+| **▶ Executar missão** (ciclo + runtime + model steps) | **VERIFIED** |
+| **DoD `GET/POST /api/missions/:id/verify`** | **IMPLEMENTED** |
+| **Gate COMPLETED sem evidência** | **IMPLEMENTED** |
 
-## Agent Loop V1 — Model→Tool→Result (VERIFIED)
+## Agent Loop V1 — VERIFIED em produção
 
-### Status: VERIFIED em produção (missão 163d1a28-7346-413e-af7b-14f838e6cdd4, commit 9d4e630)
+Provider: Groq `openai/gpt-oss-120b` via OpenAI-compatible endpoint.
 
-### Provider Real
-- **Provider:** Groq via endpoint OpenAI-compatible
-- **MODEL_BASE_URL:** `https://api.groq.com/openai/v1`
-- **MODEL_NAME:** `openai/gpt-oss-120b`
-- **MODEL_PROVIDER:** `openai` (compatível com Groq)
-
-### Trace Comprovado
+Trace típico (missão auto-ok):
 ```
-model_step (Groq) 
-  ↓
-tool proposal: {"tool":"filesystem","input":"{\"action\":\"write\",\"payload\":{\"path\":\"notes/teste-groq.txt\",\"content\":\"groq ok\"}}"}
-  ↓
-Tool Dispatcher (dispatchTool)
-  ↓
-Filesystem Tool (runFilesystem)
-  ↓
-Storage (InMemoryStorage)
-  ↓
-Tool Result: {"path":"notes/teste-groq.txt","size":7}
-  ↓
-Evidence: tool_result → tool:filesystem → {"path":"notes/teste-groq.txt","size":7}
-  ↓
-Checkpoint: step:"tool:filesystem", after:{"ok":true,"outputLen":40}
+model_step → filesystem write → tool_result (path+size)
+         → filesystem read  → tool_result (path+content)
+         → note / completed text
 ```
 
-### Limitações Atuais do Loop
-- **Reinjeção automática do resultado no modelo: IMPLEMENTED**
-- **Loop com terminação automática: IMPLEMENTED**
-- Agent Loop Controller implementado com reinjeção automática de tool results
-- Fluxo completo (Model → Tool → Result → Model) **é automático**
-- Limite de iterações configurável (5-15, default: 8)
-- Critério de parada: modelo não propõe tool (objetivo alcançado)
+## DoD V1 (determinístico)
 
----
+- Módulo: `apps/web/src/lib/missions/dod.ts`
+- API: `GET|POST /api/missions/:id/verify`
+- Gate: `PATCH` transição `VERIFYING → COMPLETED` exige `verifyDefinitionOfDone().passed`
+- Escape: `force: true` no body (operador) — uso excepcional
+- Critérios:
+  - há evidências
+  - há tool_result / write / read (não só texto do LLM)
+  - se o objective cita path/conteúdo, deve aparecer nas evidências
+  - se `definitionOfDone` está preenchido, tokens devem refletir nas evidências
 
-## Filesystem Tool V1
+## Como testar DoD
 
-### Status: IMPLEMENTED ✅
+1. Missão com objective de arquivo (ex.: `notes/auto-ok.txt` + `AUTO_OK`)
+2. **▶ Executar missão** até evidence de write/read
+3. Concluir runtime → **→ VERIFYING**
+4. `GET /api/missions/:id/verify` → `passed: true`
+5. **→ COMPLETED** (deve aceitar)
+6. Missão sem evidence: COMPLETED deve retornar `409 DoD_FAILED`
 
-### Operações Disponíveis
-- `filesystem.list` - Lista conteúdo de diretórios
-- `filesystem.read` - Lê arquivos de texto
-- `filesystem.write` - Escreve/Cria arquivos de texto
-- `filesystem.mkdir` - Cria diretórios
-- `filesystem.stat` - Verifica existência e tipo de caminho
+## Próximos marcos
 
-### Sandbox
-- **Raiz padrão:** `apps/web/sandbox` (configurável via `FILESYSTEM_SANDBOX_ROOT`)
-- **Segurança:** Path traversal bloqueado, caminhos absolutos rejeitados, symlink escape tratado
-- **Isolamento:** Todas as operações restritas à raiz da sandbox
-
-### Limites
-- **Tamanho máximo de arquivo:** 1MB (1024 * 1024 bytes)
-- **Operações:** Somente leitura/escrita de arquivos de texto
-- **Idempotência:** Suportada via mecanismo existente do Tool Dispatcher
-
-### Erros Estruturados
-- `PATH_OUTSIDE_SANDBOX` - Caminho fora da sandbox
-- `PATH_TRAVERSAL` - Tentativa de traversal detectada
-- `SYMLINK_ESCAPE` - Escape por symlink detectado
-- `INVALID_INPUT` - Entrada inválida
-- `FILE_TOO_LARGE` - Arquivo excede limite de tamanho
-- `WRITE_TOO_LARGE` - Conteúdo excede limite de tamanho
-- `FILE_NOT_FOUND` - Arquivo não encontrado
-- `NOT_A_FILE` - Caminho não é um arquivo
-- `NOT_A_DIRECTORY` - Caminho não é um diretório
-- `PERMISSION_DENIED` - Permissão negada
-- `UNSUPPORTED_OPERATION` - Operação não suportada
-
-### Como Testar
-```bash
-# Executar testes específicos
-node --test apps/web/src/lib/runtime/tools/__tests__/filesystem.test.ts
-
-# Ou executar todos os testes (se configurado)
-npm test
-```
-
-### Exemplos de Chamadas
-
-#### Listar diretório
-```json
-{
-  "name": "filesystem",
-  "input": "{\"action\":\"list\",\"payload\":{\"path\":\".\"}}"
-}
-```
-
-#### Ler arquivo
-```json
-{
-  "name": "filesystem",
-  "input": "{\"action\":\"read\",\"payload\":{\"path\":\"notes/example.txt\"}}"
-}
-```
-
-#### Escrever arquivo
-```json
-{
-  "name": "filesystem",
-  "input": "{\"action\":\"write\",\"payload\":{\"path\":\"notes/example.txt\",\"content\":\"hello plutao\"}}"
-}
-```
-
-#### Criar diretório
-```json
-{
-  "name": "filesystem",
-  "input": "{\"action\":\"mkdir\",\"payload\":{\"path\":\"projects/demo\"}}"
-}
-```
-
-#### Verificar status de caminho
-```json
-{
-  "name": "filesystem",
-  "input": "{\"action\":\"stat\",\"payload\":{\"path\":\"notes/example.txt\"}}"
-}
-```
-
-### Limitações Atuais
-- Somente arquivos de texto (UTF-8)
-- Não suporta operações binárias
-- Não suporta streams para arquivos grandes
-- Symlink escape tratado mas pode ter limitações em sistemas específicos
-- Não implementa: shell, git, web, MCP, browser, uploads, execução de código
-
-## Próximo marco recomendado
-
-Teste controlado com key **JÁ FOI REALIZADO** e passou com Groq em produção.
-
-Próximas opções:
-- (a) Testar mais variações do filesystem (read/list) manualmente
-- (b) Testar o **Agent Loop Controller** em produção com o Vercel Blob Storage
-- (c) Implementar persistência de estado do Agent Loop entre execuções
+1. UI no cockpit: painel DoD (checks verdes/vermelhos) + botão Verificar
+2. Auto-complete runtime quando o loop termina sem tool proposal
+3. Reconciliação offline→online (teste com rede cortada)
+4. Atualizar ARCHITECTURE.md com realidade de prod
+5. 1 tool nova OU adapter durável (background)
