@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 export interface ConfirmModalProps {
   isOpen: boolean;
   title: string;
@@ -23,6 +25,17 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (

@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/Header";
 import { MobileNav } from "@/components/MobileNav";
 import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { ArtifactTransformModal } from "@/components/ArtifactTransformModal";
 
 type Message = {
   id: string;
@@ -25,9 +26,11 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Modals & Toasts
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isArtifactModalOpen, setIsArtifactModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
@@ -98,10 +101,37 @@ export default function ChatPage() {
     }
   }, [messages, userEmail]);
 
+  // Auto-expanding textarea layout height
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxHeight = Math.min(window.innerHeight * 0.38, 320);
+    if (el.scrollHeight > maxHeight) {
+      el.style.height = `${maxHeight}px`;
+      el.style.overflowY = "auto";
+    } else {
+      el.style.height = `${el.scrollHeight}px`;
+      el.style.overflowY = "hidden";
+    }
+  }, [inputMessage]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
+    }
+  };
+
   async function handleSend(e?: FormEvent) {
     if (e) e.preventDefault();
     const text = inputMessage.trim();
     if (!text || sending) return;
+
+    if (text.length > 4000) {
+      addToast("O limite máximo de mensagem é 4.000 caracteres.", "error", "Limite excedido");
+      return;
+    }
 
     setError(null);
     const userMsg: Message = {
@@ -115,6 +145,11 @@ export default function ChatPage() {
     setMessages(newMessages);
     setInputMessage("");
     setSending(true);
+
+    // Devolve o foco após o envio
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
 
     try {
       const res = await fetch("/api/chat", {
@@ -288,37 +323,107 @@ export default function ChatPage() {
           </div>
         )}
 
+        {/* Smart Long-Input Hint (inline) */}
+        {inputMessage.length >= 1500 && (
+          <div className="mb-2 p-2.5 rounded-xl border border-[var(--selo)]/30 bg-[var(--selo)]/10 text-xs flex items-center justify-between text-[var(--text-primary)] animate-in fade-in duration-150">
+            <span className="text-[11px] sm:text-xs">
+              ✨ Texto longo detectado ({inputMessage.length.toLocaleString()} caracteres). Transformar em artefato antes de enviar?
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsArtifactModalOpen(true)}
+              className="px-3 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] font-semibold text-[11px] hover:bg-[var(--nucleo)] transition-colors shrink-0 cursor-pointer ml-2"
+            >
+              Transformar
+            </button>
+          </div>
+        )}
+
         {/* Input Bar */}
         <form onSubmit={handleSend} className="pt-2 sticky bottom-0 bg-[var(--base)]">
-          <div className="flex items-center gap-2 p-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--selo)] transition-all">
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder={`Enviar mensagem para ${agentName}…`}
-              disabled={sending}
-              className="flex-1 bg-transparent px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={sending || !inputMessage.trim()}
-              className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-medium hover:bg-[var(--nucleo)] disabled:opacity-40 disabled:hover:bg-[var(--selo)] transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
-            >
-              {sending ? (
-                <>
-                  <span className="w-3 h-3 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
-                  Enviando
-                </>
-              ) : (
-                <>Enviar</>
-              )}
-            </button>
+          <div className="flex flex-col gap-1 p-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--selo)] transition-all">
+            <div className="flex items-end gap-2">
+              {/* Attachment Placeholder */}
+              <button
+                type="button"
+                onClick={() => addToast("Anexos de arquivo em breve!", "info")}
+                title="Anexar arquivo"
+                className="p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded-xl hover:bg-[var(--base)] transition-colors cursor-pointer text-base shrink-0 mb-0.5"
+              >
+                +
+              </button>
+
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                maxLength={4000}
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={`Enviar mensagem para ${agentName}…`}
+                disabled={sending}
+                enterKeyHint="send"
+                style={{ fontSize: "16px" }}
+                className="flex-1 bg-transparent px-2 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-50 resize-none leading-relaxed"
+              />
+
+              <button
+                type="submit"
+                disabled={sending || !inputMessage.trim()}
+                className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-medium hover:bg-[var(--nucleo)] disabled:opacity-40 disabled:hover:bg-[var(--selo)] transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer mb-0.5"
+              >
+                {sending ? (
+                  <>
+                    <span className="w-3 h-3 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
+                    Enviando
+                  </>
+                ) : (
+                  <>Enviar</>
+                )}
+              </button>
+            </div>
+
+            {/* Character counter (visible at >= 2500 chars) */}
+            {inputMessage.length >= 2500 && (
+              <div className="px-2 pb-1 text-right font-mono text-[10px]">
+                <span
+                  className={
+                    inputMessage.length >= 3800
+                      ? "text-red-400 font-bold"
+                      : inputMessage.length >= 3200
+                      ? "text-amber-400"
+                      : "text-[var(--text-muted)]"
+                  }
+                >
+                  {inputMessage.length.toLocaleString()} / 4.000
+                </span>
+              </div>
+            )}
           </div>
         </form>
       </main>
 
       {/* Mobile Navigation */}
       <MobileNav />
+
+      {/* Artifact Transform Modal */}
+      <ArtifactTransformModal
+        isOpen={isArtifactModalOpen}
+        initialContent={inputMessage}
+        onClose={() => setIsArtifactModalOpen(false)}
+        onConfirm={(transformed) => {
+          setInputMessage(transformed);
+          setIsArtifactModalOpen(false);
+          addToast("Conteúdo transformado!", "success");
+          setTimeout(() => {
+            const el = textareaRef.current;
+            if (el) {
+              el.focus();
+              el.setSelectionRange(el.value.length, el.value.length);
+            }
+          }, 50);
+        }}
+      />
 
       {/* Confirmation Modal for Clear History */}
       <ConfirmModal

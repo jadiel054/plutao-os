@@ -1,7 +1,7 @@
 "use client";
 
 import { useModelMode } from "@/hooks/useModelMode";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export interface ModeControlModalProps {
   isOpen: boolean;
@@ -24,6 +24,17 @@ export function ModeControlModal({ isOpen, onClose, onNotify }: ModeControlModal
   } = useModelMode();
 
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
