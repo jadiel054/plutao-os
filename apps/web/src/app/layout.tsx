@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
+import { OfflineBanner } from "@/components/OfflineBanner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,7 +34,7 @@ export const metadata: Metadata = {
     icon: [{ url: "/icon_192.png", sizes: "192x192", type: "image/png" }],
     apple: [{ url: "/icon_192.png", sizes: "192x192", type: "image/png" }],
   },
-  other: { "google": "notranslate" },
+  other: { google: "notranslate" },
 };
 
 export const viewport: Viewport = {
@@ -56,6 +57,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[var(--bg)] text-[var(--text-primary)] notranslate`}
       >
         <ServiceWorkerRegister />
+        <OfflineBanner />
         {children}
       </body>
     </html>
