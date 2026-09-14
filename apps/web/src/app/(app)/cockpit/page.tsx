@@ -11,6 +11,7 @@ import {
   buildMissionTimeline,
 } from "@/components/MissionTimeline";
 import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
+import { MissionDoDPanel } from "@/components/MissionDoDPanel";
 import { runAutonomousMission } from "@/lib/cockpit/runAutonomousMission";
 
 type MissionRow = {
@@ -65,6 +66,13 @@ export default function CockpitPage() {
 
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  const [dodResult, setDodResult] = useState<{
+    passed: boolean;
+    summary: string;
+    checks: { id: string; label: string; passed: boolean; detail?: string }[];
+  } | null>(null);
+  const [dodLoading, setDodLoading] = useState(false);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [confirmModalState, setConfirmModalState] = useState<{
@@ -144,6 +152,7 @@ export default function CockpitPage() {
       setMissionEvidence([]);
       setAllowedTransitions([]);
       setOpenMissionMeta(null);
+      setDodResult(null);
       return;
     }
     setOpenId(id);
@@ -186,6 +195,27 @@ export default function CockpitPage() {
       }
     } finally {
       setActionBusy(null);
+    }
+  }
+
+  async function verifyDoD() {
+    if (!openId) return;
+    setDodLoading(true);
+    try {
+      const res = await fetch(`/api/missions/${openId}/verify`, { cache: "no-store" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        addToast(d.error ?? "Falha ao verificar DoD", "error");
+        return;
+      }
+      setDodResult({
+        passed: !!d.passed,
+        summary: String(d.summary ?? ""),
+        checks: Array.isArray(d.checks) ? d.checks : [],
+      });
+      addToast(d.passed ? "DoD PASSED" : "DoD FAILED", d.passed ? "success" : "warning");
+    } finally {
+      setDodLoading(false);
     }
   }
 
@@ -786,6 +816,15 @@ export default function CockpitPage() {
                           loading={actionBusy === "load_mission"}
                         />
                       </div>
+
+                      <MissionDoDPanel
+                        loading={dodLoading}
+                        passed={dodResult?.passed ?? null}
+                        summary={dodResult?.summary}
+                        checks={dodResult?.checks}
+                        busy={!!actionBusy || busy}
+                        onVerify={() => void verifyDoD()}
+                      />
 
                       <div className="space-y-2">
                         <div className="text-[11px] font-mono text-[var(--text-muted)] font-semibold">TAREFAS DA MISSÃO</div>
