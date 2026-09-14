@@ -17,7 +17,8 @@
 | Evidências legíveis | ✅ Confirmado |
 | Badge DoD `PASSED` | ✅ Confirmado na sessão observada |
 | Tela branca | ❌ Não ocorreu |
-| Criar missão sem conexão | ❌ Falha silenciosa: botão não concluiu a ação, não exibiu toast e não criou estado pendente |
+| Criar missão sem conexão — primeira versão | ❌ Falha silenciosa; corrigido depois |
+| Criar missão sem conexão — pós-deploy | ✅ Toast de erro controlado confirmado |
 | Reconciliação automática | ❌ Não observada |
 
 ## Evidência
@@ -40,7 +41,7 @@ A correção foi implementada no branch `main` local: handlers de criação de m
 Sem conexão: não foi possível <ação>. Reconecte e tente novamente.
 ```
 
-A correção ainda precisa ser publicada no Vercel antes de ser validada novamente em produção. Esta alteração **não implementa fila offline ou sincronização posterior**; ela corrige a falha silenciosa e fornece erro controlado, conforme o roteiro V1.
+A correção foi publicada no Vercel e validada novamente em produção. Esta alteração **não implementa fila offline ou sincronização posterior**; ela corrige a falha silenciosa e fornece erro controlado, conforme o roteiro V1.
 
 ## Validação local da correção
 
@@ -48,6 +49,18 @@ A correção ainda precisa ser publicada no Vercel antes de ser validada novamen
 - `npm run build` — passou; o build compilou e gerou as rotas da aplicação.
 - `npm run lint` — passou com um warning preexistente em `ModelStatusIndicator.tsx:350` (`error` não utilizado).
 - `npm run typecheck` — passou em `packages/domain` e `packages/db`.
+
+## Validação pós-deploy
+
+O usuário repetiu o teste em Android/Chrome mobile após a publicação da correção. A tentativa de criar missão sem conexão exibiu corretamente:
+
+```text
+Sem conexão: não foi possível criar a missão. Reconecte e tente novamente.
+```
+
+O cockpit permaneceu legível, sem tela branca, e as missões existentes continuaram visíveis. Evidência: [`evidencia-toast-offline-pos-deploy.jpg`](evidencia-toast-offline-pos-deploy.jpg).
+
+**Status final do Roteiro A:** ✅ **VERIFIED**.
 
 ## Próximos passos
 

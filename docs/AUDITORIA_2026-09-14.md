@@ -228,9 +228,10 @@ Foi adicionado tratamento de falhas de rede aos handlers de criação de missão
 Sem conexão: não foi possível <ação>. Reconecte e tente novamente.
 ```
 
-A correção está no código local da branch `main` e aguarda validação de build, deploy e reteste em produção. Ela corrige o erro silencioso, mas **não implementa Pending Intents nem reconciliação automática**.
+A correção foi validada com build, publicada na branch `main` e retestada em produção. O toast de erro controlado apareceu corretamente e não houve tela branca. A correção **não implementa Pending Intents nem reconciliação automática**.
 
 Evidências versionadas:
 
 - `docs/testes/2026-09-14-offline-mobile/evidencia-banner-offline-falha-criar-missao.jpg`
+- `docs/testes/2026-09-14-offline-mobile/evidencia-toast-offline-pos-deploy.jpg`
 - `docs/testes/2026-09-14-offline-mobile/relatorio-offline-mobile.md`

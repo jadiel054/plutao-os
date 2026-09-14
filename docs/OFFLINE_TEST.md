@@ -63,11 +63,11 @@ Colar links/prints em issue ou em `CURRENT_STATE.md` quando passar.
 
 O teste manual foi executado em Chrome mobile com modo avião. O `OfflineBanner` apareceu, o indicador mostrou `Sem conexão` e a missão `COMPLETED`, timeline, evidências e badge `PASSED` permaneceram legíveis, sem tela branca.
 
-Ao tentar criar uma missão offline, a ação falhou silenciosamente: não houve toast de erro, estado `PENDING` ou fila de sincronização. A causa foi uma rejeição de `fetch()` sem tratamento no handler de criação. O código foi corrigido para exibir erro controlado, mas o reteste pós-deploy ainda é obrigatório.
+Na primeira versão, ao tentar criar uma missão offline, a ação falhou silenciosamente: não houve toast de erro, estado `PENDING` ou fila de sincronização. A causa foi uma rejeição de `fetch()` sem tratamento no handler de criação. O código foi corrigido, publicado e retestado; a versão atual exibe erro controlado.
 
 Evidências versionadas:
 
 - [`docs/testes/2026-09-14-offline-mobile/evidencia-banner-offline-falha-criar-missao.jpg`](testes/2026-09-14-offline-mobile/evidencia-banner-offline-falha-criar-missao.jpg)
 - [`docs/testes/2026-09-14-offline-mobile/relatorio-offline-mobile.md`](testes/2026-09-14-offline-mobile/relatorio-offline-mobile.md)
 
-**Status do roteiro A:** ⚠️ **PARCIALMENTE VERIFICADO** — UI sobrevive offline; erro controlado corrigido no código, aguardando deploy e nova validação em produção.
+**Status do roteiro A:** ✅ **VERIFIED** — UI sobrevive offline e a tentativa de criação offline exibe erro controlado sem tela branca. A captura pós-deploy [`evidencia-toast-offline-pos-deploy.jpg`](testes/2026-09-14-offline-mobile/evidencia-toast-offline-pos-deploy.jpg) mostra o toast `Sem conexão: não foi possível criar a missão. Reconecte e tente novamente.`.

@@ -19,9 +19,9 @@ Runtime + Agent Loop + Filesystem + Cockpit + **Autonomia V1.1** + **DoD gate** 
 | DoD `GET/POST /api/missions/:id/verify` + gate COMPLETED | **VERIFIED** |
 | MissionDoDPanel (componente) | IMPLEMENTED (wire UI pendente) |
 | OfflineBanner | IMPLEMENTED |
-| Teste offline formal | **PARCIALMENTE VERIFICADO** (`docs/OFFLINE_TEST.md`) |
+| Teste offline formal | ✅ **VERIFIED** (`docs/OFFLINE_TEST.md`) |
 | OfflineBanner em produção | **VERIFICADO** — banner e cockpit permanecem legíveis |
-| Erro controlado ao criar missão offline | **CORRIGIDO NO CÓDIGO / PENDENTE DEPLOY** |
+| Erro controlado ao criar missão offline | ✅ **VERIFICADO EM PRODUÇÃO** |
 | Pending Intents / fila de sincronização | **NÃO IMPLEMENTADO** |
 
 ## Autonomia V1.1 (prod)
@@ -57,12 +57,11 @@ Prova: missão `notes/auto-v11.txt` / `AUTO_V11` → COMPLETED sem cliques manua
 - ✅ Missão `COMPLETED`, timeline, evidências e DoD permaneceram legíveis.
 - ✅ Não ocorreu tela branca.
 - ❌ Criar missão offline falhou silenciosamente: não houve toast, estado pendente ou fila de sincronização.
-- 🔧 Correção aplicada em `apps/web/src/app/(app)/cockpit/page.tsx`: falhas de rede agora exibem toast/erro controlado; build e typecheck passaram, aguardando deploy e reteste em produção.
+- ✅ Correção publicada e verificada em produção: falhas de rede agora exibem toast/erro controlado; não houve tela branca.
+- 📸 Evidência pós-deploy: [`evidencia-toast-offline-pos-deploy.jpg`](testes/2026-09-14-offline-mobile/evidencia-toast-offline-pos-deploy.jpg)
 
 ## Próximos marcos
 
-1. Validar build, commitar e publicar a correção de erro silencioso offline.
-2. Repetir `docs/OFFLINE_TEST.md` no celular e confirmar toast controlado.
-3. Implementar `Pending Intents` e reconciliação se missões criadas offline precisarem sincronizar depois.
-4. Implementar execução em background caso a missão precise continuar com o PWA fechado.
-5. Atualizar `ARCHITECTURE.md` com a realidade de produção.
+1. Implementar `Pending Intents` e reconciliação se missões criadas offline precisarem sincronizar depois.
+2. Implementar execução em background caso a missão precise continuar com o PWA fechado.
+3. Atualizar `ARCHITECTURE.md` com a realidade de produção.
