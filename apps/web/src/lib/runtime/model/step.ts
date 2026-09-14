@@ -17,11 +17,9 @@ import { getOwnedExecution } from "@/lib/runtime/service";
 import { saveCheckpoint } from "@/lib/runtime/checkpoint";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
-import { chatCompletion } from "./client";
-import { getModelConfig } from "./config";
 import { ModelProviderFactory, setModelProviderMode } from "./provider";
-import type { ModelMessage, ModelStepResult, ModelToolProposal } from "./types";
-import { ModelMode, getModelSelector } from "@plutao/domain";
+import type { ModelMessage, ModelStepResult } from "./types";
+import type { ModelMode } from "@plutao/domain";
 
 // ============================================================
 // Types
@@ -46,6 +44,12 @@ function asCp(raw: unknown): CheckpointShape {
   return {};
 }
 
+type ModelProviderLike = {
+  callModel: (messages: ModelMessage[]) => Promise<ModelStepResult>;
+  getProviderType: () => "groq" | "local";
+  getModelId: () => string;
+};
+
 // ============================================================
 // Helper Functions
 // ============================================================
@@ -53,10 +57,10 @@ function asCp(raw: unknown): CheckpointShape {
 /**
  * Obtém o provedor de modelo apropriado com base no modo
  */
-async function getModelProvider(mode: ModelMode) {
+async function getModelProvider(mode: ModelMode): Promise<ModelProviderLike | null> {
   try {
     const provider = await ModelProviderFactory.getProvider({ mode });
-    return provider;
+    return provider as ModelProviderLike;
   } catch (error) {
     console.error("[getModelProvider]", error);
     return null;
@@ -67,7 +71,7 @@ async function getModelProvider(mode: ModelMode) {
  * Chama o modelo usando o provedor apropriado
  */
 async function callModelWithProvider(
-  provider: any,
+  provider: ModelProviderLike,
   messages: ModelMessage[]
 ): Promise<{
   result: ModelStepResult;
@@ -158,7 +162,7 @@ export async function runModelStep(
 ): Promise<
   | {
       applied: true;
-      execution: any;
+      execution: unknown;
       model: ModelStepResult;
       evidence: EvidenceItem;
       toolDispatch: unknown;
@@ -304,7 +308,7 @@ export async function runModelStep(
   };
 
   // Salva checkpoint no banco (PERSISTÊNCIA)
-  const checkpointResult = await saveCheckpoint(executionId, userId, nextCp);
+  await saveCheckpoint(executionId, userId, nextCp);
   
   // Atualiza execução com checkpoint
   const updatedExec = await db
