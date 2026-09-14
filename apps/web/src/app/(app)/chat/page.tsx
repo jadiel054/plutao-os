@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/Header";
 import { MobileNav } from "@/components/MobileNav";
 import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { LongInputModal } from "@/components/LongInputModal";
 
 type Message = {
   id: string;
@@ -24,10 +25,13 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Modals & Toasts
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isLongInputModalOpen, setIsLongInputModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
@@ -44,6 +48,24 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, sending]);
+
+  // Auto-expand textarea behavior
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    const maxHeight = Math.min(window.innerHeight * 0.38, 320);
+    const scrollHeight = textarea.scrollHeight;
+
+    if (scrollHeight > maxHeight) {
+      textarea.style.height = `${maxHeight}px`;
+      textarea.style.overflowY = "auto";
+    } else {
+      textarea.style.height = `${scrollHeight}px`;
+      textarea.style.overflowY = "hidden";
+    }
+  }, [inputMessage]);
 
   const init = useCallback(async () => {
     setError(null);
@@ -103,6 +125,11 @@ export default function ChatPage() {
     const text = inputMessage.trim();
     if (!text || sending) return;
 
+    if (text.length > 4000) {
+      addToast("Mensagem excede o limite máximo de 4.000 caracteres.", "error", "Limite Excedido");
+      return;
+    }
+
     setError(null);
     const userMsg: Message = {
       id: crypto.randomUUID(),
@@ -148,11 +175,22 @@ export default function ChatPage() {
       addToast(errMsg, "error");
     } finally {
       setSending(false);
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
+    }
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
     }
   }
 
   function handleQuickPrompt(prompt: string) {
     setInputMessage(prompt);
+    textareaRef.current?.focus();
   }
 
   function confirmClearHistory() {
@@ -163,6 +201,31 @@ export default function ChatPage() {
     setIsClearModalOpen(false);
     addToast("Histórico de mensagens limpo", "info");
   }
+
+  function handleConfirmTransform(transformedText: string) {
+    setInputMessage(transformedText);
+    setIsLongInputModalOpen(false);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.focus();
+        el.selectionStart = el.value.length;
+        el.selectionEnd = el.value.length;
+      }
+    }, 50);
+  }
+
+  // Character counter color derivation
+  const charCount = inputMessage.length;
+  const showCounter = charCount >= 2500;
+  const getCounterColor = () => {
+    if (charCount > 3800) return "text-red-400 font-bold";
+    if (charCount > 3200) return "text-amber-400 font-medium";
+    return "text-[var(--text-muted)]";
+  };
+
+  // Smart Long-Input trigger inline hint
+  const showLongInputHint = charCount >= 1500;
 
   if (loading) {
     return (
@@ -288,32 +351,76 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* Input Bar */}
-        <form onSubmit={handleSend} className="pt-2 sticky bottom-0 bg-[var(--base)]">
-          <div className="flex items-center gap-2 p-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--selo)] transition-all">
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder={`Enviar mensagem para ${agentName}…`}
-              disabled={sending}
-              className="flex-1 bg-transparent px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={sending || !inputMessage.trim()}
-              className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-medium hover:bg-[var(--nucleo)] disabled:opacity-40 disabled:hover:bg-[var(--selo)] transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
-            >
-              {sending ? (
-                <>
-                  <span className="w-3 h-3 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
-                  Enviando
-                </>
-              ) : (
-                <>Enviar</>
-              )}
-            </button>
+        {/* Composer Input Bar */}
+        <form onSubmit={handleSend} className="pt-2 sticky bottom-0 bg-[var(--base)] space-y-2">
+          <div className="p-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--selo)] transition-all space-y-2">
+            <div className="flex items-end gap-2">
+              {/* Anexos '+' Button placeholder */}
+              <button
+                type="button"
+                className="p-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--base)] transition-colors text-lg shrink-0 cursor-pointer"
+                title="Anexar arquivo (em breve)"
+              >
+                +
+              </button>
+
+              {/* Auto-expanding Textarea */}
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                maxLength={4000}
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={`Enviar mensagem para ${agentName}…`}
+                disabled={sending}
+                enterKeyHint="send"
+                style={{ resize: "none" }}
+                className="flex-1 bg-transparent px-2 py-1 text-[16px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-50 min-h-[36px] max-h-[320px] overflow-y-hidden leading-snug"
+              />
+
+              {/* Send Button */}
+              <button
+                type="submit"
+                disabled={sending || !inputMessage.trim()}
+                className="px-4 py-2.5 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:bg-[var(--nucleo)] disabled:opacity-40 disabled:hover:bg-[var(--selo)] transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer self-end mb-0.5"
+              >
+                {sending ? (
+                  <>
+                    <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
+                    Enviando
+                  </>
+                ) : (
+                  <>Enviar</>
+                )}
+              </button>
+            </div>
+
+            {/* Character counter (>= 2500) */}
+            {showCounter && (
+              <div className="flex justify-end px-2 pt-1 border-t border-[var(--border)]/40 text-[11px] font-mono">
+                <span className={getCounterColor()}>
+                  {charCount.toLocaleString("pt-BR")} / 4.000
+                </span>
+              </div>
+            )}
           </div>
+
+          {/* Smart Long-Input Inline Hint (>= 1500 chars) */}
+          {showLongInputHint && (
+            <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl border border-[var(--selo)]/30 bg-[var(--selo)]/10 text-xs animate-in fade-in duration-200">
+              <span className="text-[var(--text-primary)] font-medium text-[11px] sm:text-xs">
+                ✨ Texto longo detectado. Transformar em artefato antes de enviar?
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsLongInputModalOpen(true)}
+                className="px-3 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:bg-[var(--nucleo)] transition-colors shrink-0 cursor-pointer shadow-xs"
+              >
+                Transformar
+              </button>
+            </div>
+          )}
         </form>
       </main>
 
@@ -330,6 +437,14 @@ export default function ChatPage() {
         isDanger={true}
         onConfirm={confirmClearHistory}
         onCancel={() => setIsClearModalOpen(false)}
+      />
+
+      {/* Smart Long-Input Modal */}
+      <LongInputModal
+        isOpen={isLongInputModalOpen}
+        initialText={inputMessage}
+        onClose={() => setIsLongInputModalOpen(false)}
+        onConfirmTransform={handleConfirmTransform}
       />
 
       {/* Toast Notifications */}
