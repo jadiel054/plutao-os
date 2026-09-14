@@ -8,7 +8,7 @@ import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useModelMode } from "@/hooks/useModelMode";
 
-type TabType = "ia" | "perfil" | "notificacoes" | "aparencia" | "seguranca" | "sobre";
+type TabType = "ia" | "perfil" | "notificacoes" | "seguranca" | "sobre";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -124,7 +124,7 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       // 1. Save agent info via API
-      await fetch("/api/agent", {
+      const res = await fetch("/api/agent", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -133,6 +133,18 @@ export default function SettingsPage() {
           personality: agentPersonality,
         }),
       });
+
+      if (!res.ok) {
+        let errorMsg = "Erro ao salvar configurações do agente";
+        try {
+          const errData = await res.json();
+          if (errData.error) errorMsg = errData.error;
+        } catch {
+          /* ignore json parse failure */
+        }
+        addToast(errorMsg, "error");
+        return;
+      }
 
       // 2. Save preferences in localStorage
       if (typeof window !== "undefined") {
@@ -210,7 +222,6 @@ export default function SettingsPage() {
     { id: "ia", label: "IA & Operação", icon: "🤖" },
     { id: "perfil", label: "Conta & Agente", icon: "👤" },
     { id: "notificacoes", label: "Notificações", icon: "🔔" },
-    { id: "aparencia", label: "Aparência", icon: "🎨" },
     { id: "seguranca", label: "Privacidade", icon: "🔒" },
     { id: "sobre", label: "Sobre & Ajuda", icon: "ℹ️" },
   ];
@@ -538,102 +549,6 @@ export default function SettingsPage() {
             </section>
           )}
 
-          {/* SECTION 4: Aparência */}
-          {activeTab === "aparencia" && (
-            <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-6 animate-in fade-in duration-200">
-              <div className="flex items-center gap-2 pb-3 border-b border-[var(--border)]">
-                <span className="text-xl">🎨</span>
-                <div>
-                  <h2 className="text-base font-semibold">4. Aparência e Tema Visual</h2>
-                  <p className="text-xs text-[var(--text-muted)]">
-                    Personalize o estilo visual, densidade da interface e idioma
-                  </p>
-                </div>
-              </div>
-
-              {/* Theme selection */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[var(--text-secondary)]">Tema de Cores</label>
-                <div className="grid grid-cols-3 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode("dark")}
-                    className={`p-3 rounded-xl border text-xs font-medium text-center transition-all cursor-pointer ${
-                      themeMode === "dark"
-                        ? "border-[var(--selo)] bg-[var(--selo)]/10 text-[var(--selo)]"
-                        : "border-[var(--border)] bg-[var(--base)] text-[var(--text-secondary)]"
-                    }`}
-                  >
-                    🌙 Escuro (Dark First)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode("light")}
-                    className={`p-3 rounded-xl border text-xs font-medium text-center transition-all cursor-pointer ${
-                      themeMode === "light"
-                        ? "border-[var(--selo)] bg-[var(--selo)]/10 text-[var(--selo)]"
-                        : "border-[var(--border)] bg-[var(--base)] text-[var(--text-secondary)]"
-                    }`}
-                  >
-                    ☀️ Claro
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode("system")}
-                    className={`p-3 rounded-xl border text-xs font-medium text-center transition-all cursor-pointer ${
-                      themeMode === "system"
-                        ? "border-[var(--selo)] bg-[var(--selo)]/10 text-[var(--selo)]"
-                        : "border-[var(--border)] bg-[var(--base)] text-[var(--text-secondary)]"
-                    }`}
-                  >
-                    💻 Sistema
-                  </button>
-                </div>
-              </div>
-
-              {/* UI Density */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[var(--text-secondary)]">Densidade da Interface</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setDensityMode("comfortable")}
-                    className={`p-3 rounded-xl border text-xs font-medium text-center transition-all cursor-pointer ${
-                      densityMode === "comfortable"
-                        ? "border-[var(--selo)] bg-[var(--selo)]/10 text-[var(--selo)]"
-                        : "border-[var(--border)] bg-[var(--base)] text-[var(--text-secondary)]"
-                    }`}
-                  >
-                    🛋️ Confortável (Padrão)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDensityMode("compact")}
-                    className={`p-3 rounded-xl border text-xs font-medium text-center transition-all cursor-pointer ${
-                      densityMode === "compact"
-                        ? "border-[var(--selo)] bg-[var(--selo)]/10 text-[var(--selo)]"
-                        : "border-[var(--border)] bg-[var(--base)] text-[var(--text-secondary)]"
-                    }`}
-                  >
-                    ⚡ Compacta (Mais dados por tela)
-                  </button>
-                </div>
-              </div>
-
-              {/* Language */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[var(--text-secondary)]">Idioma</label>
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value as "pt-BR" | "en-US")}
-                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-2.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)] cursor-pointer"
-                >
-                  <option value="pt-BR">🇧🇷 Português (Brasil)</option>
-                  <option value="en-US">🇺🇸 English (US)</option>
-                </select>
-              </div>
-            </section>
-          )}
 
           {/* SECTION 5: Privacidade e Segurança */}
           {activeTab === "seguranca" && (
