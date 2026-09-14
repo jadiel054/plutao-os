@@ -12,7 +12,10 @@
 
 import { useState, useEffect } from "react";
 import { useModelMode, getStatusColor, getStatusLabel } from "@/hooks/useModelMode";
-import { LocalModelStatus } from "@plutao/domain";
+import type { LocalModelStatus } from "@plutao/domain";
+
+// JSX Intrinsic Elements type for React
+import type { JSX } from "react";
 
 // ============================================================
 // Types

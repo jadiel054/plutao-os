@@ -153,12 +153,14 @@ export interface AuditEvent {
 // Agent Loop (Runtime)
 // ============================================================
 
-export {
+export type {
   AgentLoopState,
   LoopIterationResult,
   AgentLoopResult,
   ModelProvider,
   ToolDispatcher,
+} from "./runtime/agentLoop";
+export {
   MIN_ITERATIONS,
   MAX_ITERATIONS,
   DEFAULT_ITERATIONS,
@@ -172,10 +174,12 @@ export {
 // Model Providers
 // ============================================================
 
-export {
-  LocalProvider,
+export type {
   LocalModelConfig,
   LocalModelStatus,
+} from "./runtime/providers/localProvider";
+export {
+  LocalProvider,
   DEFAULT_LOCAL_MODEL_ID,
   FALLBACK_LOCAL_MODEL_ID,
   DEFAULT_LOCAL_CONFIG,
@@ -188,10 +192,13 @@ export {
 // Model Selector (Híbrido Online/Offline)
 // ============================================================
 
-export {
+export type {
   ModelMode,
   ModelProviderSelection,
   ModelSelectorConfig,
+  ModelSelector,
+} from "./runtime/modelSelector";
+export {
   DEFAULT_MODEL_MODE,
   DEFAULT_OFFLINE_MODEL_ID,
   DEFAULT_ONLINE_MODEL_ID,
@@ -202,7 +209,6 @@ export {
   getStoredMode,
   saveMode,
   clearStoredMode,
-  ModelSelector,
   createModelSelector,
   getModelSelector,
   resetModelSelector,

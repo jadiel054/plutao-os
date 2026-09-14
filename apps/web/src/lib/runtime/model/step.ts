@@ -1,15 +1,96 @@
+/**
+ * Model Step - Execução de passo do modelo com integração híbrida (Online/Offline)
+ * 
+ * Implementa:
+ * - Chamada ao modelo (Groq ou Local)
+ * - Persistência de checkpoints no banco de dados
+ * - Integração com LocalProvider para modo offline
+ * - Tool dispatch automático
+ */
+
 import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { agents, executions, missions, tasks } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { getOwnedExecution } from "@/lib/runtime/service";
+import { saveCheckpoint } from "@/lib/runtime/checkpoint";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
 import { chatCompletion } from "./client";
 import { getModelConfig } from "./config";
-import type { ModelMessage } from "./types";
+import { ModelProviderFactory, setModelProviderMode } from "./provider";
+import type { ModelMessage, ModelStepResult, ModelToolProposal } from "./types";
+import { ModelMode, getModelSelector } from "@plutao/domain";
 
+// ============================================================
+// Types
+// ============================================================
+
+type CheckpointShape = {
+  step?: string;
+  stepIndex?: number;
+  taskId?: string | null;
+  note?: string;
+  evidenceId?: string;
+  completedTaskIds?: string[];
+  toolCalls?: string[];
+  lastModel?: { provider: string; model: string; evidenceId: string };
+  modelMode?: ModelMode;
+  localModelId?: string;
+  localModelStatus?: "idle" | "loading" | "loaded" | "error";
+};
+
+function asCp(raw: unknown): CheckpointShape {
+  if (raw && typeof raw === "object") return raw as CheckpointShape;
+  return {};
+}
+
+// ============================================================
+// Helper Functions
+// ============================================================
+
+/**
+ * Obtém o provedor de modelo apropriado com base no modo
+ */
+async function getModelProvider(mode: ModelMode) {
+  try {
+    const provider = await ModelProviderFactory.getProvider({ mode });
+    return provider;
+  } catch (error) {
+    console.error("[getModelProvider]", error);
+    return null;
+  }
+}
+
+/**
+ * Chama o modelo usando o provedor apropriado
+ */
+async function callModelWithProvider(
+  provider: any,
+  messages: ModelMessage[]
+): Promise<{
+  result: ModelStepResult;
+  providerType: "groq" | "local";
+  modelId: string;
+}> {
+  const startTime = Date.now();
+  const result = await provider.callModel(messages);
+  const latencyMs = Date.now() - startTime;
+
+  return {
+    result: {
+      ...result,
+      latencyMs,
+    },
+    providerType: provider.getProviderType(),
+    modelId: provider.getModelId(),
+  };
+}
+
+/**
+ * Build system prompt para o modelo
+ */
 function buildSystemPrompt(agent: {
   name: string;
   identity: string | null;
@@ -47,30 +128,59 @@ Rules:
 - Keep replies concise.`;
 }
 
-type CheckpointShape = {
-  step?: string;
-  stepIndex?: number;
-  taskId?: string | null;
-  note?: string;
-  evidenceId?: string;
-  completedTaskIds?: string[];
-  toolCalls?: string[];
-  lastModel?: { provider: string; model: string; evidenceId: string };
-};
+// ============================================================
+// Main Function
+// ============================================================
 
-function asCp(raw: unknown): CheckpointShape {
-  if (raw && typeof raw === "object") return raw as CheckpointShape;
-  return {};
-}
-
+/**
+ * Executa um passo do modelo para uma execução
+ * 
+ * Fluxo:
+ * 1. Obtém configuração do modelo com base no modo (auto/online/offline)
+ * 2. Verifica se execução existe e está em estado recuperável
+ * 3. Carrega contexto (missão, agent, tasks, evidence)
+ * 4. Chama o modelo (Groq ou Local) com base no modo
+ * 5. Salva evidence no banco
+ * 6. Salva checkpoint no banco (PERSISTÊNCIA)
+ * 7. Executa tool dispatch se modelo propuser tool
+ * 
+ * @param executionId - ID da execução
+ * @param userId - ID do usuário
+ * @param additionalMessages - Mensagens adicionais de contexto
+ * @param mode - Modo de modelo (auto/online/offline)
+ * @returns Resultado do passo do modelo
+ */
 export async function runModelStep(
   executionId: string,
   userId: string,
-  additionalMessages: ModelMessage[] = []
-) {
-  const config = getModelConfig();
-  if (!config) {
-    return { error: "MODEL_NOT_CONFIGURED" as const };
+  additionalMessages: ModelMessage[] = [],
+  mode?: ModelMode
+): Promise<
+  | {
+      applied: true;
+      execution: any;
+      model: ModelStepResult;
+      evidence: EvidenceItem;
+      toolDispatch: unknown;
+      message: string;
+    }
+  | {
+      error: string;
+      hint?: string;
+      detail?: string;
+    }
+> {
+  // Determina modo a usar
+  const effectiveMode = mode || "auto";
+  
+  // Define modo no provider factory
+  setModelProviderMode(effectiveMode);
+
+  // Obtém provedor de modelo com base no modo
+  const provider = await getModelProvider(effectiveMode);
+  
+  if (!provider) {
+    return { error: "MODEL_PROVIDER_NOT_AVAILABLE" as const };
   }
 
   const execution = await getOwnedExecution(executionId, userId);
@@ -114,11 +224,17 @@ export async function runModelStep(
   const evidence = parseEvidence(mission.evidence).slice(-8);
   const cp = asCp(execution.checkpoint);
 
+  // Adiciona informação do modo ao checkpoint
+  const cpWithMode: CheckpointShape = {
+    ...cp,
+    modelMode: effectiveMode,
+  };
+
   const userPrompt = [
     `Mission objective: ${mission.objective}`,
     mission.definitionOfDone ? `Definition of done: ${mission.definitionOfDone}` : null,
     `Execution status: ${execution.status}`,
-    `Checkpoint: ${JSON.stringify(cp)}`,
+    `Checkpoint: ${JSON.stringify(cpWithMode)}`,
     "Tasks:",
     ...taskRows.map((t) => `- [${t.status}] ${t.title} (${t.id})`),
     "Recent evidence:",
@@ -134,9 +250,16 @@ export async function runModelStep(
     ...additionalMessages,
   ];
 
-  let modelResult;
+  // Chama o modelo usando o provedor apropriado
+  let modelResult: ModelStepResult;
+  let providerType: "groq" | "local";
+  let modelId: string;
+
   try {
-    modelResult = await chatCompletion(config, messages);
+    const callResult = await callModelWithProvider(provider, messages);
+    modelResult = callResult.result;
+    providerType = callResult.providerType;
+    modelId = callResult.modelId;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "model call failed";
     return { error: "MODEL_CALL_FAILED" as const, detail: msg };
@@ -150,7 +273,7 @@ export async function runModelStep(
     id: evidenceId,
     type: "model_step",
     content: modelResult.content || "(empty model response)",
-    source: `model:${modelResult.provider}`,
+    source: `model:${providerType}:${modelId}`,
     taskId: execution.currentTaskId,
     missionId: execution.missionId,
     createdAt: now.toISOString(),
@@ -162,20 +285,28 @@ export async function runModelStep(
     .set({ evidence: [...prevEv, evidenceItem], updatedAt: now })
     .where(eq(missions.id, execution.missionId));
 
+  // Cria checkpoint com informações do modelo
   const nextCp: CheckpointShape = {
     ...cp,
     step: "model_step",
     stepIndex,
     taskId: execution.currentTaskId,
-    note: `model ${modelResult.provider}/${modelResult.model}`,
+    note: `model ${providerType}/${modelId}`,
     evidenceId,
     lastModel: {
-      provider: modelResult.provider,
-      model: modelResult.model,
+      provider: providerType,
+      model: modelId,
       evidenceId,
     },
+    modelMode: effectiveMode,
+    localModelId: providerType === "local" ? modelId : undefined,
+    localModelStatus: providerType === "local" ? ("loaded" as const) : undefined,
   };
 
+  // Salva checkpoint no banco (PERSISTÊNCIA)
+  const checkpointResult = await saveCheckpoint(executionId, userId, nextCp);
+  
+  // Atualiza execução com checkpoint
   const updatedExec = await db
     .update(executions)
     .set({
@@ -196,6 +327,19 @@ export async function runModelStep(
       input: modelResult.toolProposal.input,
       taskId: execution.currentTaskId,
     });
+
+    // Atualiza checkpoint com informação da tool
+    if (toolDispatch && typeof toolDispatch === "object" && "ok" in toolDispatch) {
+      const toolDispatchResult = toolDispatch as { ok: boolean; evidenceId?: string };
+      const toolCp = updateCheckpointWithTool(nextCp, {
+        toolName: modelResult.toolProposal.name,
+        toolInput: modelResult.toolProposal.input,
+        toolEvidenceId: toolDispatchResult.evidenceId,
+      });
+      
+      // Salva checkpoint atualizado
+      await saveCheckpoint(executionId, userId, toolCp);
+    }
   }
 
   return {
@@ -207,5 +351,33 @@ export async function runModelStep(
     message: modelResult.toolProposal
       ? "model step + tool dispatch attempted"
       : "model step recorded",
+  };
+}
+
+// ============================================================
+// Helper para atualizar checkpoint com tool
+// ============================================================
+
+/**
+ * Atualiza checkpoint com informação de tool call
+ */
+function updateCheckpointWithTool(
+  checkpoint: CheckpointShape,
+  toolInfo: {
+    toolName: string;
+    toolInput: string;
+    toolEvidenceId?: string;
+  }
+): CheckpointShape {
+  return {
+    ...checkpoint,
+    step: "tool_call",
+    stepIndex: checkpoint.stepIndex ? checkpoint.stepIndex + 1 : 1,
+    toolCalls: [
+      ...(checkpoint.toolCalls || []),
+      `${toolInfo.toolName}:${toolInfo.toolInput.substring(0, 50)}`,
+    ],
+    evidenceId: toolInfo.toolEvidenceId || checkpoint.evidenceId,
+    note: `Tool ${toolInfo.toolName} executed`,
   };
 }

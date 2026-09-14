@@ -203,15 +203,15 @@ export async function runAgentLoop(
       });
       
       stopReason = `MODEL_STEP_ERROR: ${stepResult.error}`;
-      if (stepResult.evidence?.id) {
-        evidenceIds.push(stepResult.evidence.id);
+      if ("evidence" in stepResult && (stepResult as any).evidence?.id) {
+        evidenceIds.push((stepResult as any).evidence.id);
       }
       break;
     }
 
     // Adiciona evidenceId do model step
-    if (stepResult.evidence?.id) {
-      evidenceIds.push(stepResult.evidence.id);
+    if ("evidence" in stepResult && (stepResult as any).evidence?.id) {
+      evidenceIds.push((stepResult as any).evidence.id);
     }
 
     // Verifica se modelo propôs tool

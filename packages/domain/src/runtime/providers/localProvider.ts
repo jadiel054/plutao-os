@@ -152,7 +152,7 @@ export class LocalProvider {
   /**
    * Verifica se WebGPU está disponível no navegador
    */
-  private static async checkWebGPUSupport(): Promise<boolean> {
+  static async checkWebGPUSupport(): Promise<boolean> {
     // Verifica se estamos no navegador
     if (typeof window === "undefined" || !window.navigator) {
       return false;
