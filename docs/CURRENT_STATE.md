@@ -4,60 +4,50 @@
 
 ## Fase
 
-Runtime completo (Phases 1–3 + loop + tools + model provider) **VERIFIED** / model real (Groq) **VERIFIED** em produção.
-**Agent profile + mission evidence** → **VERIFIED** (prod).
-**Cockpit autonomia V1 (Executar missão)** → **VERIFIED** (prod, 2026-09-14).
-**DoD determinístico (VERIFYING → COMPLETED)** → **IMPLEMENTED** (API + gate).
+Runtime + Agent Loop + Filesystem + Cockpit + **Autonomia V1.1** + **DoD gate** → **VERIFIED** em produção.
 
 ## Matriz
 
 | Área | Status |
 |------|--------|
-| Durable Runtime / Loop / Tools / Cockpit | VERIFIED |
-| Model provider (Groq gpt-oss-120b) | VERIFIED |
-| `GET/PUT /api/agent` | VERIFIED |
-| `GET /api/missions/:id/evidence` | VERIFIED |
+| Durable Runtime / Loop / Tools | VERIFIED |
+| Model Groq `openai/gpt-oss-120b` | VERIFIED |
+| Evidence API | VERIFIED |
 | Filesystem Tool V1 | VERIFIED |
-| **▶ Executar missão** (ciclo + runtime + model steps) | **VERIFIED** |
-| **DoD `GET/POST /api/missions/:id/verify`** | **IMPLEMENTED** |
-| **Gate COMPLETED sem evidência** | **IMPLEMENTED** |
+| ▶ Executar missão (ciclo + steps) | VERIFIED |
+| Auto runtime complete + VERIFYING + COMPLETED se DoD OK | **VERIFIED** (prod, AUTO_V11) |
+| DoD `GET/POST /api/missions/:id/verify` + gate COMPLETED | **VERIFIED** |
+| MissionDoDPanel (componente) | IMPLEMENTED (wire UI pendente) |
+| OfflineBanner | IMPLEMENTED |
+| Teste offline formal | **DESIGNED** (`docs/OFFLINE_TEST.md`) |
 
-## Agent Loop V1 — VERIFIED em produção
+## Autonomia V1.1 (prod)
 
-Provider: Groq `openai/gpt-oss-120b` via OpenAI-compatible endpoint.
+Um clique em **▶ Executar missão**:
+1. Transições até EXECUTING
+2. Runtime + model steps (≤5)
+3. Complete runtime
+4. → VERIFYING
+5. DoD determinístico
+6. → COMPLETED se passou
 
-Trace típico (missão auto-ok):
-```
-model_step → filesystem write → tool_result (path+size)
-         → filesystem read  → tool_result (path+content)
-         → note / completed text
-```
+Prova: missão `notes/auto-v11.txt` / `AUTO_V11` → COMPLETED sem cliques manuais extras.
 
-## DoD V1 (determinístico)
+## DoD V1
 
-- Módulo: `apps/web/src/lib/missions/dod.ts`
-- API: `GET|POST /api/missions/:id/verify`
-- Gate: `PATCH` transição `VERIFYING → COMPLETED` exige `verifyDefinitionOfDone().passed`
-- Escape: `force: true` no body (operador) — uso excepcional
-- Critérios:
-  - há evidências
-  - há tool_result / write / read (não só texto do LLM)
-  - se o objective cita path/conteúdo, deve aparecer nas evidências
-  - se `definitionOfDone` está preenchido, tokens devem refletir nas evidências
+- `apps/web/src/lib/missions/dod.ts`
+- Gate em `PATCH` VERIFYING→COMPLETED
+- Escape: `force: true`
 
-## Como testar DoD
+## Offline
 
-1. Missão com objective de arquivo (ex.: `notes/auto-ok.txt` + `AUTO_OK`)
-2. **▶ Executar missão** até evidence de write/read
-3. Concluir runtime → **→ VERIFYING**
-4. `GET /api/missions/:id/verify` → `passed: true`
-5. **→ COMPLETED** (deve aceitar)
-6. Missão sem evidence: COMPLETED deve retornar `409 DoD_FAILED`
+- Protocolo: `docs/OFFLINE_TEST.md`
+- Banner: `OfflineBanner` (ligar no layout/header)
+- Princípio: missão não se divide; UI pode degradar; APIs cloud falham de forma controlada
 
 ## Próximos marcos
 
-1. UI no cockpit: painel DoD (checks verdes/vermelhos) + botão Verificar
-2. Auto-complete runtime quando o loop termina sem tool proposal
-3. Reconciliação offline→online (teste com rede cortada)
-4. Atualizar ARCHITECTURE.md com realidade de prod
-5. 1 tool nova OU adapter durável (background)
+1. Wire `MissionDoDPanel` + `OfflineBanner` no cockpit/layout
+2. Executar roteiro `OFFLINE_TEST.md` e marcar VERIFIED com prints
+3. Atualizar `ARCHITECTURE.md` com realidade de prod
+4. 1 tool nova OU adapter durável (background)
