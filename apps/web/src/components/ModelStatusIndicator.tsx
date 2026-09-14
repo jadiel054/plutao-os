@@ -1,6 +1,6 @@
 /**
  * ModelStatusIndicator - Componente para mostrar status do modelo
- *
+ * 
  * Exibe:
  * - Modo atual (ONLINE, OFFLINE, AUTO)
  * - Status de conexão
@@ -12,7 +12,10 @@
 
 import { useState, useEffect } from "react";
 import { useModelMode, getStatusColor, getStatusLabel } from "@/hooks/useModelMode";
-import { LocalModelStatus } from "@plutao/domain";
+import type { LocalModelStatus } from "@plutao/domain";
+
+// JSX Intrinsic Elements type for React
+import type { JSX } from "react";
 
 // ============================================================
 // Types
@@ -22,13 +25,13 @@ import { LocalModelStatus } from "@plutao/domain";
 export interface ModelStatusIndicatorProps {
   /** Se deve mostrar o seletor de modo */
   showSelector?: boolean;
-
+  
   /** Se deve mostrar status detalhado */
   showDetailedStatus?: boolean;
-
+  
   /** Callback quando o modo muda */
   onModeChange?: (mode: "auto" | "online" | "offline") => void;
-
+  
   /** Posição do componente */
   position?: "top-right" | "top-left" | "bottom-right" | "bottom-left";
 }
@@ -115,7 +118,7 @@ export function ModelStatusIndicator({
   };
 
   // Obtém ícone do status
-  const getStatusIcon = () => {
+  const getStatusIcon = (): JSX.Element => {
     if (isLocal) {
       return (
         <span className="text-sm font-bold">
@@ -194,35 +197,35 @@ export function ModelStatusIndicator({
                   onClick={() => handleModeChange("auto")}
                   className={`
                     w-full text-left px-3 py-2 rounded text-sm transition-colors
-                    ${mode === "auto"
-                      ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300"
+                    ${mode === "auto" 
+                      ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300" 
                       : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
                     }
                   `}
                 >
                   🔄 Auto (detecta conexão)
                 </button>
-
+                
                 <button
                   onClick={() => handleModeChange("online")}
                   className={`
                     w-full text-left px-3 py-2 rounded text-sm transition-colors
-                    ${mode === "online"
-                      ? "bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300"
+                    ${mode === "online" 
+                      ? "bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300" 
                       : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
                     }
                   `}
                 >
                   🟢 Online (Groq - gpt-oss-120b)
                 </button>
-
+                
                 <button
                   onClick={() => handleModeChange("offline")}
                   disabled={!webGPUSupported}
                   className={`
                     w-full text-left px-3 py-2 rounded text-sm transition-colors
-                    ${mode === "offline"
-                      ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300"
+                    ${mode === "offline" 
+                      ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300" 
                       : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
                     }
                     ${!webGPUSupported ? "opacity-50 cursor-not-allowed" : ""}
@@ -344,6 +347,7 @@ export interface ModelLoadingIndicatorProps {
 export function ModelLoadingIndicator({
   status,
   modelId,
+  error,
 }: ModelLoadingIndicatorProps) {
   if (status !== "loading") {
     return null;

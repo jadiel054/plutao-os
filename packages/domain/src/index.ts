@@ -153,6 +153,13 @@ export interface AuditEvent {
 // Agent Loop (Runtime)
 // ============================================================
 
+export type {
+  AgentLoopState,
+  LoopIterationResult,
+  AgentLoopResult,
+  ModelProvider,
+  ToolDispatcher,
+} from "./runtime/agentLoop";
 export {
   MIN_ITERATIONS,
   MAX_ITERATIONS,
@@ -163,18 +170,14 @@ export {
   formatLoopResult,
 } from "./runtime/agentLoop";
 
-export type {
-  AgentLoopState,
-  LoopIterationResult,
-  AgentLoopResult,
-  ModelProvider,
-  ToolDispatcher,
-} from "./runtime/agentLoop";
-
 // ============================================================
 // Model Providers
 // ============================================================
 
+export type {
+  LocalModelConfig,
+  LocalModelStatus,
+} from "./runtime/providers/localProvider";
 export {
   LocalProvider,
   DEFAULT_LOCAL_MODEL_ID,
@@ -185,15 +188,16 @@ export {
   resetLocalProvider,
 } from "./runtime/providers/localProvider";
 
-export type {
-  LocalModelConfig,
-  LocalModelStatus,
-} from "./runtime/providers/localProvider";
-
 // ============================================================
 // Model Selector (Híbrido Online/Offline)
 // ============================================================
 
+export type {
+  ModelMode,
+  ModelProviderSelection,
+  ModelSelectorConfig,
+  ModelSelector,
+} from "./runtime/modelSelector";
 export {
   DEFAULT_MODEL_MODE,
   DEFAULT_OFFLINE_MODEL_ID,
@@ -205,34 +209,8 @@ export {
   getStoredMode,
   saveMode,
   clearStoredMode,
-  ModelSelector,
   createModelSelector,
   getModelSelector,
   resetModelSelector,
   getModelProvider,
 } from "./runtime/modelSelector";
-
-export type {
-  ModelMode,
-  ModelProviderSelection,
-  ModelSelectorConfig,
-} from "./runtime/modelSelector";
-
-// ============================================================
-// Model Registry & Management
-// ============================================================
-
-export {
-  PRESET_MODELS,
-  filterModels,
-} from "./models/registry";
-
-export type {
-  AIModel,
-  ModelProviderType,
-  ModelCategory,
-  HardwareRequirement,
-  ModelStatusState,
-  ModelDownloadProgress,
-  ModelFilterOptions,
-} from "./models/registry";

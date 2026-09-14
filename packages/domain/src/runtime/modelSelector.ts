@@ -1,9 +1,9 @@
 /**
  * Model Selector - Seletor Híbrido de Modelos
- *
+ * 
  * Gerencia a seleção entre provedores de modelo (Online vs Offline).
  * Implementa detecção automática de conexão e persistência de preferência do usuário.
- *
+ * 
  * Modos:
  * - auto: Detecta conexão automaticamente (online com internet, offline sem)
  * - online: Force uso exclusivo do Groq (ou outro provedor online)
@@ -32,16 +32,16 @@ export type ModelMode = "auto" | "online" | "offline";
 export interface ModelProviderSelection {
   /** Modo selecionado */
   mode: ModelMode;
-
+  
   /** Tipo do provedor: "groq", "local", etc. */
   providerType: "groq" | "local";
-
+  
   /** ID do modelo a ser usado */
   modelId: string;
-
+  
   /** Se está usando conexão online */
   isOnline: boolean;
-
+  
   /** Se está usando modelo local */
   isLocal: boolean;
 }
@@ -50,13 +50,13 @@ export interface ModelProviderSelection {
 export interface ModelSelectorConfig {
   /** Modo padrão (default: "auto") */
   defaultMode: ModelMode;
-
+  
   /** ID do modelo para modo offline */
   offlineModelId: string;
-
+  
   /** ID do modelo para modo online */
   onlineModelId: string;
-
+  
   /** Chave para persistência no localStorage */
   storageKey: string;
 }
@@ -110,13 +110,13 @@ export async function checkOnlineStatus(): Promise<boolean> {
     // Usa um endpoint leve para ping
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-
+    
     const response = await fetch("https://api.groq.com/v1/models", {
       method: "GET",
       signal: controller.signal,
       cache: "no-store",
     });
-
+    
     clearTimeout(timeout);
     return response.ok;
   } catch {
@@ -132,13 +132,13 @@ export async function checkWebGPUSupport(): Promise<boolean> {
     return false;
   }
 
-
+  
   if (!window.navigator.gpu) {
     return false;
   }
 
   try {
-
+    
     const adapter = await window.navigator.gpu.requestAdapter();
     return !!adapter;
   } catch {
@@ -218,7 +218,7 @@ export class ModelSelector {
       ...DEFAULT_SELECTOR_CONFIG,
       ...config,
     };
-
+    
     // Carrega modo do localStorage ou usa padrão
     const storedMode = getStoredMode(this.config.storageKey);
     this.mode = storedMode || this.config.defaultMode;
@@ -393,14 +393,14 @@ export function resetModelSelector(): void {
 
 /**
  * Função principal para obter o provedor de modelo com base no modo
- *
+ * 
  * @param mode - Modo desejado (auto, online, offline). Se não fornecido, usa o padrão
  * @returns O provedor de modelo apropriado
- *
+ * 
  * Uso:
  * ```typescript
  * import { getModelProvider } from "@plutao/domain";
- *
+ * 
  * const provider = await getModelProvider("auto");
  * const result = await provider.callModel(messages);
  * ```
@@ -414,18 +414,18 @@ export async function getModelProvider(mode?: ModelMode): Promise<{
 }> {
   // Obtém seletor
   const selector = getModelSelector();
-
+  
   // Define modo se fornecido
   if (mode) {
     selector.setMode(mode);
   }
-
+  
   // Seleciona provedor
   const selection = await selector.selectProvider();
-
+  
   // Importa provedores dinamicamente para evitar dependência circular
   // e carregamento desnecessário no servidor
-
+  
   if (selection.isLocal) {
     // Carrega LocalProvider
     const { LocalProvider } = await import("./providers/localProvider");
@@ -436,7 +436,7 @@ export async function getModelProvider(mode?: ModelMode): Promise<{
       maxTokens: 1024,
       useCache: true,
     });
-
+    
     return {
       provider,
       mode: selection.mode,
@@ -445,7 +445,7 @@ export async function getModelProvider(mode?: ModelMode): Promise<{
       isLocal: true,
     };
   }
-
+  
   // Para online, retornamos a configuração - o GroqProvider já existe
   // e não precisa ser instanciado aqui (é gerenciado separadamente)
   // Retornamos null para provider e o chamador deve usar o GroqProvider existente

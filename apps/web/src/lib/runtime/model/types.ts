@@ -1,4 +1,4 @@
-export type ModelProviderId = "xai" | "openai";
+export type ModelProviderId = "xai" | "openai" | "local";
 
 export type ModelMessage = {
   role: "system" | "user" | "assistant";
