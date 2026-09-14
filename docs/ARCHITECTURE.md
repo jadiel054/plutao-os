@@ -1,66 +1,114 @@
 # ARCHITECTURE.md — Plutão
 
-**Status:** DESIGNED (runtime engines not implemented)  
-**Aligned with:** PROJECT_SPECIFICATION.md Architecture Baseline v1.0
+**Status:** IMPLEMENTED / VERIFIED in Production (Runtime Engine, Agent Loop, Tool Dispatcher, Model Plane, DoD Engine)
+**Aligned with:** `docs/PROJECT_SPECIFICATION.md` Architecture Baseline v1.0 & `docs/CURRENT_STATE.md`
 
-## Runtime target (spec)
+---
+
+## 🏛️ Operational Architecture (Current State)
 
 ```text
-USER → PWA → AGENT GATEWAY → MISSION ENGINE → WORKFLOW CORE
-  → DURABLE EXECUTION → AGENT RUNTIME
-       ├── Context Engine
-       ├── Model Router → Model Gateway → Providers
-       └── Tool Broker → Policy → Approval → Sandbox
-  → Evidence → Verification → State
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                               USER / PWA COCKPIT                                │
+│           (Cockpit UI, Timeline, Evidence Panel, DoD Panel, PWA Shell)          │
+└──────────────────────────────────────┬──────────────────────────────────────────┘
+                                       │ Async Requests / JSON APIs
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                               MISSION ENGINE & APIs                             │
+│     Routes: /api/missions/*, /api/executions/*, /api/tasks/*, /api/auth/*     │
+│     State Machine: CREATED → EXECUTING → VERIFYING → COMPLETED/FAILED/BLOCKED  │
+└──────────────────────────────────────┬──────────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        DURABLE RUNTIME & CHECKPOINTS                            │
+│     - Checkpoint Persistence (saveCheckpoint / restoreCheckpoint to Neon DB)    │
+│     - Step Memoization & Execution State Recovery                               │
+└──────────────────────────────────────┬──────────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                   AGENT LOOP                                    │
+│     - Iterative model calling & tool reinjection (runAgentLoop)                 │
+│     - Context construction & step execution tracing                             │
+└──────────────────────────────────────┬──────────────────────────────────────────┘
+                                       │
+                 ┌─────────────────────┴─────────────────────┐
+                 ▼                                           ▼
+┌─────────────────────────────────┐         ┌─────────────────────────────────┐
+│       ONLINE MODEL ROUTER       │         │      OFFLINE LOCAL ROUTER       │
+│  (Groq: openai/gpt-oss-120b)    │         │ (WebGPU / @huggingface/transformers)│
+└────────────────┬────────────────┘         └────────────────┬────────────────┘
+                 │                                           │
+                 └─────────────────────┬─────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            TOOL DISPATCHER & SANDBOX                            │
+│     - Tool Dispatcher & Execution Guard                                         │
+│     - Filesystem Tool V1 (list, read, write, mkdir, stat)                       │
+└──────────────────────────────────────┬──────────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                      EVIDENCE ENGINE & VERIFICATION LOOP                        │
+│     - Evidence Logging (/api/missions/:id/evidence)                             │
+│     - Definition of Done (DoD) Evaluation Engine & Gate (/api/missions/:id/verify)│
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Princípios arquiteturais ativos
+---
 
-1. Mission-first (chat é interface, não fonte de verdade)
-2. Continuity (fechar o PWA não mata a execução)
-3. Goal ≠ Plan
-4. Verification com evidência independente
-5. Security como subsystem explícito
-6. Runtime independence (adapters)
-7. Evidence e provenance
-8. Progressive complexity
-
-## Estrutura de repositório (atual — Phase 1)
+## 🏗️ Repository Structure
 
 ```text
 plutao-os/
 ├── apps/
-│   └── web/                 # Next.js 15 PWA cockpit
+│   └── web/                 # Next.js 15 PWA cockpit, API routes, runtime services
+│       ├── src/app/         # App router (pages, auth, cockpit, API routes)
+│       ├── src/components/  # UI components (Timeline, EvidencePanel, DoDPanel, OfflineBanner)
+│       ├── src/hooks/       # Client hooks (useModelMode, useModelManager)
+│       └── src/lib/         # Server/runtime core (runtime, missions, auth, db)
 ├── packages/
-│   ├── domain/              # Shared TypeScript domain types
-│   └── db/                  # Drizzle schema, Neon client, migrations
-├── services/                # Reserved for future extraction (empty)
-├── docs/
-├── .github/workflows/ci.yml
-├── package.json             # npm workspaces root
-└── .env.example
+│   ├── domain/              # Shared TypeScript domain models, agent loop, local provider, registry
+│   └── db/                  # Drizzle ORM schema, Neon client, versioned migrations
+├── services/                # Reserved for future microservices extraction
+├── docs/                    # Living system documentation
+├── README.md                # Project overview and public entry point
+└── package.json             # npm workspaces root
 ```
 
-## Phase 1 surface (implemented in code)
+---
 
-| Component | Location | Role |
-|-----------|----------|------|
-| PWA shell | `apps/web` | UI + Service Worker updates |
-| Domain types | `packages/domain` | Mission/Task/User types (no runtime logic) |
-| Schema | `packages/db/src/schema.ts` | 8 tables aligned with Neon |
-| Baseline SQL | `packages/db/drizzle/0000_baseline.sql` | Versioned mirror of Neon (already applied) |
-| DB client | `packages/db/src/client.ts` | Neon HTTP + Drizzle |
-| Health | `apps/web/src/app/api/health` | Process + optional DB ping |
+## 🧩 Implemented & Verified Capabilities
 
-## Not implemented yet (by design)
+| Component | Location | Role & Implementation Status |
+|-----------|----------|------------------------------|
+| **PWA Shell & Cockpit** | `apps/web/src/app/(app)/cockpit` | Mobile-first UI, Service Worker, mission execution trigger, DoD panel, evidence timeline. (**VERIFIED**) |
+| **Authentication & Isolation** | `apps/web/src/app/api/auth`, `ownership.ts` | Password hashing (scrypt), session tokens, route protection, strict `userId` data isolation. (**VERIFIED**) |
+| **Mission Core & State** | `packages/db/src/schema.ts`, `apps/web/src/app/api/missions` | State transitions (`CREATED` → `EXECUTING` → `VERIFYING` → `COMPLETED`/`FAILED`). (**VERIFIED**) |
+| **Durable Runtime & Checkpoints** | `apps/web/src/lib/runtime/checkpoint.ts` | State persistence, step memoization, and mission state recovery across sessions. (**VERIFIED**) |
+| **Agent Loop** | `packages/domain/src/runtime/agentLoop.ts`, `apps/web/src/lib/runtime/agent-loop.ts` | Multi-turn reasoning, tool call interpretation, result reinjection, iteration limiting. (**VERIFIED**) |
+| **Tool Dispatcher & Tools** | `apps/web/src/lib/runtime/tools/` | Tool Dispatcher executing `Filesystem Tool V1` (list, read, write, mkdir, stat) and `Note` tool. (**VERIFIED**) |
+| **Model Layer (Hybrid)** | `packages/domain/src/models/registry.ts`, `packages/domain/src/runtime/providers/` | Cloud Groq (`openai/gpt-oss-120b`) + Local Transformers.js (`WebGPU` / `CPU` fallback). (**VERIFIED**) |
+| **Evidence Engine** | `apps/web/src/app/api/missions/[id]/evidence` | Structured execution traces, tool outputs, and audit logs stored in `evidence` column. (**VERIFIED**) |
+| **Verification & DoD Gate** | `apps/web/src/lib/missions/dod.ts`, `/api/missions/[id]/verify` | Deterministic verification of outputs against Definition of Done before transitioning to `COMPLETED`. (**VERIFIED**) |
+| **Autonomia V1.1** | `apps/web/src/lib/cockpit/runAutonomousMission.ts` | Single-click end-to-end execution: EXECUTING → Agent Loop → Runtime → VERIFYING → DoD Check → COMPLETED. (**VERIFIED**) |
+| **Offline UI & Resilience** | `apps/web/src/components/OfflineBanner.tsx` | Connectivity status detection, OfflineBanner, graceful network error toasts without application crash. (**VERIFIED**) |
 
-- Mission Engine, Agent Runtime, Tool Broker, durable execution
-- Authentication flows
-- Model gateway / router
-- Observability pipeline beyond health
+---
 
-## Data store
+## 📐 Planned Architecture Extensions (Not Yet Implemented)
 
-- **Neon** PostgreSQL 17 (São Paulo), database `plutao`
-- App uses **pooled** `DATABASE_URL`
-- Migrations (future) use **direct** `DATABASE_URL_UNPOOLED` only after approval
+- **External Durable Execution Adapters (Inngest / BullMQ):** External queue-based background workers (currently handled in-process via Next.js runtime with DB checkpoints).
+- **Pending Intents Sync Queue:** Local IndexedDB queue for queuing actions created while completely offline for automatic server reconciliation upon re-establishing network connection.
+- **Background Execution via Service Worker:** Background execution when the PWA browser tab is completely closed by the user.
+
+---
+
+## 💾 Data Store
+
+- **Neon PostgreSQL 17** (São Paulo region), database `plutao`.
+- App uses pooled `DATABASE_URL` via Drizzle ORM client (`packages/db/src/client.ts`).
+- Migrations managed via Drizzle Kit (`packages/db/drizzle/`).

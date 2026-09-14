@@ -119,8 +119,16 @@ Começamos simples e extraímos conforme a complexidade justificar (princípio 3
 
 ---
 
-## Decisões em aberto (a serem resolvidas com evidência)
+## Decisões resolvidas no código
 
-- Provider de autenticação exato (Auth.js, better-auth, Lucia, ou custom)
-- Runtime durable exato (Inngest continua como candidato forte atrás de adapter)
-- Estratégia exata de Service Worker / PWA (manual já em uso; next-pwa/Serwist opcional)
+- **Autenticação:** Sessão própria com cookies HTTP-only e hash `scrypt` (`apps/web/src/lib/auth`). (**IMPLEMENTADA / VERIFICADA**)
+- **Infrutrutura de Modelos:** Modelo em nuvem via Groq (`openai/gpt-oss-120b`) + Modelo local cliente via `@huggingface/transformers` (`packages/domain/src/runtime/providers`). (**IMPLEMENTADA / VERIFICADA**)
+- **Execução Durável & Checkpoints:** Persistência de checkpoints em banco Neon PostgreSQL (`apps/web/src/lib/runtime/checkpoint.ts`). (**IMPLEMENTADA / VERIFICADA**)
+- **PWA Service Worker:** Custom Service Worker nativo em `apps/web/public/sw.js` com cache e suporte offline. (**IMPLEMENTADO / VERIFICADO**)
+
+---
+
+## Decisões em aberto / Evoluções futuras
+
+- Adapter externo para workers em background (Inngest / BullMQ para execução assíncrona fora da Vercel)
+- Fila de Pending Intents / Reconciliação Offline via IndexedDB

@@ -222,13 +222,16 @@ Target: USER → MISSION → UNDERSTAND → PLAN → EXECUTE → USE TOOLS → V
 
 ---
 
-# 84. INITIAL STATUS
+# 84. SPECIFICATION STATUS & HISTORICAL BASELINE
+
+> 📌 **NOTE ON STATUS:** The block below represents the initial spec baseline at project creation.
+> For current live status (Runtime Engine, Agent Loop, Autonomia V1.1, DoD Gate verified in production), see `docs/CURRENT_STATE.md`.
 
 ```text
-Architecture: DESIGNED
+Architecture: DESIGNED (BASELINE SPECIFICATION)
 Research: SUBSTANTIALLY COMPLETED
-Repository implementation: NOT YET VERIFIED
-Production readiness: NOT YET VERIFIED
+Repository implementation: VERIFIED IN PRODUCTION (See docs/CURRENT_STATE.md)
+Production readiness: OPERATIONAL (See docs/CURRENT_STATE.md)
 ```
 
 ---
