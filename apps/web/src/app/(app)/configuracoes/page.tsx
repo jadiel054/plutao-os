@@ -7,6 +7,11 @@ import { MobileNav } from "@/components/MobileNav";
 import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useModelMode } from "@/hooks/useModelMode";
+import { useModelManager } from "@/hooks/useModelManager";
+import { ModelFilterMenu } from "@/components/models/ModelFilterMenu";
+import { ModelCard } from "@/components/models/ModelCard";
+import { ModelTestModal } from "@/components/models/ModelTestModal";
+import { AIModel } from "@plutao/domain";
 
 type TabType = "ia" | "perfil" | "notificacoes" | "seguranca" | "sobre";
 
@@ -16,6 +21,10 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>("ia");
+
+  // Filter Menu Drawer State
+  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
+  const [selectedTestModel, setSelectedTestModel] = useState<AIModel | null>(null);
 
   // Agent Settings
   const [agentName, setAgentName] = useState("Plutão");
@@ -38,13 +47,30 @@ export default function SettingsPage() {
     mode,
     isOnline,
     webGPUSupported,
-    modelId,
-    localModelStatus,
     setAutoMode,
     setOnlineMode,
     setOfflineMode,
     refreshStatus,
   } = useModelMode();
+
+  // Model Manager hook (Hugging Face Interface Core)
+  const {
+    filteredModels,
+    downloadedModelIds,
+    activeModelId,
+    progresses,
+    filterOptions,
+    isTesting,
+    testResult,
+    totalAvailable,
+    totalDownloadedLocal,
+    setFilterOptions,
+    activateModel,
+    startDownload,
+    cancelDownload,
+    deleteModel,
+    runModelTest,
+  } = useModelManager();
 
   // Toasts
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -219,7 +245,7 @@ export default function SettingsPage() {
   }
 
   const tabs: { id: TabType; label: string; icon: string }[] = [
-    { id: "ia", label: "IA & Operação", icon: "🤖" },
+    { id: "ia", label: "Modelos de IA", icon: "🤖" },
     { id: "perfil", label: "Conta & Agente", icon: "👤" },
     { id: "notificacoes", label: "Notificações", icon: "🔔" },
     { id: "seguranca", label: "Privacidade", icon: "🔒" },
@@ -281,131 +307,217 @@ export default function SettingsPage() {
 
         {/* Content Sections */}
         <div className="space-y-6">
-          {/* SECTION 1: Modo de Operação e IA */}
+          {/* SECTION 1: Interface Completa de Modelos de IA (Padrão Hugging Face) */}
           {activeTab === "ia" && (
-            <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-6 animate-in fade-in duration-200">
-              <div className="flex items-center gap-2 pb-3 border-b border-[var(--border)]">
-                <span className="text-xl">🤖</span>
-                <div>
-                  <h2 className="text-base font-semibold">1. Modo de Operação e Inteligência Artificial</h2>
-                  <p className="text-xs text-[var(--text-muted)]">
-                    Configure a alternância entre IA em nuvem e provedor offline local
-                  </p>
+            <section className="space-y-6 animate-in fade-in duration-200">
+              {/* Header de Modelos */}
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🤖</span>
+                    <div>
+                      <h2 className="text-lg font-bold">Modelos de IA</h2>
+                      <p className="text-xs font-mono text-[var(--text-muted)]">
+                        {totalAvailable} modelos disponíveis • {totalDownloadedLocal} baixados localmente
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    {/* Botão de Filtros ⚙️ */}
+                    <button
+                      type="button"
+                      onClick={() => setIsFilterMenuOpen((prev) => !prev)}
+                      className={`px-4 py-2 rounded-xl border text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer ${
+                        isFilterMenuOpen
+                          ? "border-[var(--selo)] bg-[var(--selo)]/10 text-[var(--selo)]"
+                          : "border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <span>⚙️</span>
+                      <span>Filtros {isFilterMenuOpen ? "▲" : "▼"}</span>
+                    </button>
+                  </div>
                 </div>
+
+                {/* Search Bar & Quick Counters */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="relative w-full sm:w-80">
+                    <span className="absolute left-3 top-2.5 text-xs text-[var(--text-muted)]">🔍</span>
+                    <input
+                      type="text"
+                      value={filterOptions.search}
+                      onChange={(e) => setFilterOptions({ ...filterOptions, search: e.target.value })}
+                      placeholder="Buscar por nome, repositório HF ou parâmetros…"
+                      className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] pl-8 pr-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs font-mono text-[var(--text-muted)] w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+                    <span className="px-2.5 py-1 rounded-lg bg-[var(--base)] border border-[var(--border)]">
+                      Modelo Ativo: <strong className="text-[var(--selo)]">{activeModelId}</strong>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filter Menu Drawer Component */}
+                <ModelFilterMenu
+                  isOpen={isFilterMenuOpen}
+                  onClose={() => setIsFilterMenuOpen(false)}
+                  options={filterOptions}
+                  onChange={setFilterOptions}
+                  onReset={() =>
+                    setFilterOptions({
+                      search: "",
+                      provider: "all",
+                      category: "all",
+                      status: "all",
+                      sortBy: "name",
+                    })
+                  }
+                />
               </div>
 
-              {/* Realtime Status Summary */}
-              <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--base)] space-y-3">
+              {/* Status Summary Card */}
+              <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] space-y-3">
                 <div className="flex items-center justify-between text-xs font-mono text-[var(--text-muted)]">
-                  <span>STATUS DO PROVEDOR REAL</span>
+                  <span>MODO DE OPERAÇÃO DO PROVEDOR HYBRID</span>
                   <button
                     type="button"
                     onClick={() => void refreshStatus().then(() => addToast("Status recarregado", "info"))}
                     className="text-[var(--nucleo)] hover:underline cursor-pointer"
                   >
-                    🔄 Recarregar
+                    🔄 Recarregar Status
                   </button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                  <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] space-y-1">
-                    <span className="text-[var(--text-muted)] block text-[10px] font-mono">CONEXÃO</span>
+                  <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--base)] space-y-1">
+                    <span className="text-[var(--text-muted)] block text-[10px] font-mono">MODO SELECIONADO</span>
+                    <span className="font-semibold text-[var(--selo)] uppercase">{mode}</span>
+                  </div>
+                  <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--base)] space-y-1">
+                    <span className="text-[var(--text-muted)] block text-[10px] font-mono">CONEXÃO REDE</span>
                     <span className={`font-semibold ${isOnline ? "text-emerald-400" : "text-amber-400"}`}>
-                      {isOnline ? "🟢 Conectado (Online)" : "🔴 Sem Internet (Offline)"}
+                      {isOnline ? "🟢 Online (API Disponível)" : "🔴 Sem Internet (Modo Local)"}
                     </span>
                   </div>
-                  <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] space-y-1">
+                  <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--base)] space-y-1">
                     <span className="text-[var(--text-muted)] block text-[10px] font-mono">ACELERAÇÃO HW</span>
                     <span className={`font-semibold ${webGPUSupported ? "text-emerald-400" : "text-amber-400"}`}>
                       {webGPUSupported ? "⚡ WebGPU Ativo" : "🐢 Processamento CPU"}
                     </span>
                   </div>
-                  <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] space-y-1">
-                    <span className="text-[var(--text-muted)] block text-[10px] font-mono">MODELO ATIVO</span>
-                    <span className="font-mono text-[11px] text-[var(--selo)] truncate block">
-                      {modelId}
-                    </span>
-                  </div>
                 </div>
-              </div>
 
-              {/* Mode Selectors */}
-              <div className="space-y-3">
-                <h3 className="text-xs font-mono text-[var(--text-muted)]">SELEÇÃO DE MODO DE OPERAÇÃO</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="flex flex-wrap gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => {
                       setAutoMode();
                       addToast("Modo Automático ativado", "info");
                     }}
-                    className={`p-4 rounded-xl border text-left transition-all space-y-2 cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer border ${
                       mode === "auto"
-                        ? "border-[var(--selo)] bg-[var(--selo)]/10"
-                        : "border-[var(--border)] bg-[var(--base)]/50 hover:bg-[var(--base)]"
+                        ? "bg-[var(--selo)] text-[var(--base)] border-[var(--selo)]"
+                        : "bg-[var(--base)] text-[var(--text-secondary)] border-[var(--border)]"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-lg">⚡ Automático</span>
-                      {mode === "auto" && <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-[var(--selo)] text-[var(--base)]">ATIVO</span>}
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      Alterna dinamicamente entre Groq na nuvem e modelo local dependendo da rede.
-                    </p>
+                    ⚡ Modo Auto
                   </button>
-
                   <button
                     type="button"
                     onClick={() => {
                       setOnlineMode();
                       addToast("Modo Online forçado", "success");
                     }}
-                    className={`p-4 rounded-xl border text-left transition-all space-y-2 cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer border ${
                       mode === "online"
-                        ? "border-emerald-500 bg-emerald-500/10"
-                        : "border-[var(--border)] bg-[var(--base)]/50 hover:bg-[var(--base)]"
+                        ? "bg-emerald-500 text-[var(--base)] border-emerald-500"
+                        : "bg-[var(--base)] text-[var(--text-secondary)] border-[var(--border)]"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-lg">🌐 Online (Nuvem)</span>
-                      {mode === "online" && <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500 text-[var(--base)]">ATIVO</span>}
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      Força o uso dos provedores externos de alta velocidade (Groq / OpenRouter).
-                    </p>
+                    🌐 Forçar Online
                   </button>
-
                   <button
                     type="button"
                     onClick={() => {
                       setOfflineMode();
                       addToast("Modo Offline ativado", "warning");
                     }}
-                    className={`p-4 rounded-xl border text-left transition-all space-y-2 cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer border ${
                       mode === "offline"
-                        ? "border-blue-500 bg-blue-500/10"
-                        : "border-[var(--border)] bg-[var(--base)]/50 hover:bg-[var(--base)]"
+                        ? "bg-blue-500 text-white border-blue-500"
+                        : "bg-[var(--base)] text-[var(--text-secondary)] border-[var(--border)]"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-lg">📴 Offline (Local)</span>
-                      {mode === "offline" && <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-500 text-white">ATIVO</span>}
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      Processamento local 100% privado no seu dispositivo via @huggingface/transformers.
-                    </p>
+                    📴 Forçar Offline
                   </button>
                 </div>
               </div>
 
-              {/* Local Provider Info */}
-              {localModelStatus && (
-                <div className="p-3 rounded-lg border border-blue-500/30 bg-blue-950/20 text-xs text-blue-300 space-y-1 font-mono">
-                  <div>Status do Modelo Local: <strong>{localModelStatus}</strong></div>
-                  <div className="text-[10px] text-blue-400">
-                    O download do modelo local ocorre de forma transparente na primeira utilização offline.
-                  </div>
+              {/* Grid de Modelos Estilo Hugging Face */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs font-mono text-[var(--text-muted)]">
+                  <span>CATÁLOGO DE MODELOS ({filteredModels.length})</span>
+                  <span>Exibindo modelos de acordo com os filtros selecionados</span>
                 </div>
-              )}
+
+                {filteredModels.length === 0 ? (
+                  <div className="p-8 text-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] space-y-2">
+                    <span className="text-3xl">🔍</span>
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">Nenhum modelo encontrado</h3>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Tente ajustar o termo de busca ou redefinir os filtros.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFilterOptions({
+                          search: "",
+                          provider: "all",
+                          category: "all",
+                          status: "all",
+                          sortBy: "name",
+                        })
+                      }
+                      className="mt-2 px-4 py-2 rounded-xl bg-[var(--base)] border border-[var(--border)] text-xs text-[var(--selo)] hover:underline cursor-pointer"
+                    >
+                      Limpar Filtros
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filteredModels.map((m) => (
+                      <ModelCard
+                        key={m.id}
+                        model={m}
+                        isDownloaded={m.providerType === "cloud" || downloadedModelIds.includes(m.id)}
+                        isActive={activeModelId === m.id}
+                        progress={progresses[m.id]}
+                        onActivate={(id) => {
+                          activateModel(id);
+                          addToast(`Modelo ${m.name} ativado com sucesso!`, "success");
+                        }}
+                        onStartDownload={(model) => {
+                          startDownload(model);
+                          addToast(`Iniciando download de ${model.name}`, "info");
+                        }}
+                        onCancelDownload={(id) => {
+                          cancelDownload(id);
+                          addToast("Download cancelado", "warning");
+                        }}
+                        onDeleteModel={(id) => {
+                          deleteModel(id);
+                          addToast("Cache do modelo removido", "warning");
+                        }}
+                        onOpenTest={(model) => {
+                          setSelectedTestModel(model);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             </section>
           )}
 
@@ -549,7 +661,6 @@ export default function SettingsPage() {
             </section>
           )}
 
-
           {/* SECTION 5: Privacidade e Segurança */}
           {activeTab === "seguranca" && (
             <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-6 animate-in fade-in duration-200">
@@ -641,6 +752,16 @@ export default function SettingsPage() {
           )}
         </div>
       </main>
+
+      {/* Model Test Drawer Modal */}
+      <ModelTestModal
+        model={selectedTestModel}
+        isOpen={Boolean(selectedTestModel)}
+        isTesting={isTesting}
+        testResult={testResult}
+        onClose={() => setSelectedTestModel(null)}
+        onRunTest={(m, p) => runModelTest(m, p)}
+      />
 
       {/* Mobile Navigation */}
       <MobileNav />
