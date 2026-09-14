@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
       ],
     },
   ],
+
+  // Build: warnings de ESLint não bloqueiam; errors (ex: no-explicit-any) ainda falham
+  eslint: {
+    ignoreDuringBuilds: false,
+  },
 };
 
 export default nextConfig;
