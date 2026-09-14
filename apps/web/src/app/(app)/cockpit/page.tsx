@@ -1,1 +1,1 @@
-@file:///tmp/cockpit_prev.tsx
+LOADING_FROM_ARTIFACT
