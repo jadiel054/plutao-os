@@ -3,7 +3,11 @@
 ## Personal Autonomous AI Operating System
 ### Master Specification — Architecture Baseline v1.0
 
-**Status:** DESIGNED / PRE-IMPLEMENTATION
+**Status:** ARCHITECTURE BASELINE & TARGET CONTRACT (See `docs/CURRENT_STATE.md` for live status)
+
+> 📌 **ENGINEERING SPECIFICATION & TARGET CONTRACT**
+> This document defines the target architecture baseline v1.0 and engineering contract for Project Plutão.
+> For the live implementation status and verified operational capabilities, consult `docs/CURRENT_STATE.md`.
 
 > This document is the authoritative implementation specification for the project repository. The implementing agent must read it completely before modifying the repository.
 

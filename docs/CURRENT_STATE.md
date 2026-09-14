@@ -10,19 +10,22 @@ Runtime + Agent Loop + Filesystem + Cockpit + **Autonomia V1.1** + **DoD gate** 
 
 | Área | Status |
 |------|--------|
-| Durable Runtime / Loop / Tools | VERIFIED |
-| Model Groq `openai/gpt-oss-120b` | VERIFIED |
-| Evidence API | VERIFIED |
-| Filesystem Tool V1 | VERIFIED |
-| ▶ Executar missão (ciclo + steps) | VERIFIED |
+| Durable Runtime & Checkpoints (save/restore) | **VERIFIED** |
+| Agent Loop & Tool Dispatcher | **VERIFIED** |
+| Model Groq `openai/gpt-oss-120b` | **VERIFIED** |
+| Model Local (`Transformers.js` + WebGPU / CPU fallback) | **IMPLEMENTED / VERIFIED** |
+| Evidence API & Trace Logging | **VERIFIED** |
+| Filesystem Tool V1 (list, read, write, mkdir, stat) | **VERIFIED** |
+| Isolamento de Dados por Usuário (`userId`) | **VERIFIED** |
+| ▶ Executar missão (ciclo + steps) | **VERIFIED** |
 | Auto runtime complete + VERIFYING + COMPLETED se DoD OK | **VERIFIED** (prod, AUTO_V11) |
 | DoD `GET/POST /api/missions/:id/verify` + gate COMPLETED | **VERIFIED** |
-| MissionDoDPanel (componente) | IMPLEMENTED (wire UI pendente) |
-| OfflineBanner | IMPLEMENTED |
-| Teste offline formal | ✅ **VERIFIED** (`docs/OFFLINE_TEST.md`) |
-| OfflineBanner em produção | **VERIFICADO** — banner e cockpit permanecem legíveis |
-| Erro controlado ao criar missão offline | ✅ **VERIFICADO EM PRODUÇÃO** |
-| Pending Intents / fila de sincronização | **NÃO IMPLEMENTADO** |
+| MissionDoDPanel (componente) | **VERIFIED** (conectado na UI do Cockpit) |
+| OfflineBanner & Header Indicator | **VERIFIED** |
+| Teste offline formal (mobile prod) | ✅ **VERIFIED** (`docs/OFFLINE_TEST.md`) |
+| Erro controlado ao interagir offline (toast sem crash) | ✅ **VERIFICADO EM PRODUÇÃO** |
+| Pending Intents / Fila de Sincronização | **NÃO IMPLEMENTADO** (planejado) |
+| Execução em background com PWA fechado | **NÃO IMPLEMENTADO** (planejado) |
 
 ## Autonomia V1.1 (prod)
 
