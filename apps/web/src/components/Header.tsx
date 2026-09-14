@@ -1,0 +1,128 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { useModelMode, getStatusColor, getStatusLabel } from "@/hooks/useModelMode";
+import { UserMenu } from "@/components/UserMenu";
+import { ModeControlModal } from "@/components/ModeControlModal";
+
+export interface HeaderProps {
+  userEmail?: string;
+  onNotify?: (message: string, type: "success" | "info" | "warning" | "error") => void;
+}
+
+export function Header({ userEmail, onNotify }: HeaderProps) {
+  const pathname = usePathname();
+  const { mode, isOnline, webGPUSupported } = useModelMode();
+  const [isModeModalOpen, setIsModeModalOpen] = useState(false);
+
+  const statusColor = getStatusColor(mode, isOnline);
+  const statusLabel = getStatusLabel(mode, isOnline, webGPUSupported);
+
+  const getBadgeIcon = () => {
+    if (mode === "offline") return "🔴";
+    if (mode === "online" && isOnline) return "🟢";
+    if (!isOnline) return "🟡";
+    return "🟡";
+  };
+
+  return (
+    <>
+      <header className="border-b border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur-md sticky top-0 z-40">
+        <div className="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between gap-2">
+          {/* Brand Logo & Name */}
+          <div className="flex items-center gap-4">
+            <Link href="/" className="flex items-center gap-2 group">
+              <div className="w-8 h-8 rounded-full bg-[var(--selo)] text-[var(--base)] font-bold flex items-center justify-center text-sm shadow-sm group-hover:scale-105 transition-transform">
+                P
+              </div>
+              <div className="hidden sm:flex flex-col">
+                <span className="font-semibold text-sm tracking-tight text-[var(--text-primary)]">
+                  Plutão
+                </span>
+                <span className="text-[10px] text-[var(--text-muted)] leading-none">
+                  AI Autonomous OS
+                </span>
+              </div>
+            </Link>
+
+            {/* Desktop Nav Links */}
+            <nav className="hidden md:flex items-center gap-1 text-xs">
+              <Link
+                href="/chat"
+                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  pathname === "/chat"
+                    ? "bg-[var(--base)] text-[var(--selo)] font-medium border border-[var(--border)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--base)]"
+                }`}
+              >
+                💬 Chat
+              </Link>
+              <Link
+                href="/cockpit"
+                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  pathname === "/cockpit"
+                    ? "bg-[var(--base)] text-[var(--selo)] font-medium border border-[var(--border)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--base)]"
+                }`}
+              >
+                📊 Cockpit
+              </Link>
+              <Link
+                href="/configuracoes"
+                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  pathname === "/configuracoes"
+                    ? "bg-[var(--base)] text-[var(--selo)] font-medium border border-[var(--border)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--base)]"
+                }`}
+              >
+                ⚙️ Configurações
+              </Link>
+            </nav>
+          </div>
+
+          {/* Right Section: Global Mode Badge + User Menu */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Indicador Global do Modo Híbrido (Clicável) */}
+            <button
+              type="button"
+              onClick={() => setIsModeModalOpen(true)}
+              className={`
+                flex items-center gap-1.5 px-2.5 py-1 rounded-full text-white text-xs font-medium
+                ${statusColor}
+                hover:opacity-90 active:scale-95 transition-all shadow-xs cursor-pointer
+              `}
+              title="Clique para alterar modo de operação (Online / Híbrido / Offline)"
+            >
+              <span className="text-xs">{getBadgeIcon()}</span>
+              <span className="font-mono text-[11px] tracking-tight">{statusLabel}</span>
+            </button>
+
+            {/* Gear Icon for Settings (quick access) */}
+            <Link
+              href="/configuracoes"
+              className="p-1.5 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:border-[var(--selo)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors hidden sm:flex items-center justify-center text-xs"
+              title="Painel de Configurações"
+            >
+              ⚙️
+            </Link>
+
+            {/* User Dropdown Menu */}
+            <UserMenu
+              userEmail={userEmail}
+              onOpenModeModal={() => setIsModeModalOpen(true)}
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* Mode Control Modal */}
+      <ModeControlModal
+        isOpen={isModeModalOpen}
+        onClose={() => setIsModeModalOpen(false)}
+        onNotify={onNotify}
+      />
+    </>
+  );
+}
