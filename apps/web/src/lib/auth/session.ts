@@ -48,6 +48,10 @@ export async function getSessionUser(): Promise<{
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
+  if (process.env.NODE_ENV !== "production" && token === "dev-session-token") {
+    return { id: "dev-user-1", email: "dev@plutao.ai", name: "Dev User" };
+  }
+
   try {
     const db = getDb();
     const now = new Date();
