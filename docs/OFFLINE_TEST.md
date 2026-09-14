@@ -56,3 +56,18 @@ Registrar:
 - Print após reconexão com status coerente
 
 Colar links/prints em issue ou em `CURRENT_STATE.md` quando passar.
+
+---
+
+## Resultado observado em produção — Android mobile (14/09/2026)
+
+O teste manual foi executado em Chrome mobile com modo avião. O `OfflineBanner` apareceu, o indicador mostrou `Sem conexão` e a missão `COMPLETED`, timeline, evidências e badge `PASSED` permaneceram legíveis, sem tela branca.
+
+Ao tentar criar uma missão offline, a ação falhou silenciosamente: não houve toast de erro, estado `PENDING` ou fila de sincronização. A causa foi uma rejeição de `fetch()` sem tratamento no handler de criação. O código foi corrigido para exibir erro controlado, mas o reteste pós-deploy ainda é obrigatório.
+
+Evidências versionadas:
+
+- [`docs/testes/2026-09-14-offline-mobile/evidencia-banner-offline-falha-criar-missao.jpg`](testes/2026-09-14-offline-mobile/evidencia-banner-offline-falha-criar-missao.jpg)
+- [`docs/testes/2026-09-14-offline-mobile/relatorio-offline-mobile.md`](testes/2026-09-14-offline-mobile/relatorio-offline-mobile.md)
+
+**Status do roteiro A:** ⚠️ **PARCIALMENTE VERIFICADO** — UI sobrevive offline; erro controlado corrigido no código, aguardando deploy e nova validação em produção.

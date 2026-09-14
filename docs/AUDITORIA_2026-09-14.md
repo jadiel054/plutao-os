@@ -201,3 +201,36 @@ Durante esta auditoria, foram identificados e corrigidos os seguintes problemas 
 > ⚠️ **CONCLUSÃO HONESTA:** O projeto está em excelente estado. A FASE 2 (Mission Core + Híbrido) está **100% concluída e verificada**. A FASE 3 está **80% concluída** com os itens críticos de persistência de checkpoints implementados. Os 20% restantes são funcionalidades avançadas de continuidade que não bloqueiam o uso atual.
 
 **Recomendação final:** Avançar para implementação da reconciliação online/offline (Item 1 - 🔴 CRÍTICO) para completar a FASE 3.
+
+
+---
+
+## 🧪 6. TESTE OFFLINE MOBILE — EVIDÊNCIA REAL
+
+Em 14/09/2026, o teste foi executado em Android/Chrome mobile com modo avião na produção `https://plutao-os.vercel.app/cockpit`.
+
+### Confirmado
+
+- `OfflineBanner` apareceu no topo.
+- O indicador de cabeçalho mostrou `Sem conexão`.
+- Missão `COMPLETED`, timeline, evidências e badge `PASSED` permaneceram legíveis.
+- Não ocorreu tela branca.
+
+### Falha encontrada
+
+Ao clicar em **Criar Missão** sem conexão, o botão falhou silenciosamente: não houve toast de erro, estado pendente nem fila de sincronização. A causa foi uma rejeição de `fetch()` sem `catch` no handler `onCreate` de `apps/web/src/app/(app)/cockpit/page.tsx`.
+
+### Correção realizada
+
+Foi adicionado tratamento de falhas de rede aos handlers de criação de missão, execução autônoma, runtime, transições, tarefas, perfil e ações de execução. A mensagem prevista é:
+
+```text
+Sem conexão: não foi possível <ação>. Reconecte e tente novamente.
+```
+
+A correção está no código local da branch `main` e aguarda validação de build, deploy e reteste em produção. Ela corrige o erro silencioso, mas **não implementa Pending Intents nem reconciliação automática**.
+
+Evidências versionadas:
+
+- `docs/testes/2026-09-14-offline-mobile/evidencia-banner-offline-falha-criar-missao.jpg`
+- `docs/testes/2026-09-14-offline-mobile/relatorio-offline-mobile.md`

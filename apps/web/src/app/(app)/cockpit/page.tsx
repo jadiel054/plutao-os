@@ -40,6 +40,10 @@ type ExecutionRow = {
   checkpointAt: string | null;
 };
 
+function networkErrorMessage(action: string): string {
+  return `Sem conexão: não foi possível ${action}. Reconecte e tente novamente.`;
+}
+
 export default function CockpitPage() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState("");
@@ -266,6 +270,10 @@ export default function CockpitPage() {
         action === "cancel" ? "Missão cancelada" : `Missão → ${status}`,
         action === "cancel" ? "warning" : "success"
       );
+    } catch {
+      const errMsg = networkErrorMessage("atualizar a missão");
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setActionBusy(null);
     }
@@ -292,6 +300,10 @@ export default function CockpitPage() {
       setObjective("");
       addToast("Missão criada com sucesso!", "success");
       await load();
+    } catch {
+      const errMsg = networkErrorMessage("criar a missão");
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setActionBusy(null);
     }
@@ -308,7 +320,9 @@ export default function CockpitPage() {
       });
       addToast("Perfil do agente salvo com sucesso!", "success");
     } catch {
-      addToast("Erro ao salvar dados do agente", "error");
+      const errMsg = networkErrorMessage("salvar o perfil do agente");
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setBusy(false);
       setActionBusy(null);
@@ -334,6 +348,10 @@ export default function CockpitPage() {
         setError(errMsg);
         addToast(errMsg, "error");
       }
+    } catch {
+      const errMsg = networkErrorMessage("iniciar o runtime");
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setBusy(false);
       setActionBusy(null);
@@ -366,6 +384,10 @@ export default function CockpitPage() {
         onError: (msg) => setError(msg),
         onToast: (msg, type) => addToast(msg, type),
       });
+    } catch {
+      const errMsg = networkErrorMessage("executar a missão");
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setBusy(false);
       setActionBusy(null);
@@ -411,6 +433,10 @@ export default function CockpitPage() {
         setExecution(d.execution);
         addToast(`Ação '${action}' executada com sucesso`, "success");
       }
+    } catch {
+      const errMsg = networkErrorMessage("atualizar a execução");
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setBusy(false);
       setActionBusy(null);
@@ -452,6 +478,10 @@ export default function CockpitPage() {
           setTasks((td.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
         }
       }
+    } catch {
+      const errMsg = networkErrorMessage("executar essa ação");
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setBusy(false);
       setActionBusy(null);
@@ -476,6 +506,10 @@ export default function CockpitPage() {
         const td = await tRes.json();
         setTasks((td.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
       }
+    } catch {
+      const errMsg = networkErrorMessage("adicionar a tarefa");
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setActionBusy(null);
     }
