@@ -10,6 +10,8 @@ import {
   TERMINAL_STATUSES,
   type MissionStatus,
 } from "@/lib/missions/lifecycle";
+import { getOwnedMission, parseEvidence } from "@/lib/missions/ownership";
+import { verifyDefinitionOfDone } from "@/lib/missions/dod";
 
 export const runtime = "nodejs";
 
@@ -55,6 +57,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   try {
     const body = await req.json();
     const action = String(body.action ?? "");
+    const forceComplete = body.force === true;
 
     const db = getDb();
     const existing = await db
@@ -93,6 +96,30 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         );
       }
       to = target;
+
+      // Gate: VERIFYING → COMPLETED exige DoD (salvo force:true)
+      if (from === "VERIFYING" && to === "COMPLETED" && !forceComplete) {
+        const full = await getOwnedMission(id, user.id);
+        if (!full) {
+          return NextResponse.json({ error: "Missão não encontrada" }, { status: 404 });
+        }
+        const evidence = parseEvidence(full.evidence);
+        const dod = verifyDefinitionOfDone({
+          objective: String(full.objective ?? ""),
+          definitionOfDone: full.definitionOfDone,
+          evidence,
+        });
+        if (!dod.passed) {
+          return NextResponse.json(
+            {
+              error: "DoD_FAILED",
+              message: dod.summary,
+              dod,
+            },
+            { status: 409 }
+          );
+        }
+      }
     } else {
       return NextResponse.json({ error: "Ação não suportada" }, { status: 400 });
     }
