@@ -65,9 +65,9 @@ Prova: missão `notes/auto-v11.txt` / `AUTO_V11` → COMPLETED sem cliques manua
 
 ## Marco A+B — Pending Intents & Reconciliação (IMPLEMENTED / VERIFIED)
 
-- **Contrato & Idempotência (`@plutao/domain`, `/api/missions`):** `PendingIntent` com UUID, `intentId`, `userId`, `idempotencyKey`, `type`, `payload`, `status` (`PENDING`, `SYNCING`, `APPLIED`, `FAILED_RETRYABLE`, `FAILED_PERMANENT`), tentativas, logs de erro e timestamps. O endpoint POST `/api/missions` realiza desduplicação idempotente.
+- **Contrato & Idempotência (`@plutao/domain`, `/api/missions`):** `PendingIntent` com UUID, `intentId`, `userId`, `idempotencyKey`, `type`, `payload`, `status` (`PENDING`, `SYNCING`, `APPLIED`, `FAILED_RETRYABLE`, `FAILED_PERMANENT`), tentativas, logs de erro e timestamps. O endpoint POST `/api/missions` garante atomicidade real através de restrição única no banco de dados (`userId`, `idempotencyKey`) capturando violações `23505` para responder de forma idempotente.
 - **Armazenamento Persistente Local (`PendingIntentStore`):** IndexedDB nativo (`plutao_offline_db`), isolamento estrito por `userId`.
-- **Reconciliador Online (`Reconciler` & `usePendingIntents`):** Detecção automática de retorno de conectividade (`online`), trava de concorrência por aba, classificação entre erros temporários (`FAILED_RETRYABLE`) e permanentes (`FAILED_PERMANENT`).
+- **Reconciliador Online (`Reconciler` & `usePendingIntents`):** Detecção automática de retorno de conectividade (`online`), trava de concorrência em memória por aba, backoff exponencial limitado com teto (5s, 15s, 45s, max 120s), e recuperação de `SYNCING` órfão travado após timeout de 60s.
 - **Cockpit UI Integration:** Exibição clara de missões "Pendente de sincronização" na interface sem falsas confirmações de persistência remota prévia.
 
 ## Próximos marcos

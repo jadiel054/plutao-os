@@ -5,7 +5,7 @@ import {
   transitionIntent,
   CreateMissionPayload,
 } from "@plutao/domain";
-import { Reconciler } from "../reconciler";
+import { Reconciler, SYNCING_ORPHAN_TIMEOUT_MS } from "../reconciler";
 import { PendingIntentStore } from "../pendingIntentStore";
 
 // In-memory fake IndexedDB storage map for testing
@@ -237,7 +237,7 @@ describe("Marco B — Reconciliação, Idempotência, Retry & Concorrência", ()
     expect(updated[0].result?.remoteId).toBe("m-existing-1");
   });
 
-  it("E. Retry: erro temporário de rede (503) define FAILED_RETRYABLE e nova tentativa obtém APPLIED", async () => {
+  it("E. Retry & Backoff Efetivo: FAILED_RETRYABLE recém-falhada não é reenviada imediatamente até cumprir janela de backoff", async () => {
     const intent: PendingIntent<CreateMissionPayload> = {
       intentId: "intent-retry-1",
       userId: "user-1",
@@ -266,19 +266,60 @@ describe("Marco B — Reconciliação, Idempotência, Retry & Concorrência", ()
     expect(updated[0].status).toBe("FAILED_RETRYABLE");
     expect(updated[0].attempts).toBe(1);
 
-    // 2a tentativa -> 200 Success
+    // Tentativa Imediata: deve ser IGNORADA devido à janela de backoff (5s)
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({ mission: { id: "m-recovered" } }),
+      json: async () => ({ mission: { id: "m-should-not-reach" } }),
     } as Response);
 
+    const resImmediate = await Reconciler.reconcileUserIntents("user-1");
+    expect(resImmediate.processed).toBe(0);
+
+    // Simula passagem do tempo (> 5s para tentativa 1)
+    fakeStore.set("intent-retry-1", {
+      ...updated[0],
+      lastAttemptAt: new Date(Date.now() - 6000).toISOString(),
+    });
+
+    // 2a tentativa após janela -> 200 Success
     const res2 = await Reconciler.reconcileUserIntents("user-1");
     expect(res2.applied).toBe(1);
 
     updated = await PendingIntentStore.getIntentsByUser("user-1");
     expect(updated[0].status).toBe("APPLIED");
     expect(updated[0].attempts).toBe(2);
+  });
+
+  it("Recuperação de SYNCING Órfão: intent travada em SYNCING é recuperada após timeout (60s)", async () => {
+    const orphanTime = new Date(Date.now() - (SYNCING_ORPHAN_TIMEOUT_MS + 1000)).toISOString();
+    const orphanIntent: PendingIntent<CreateMissionPayload> = {
+      intentId: "intent-orphan-1",
+      userId: "user-1",
+      idempotencyKey: "intent-orphan-1",
+      type: "CREATE_MISSION",
+      payload: { objective: "Orphan mission" },
+      status: "SYNCING",
+      attempts: 1,
+      lastAttemptAt: orphanTime,
+      createdAt: orphanTime,
+      updatedAt: orphanTime,
+    };
+
+    await PendingIntentStore.saveIntent(orphanIntent);
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ mission: { id: "m-recovered-orphan" } }),
+    } as Response);
+
+    const res = await Reconciler.reconcileUserIntents("user-1");
+    expect(res.orphansRecovered).toBe(1);
+    expect(res.applied).toBe(1);
+
+    const updated = await PendingIntentStore.getIntentsByUser("user-1");
+    expect(updated[0].status).toBe("APPLIED");
   });
 
   it("F. Permanent Failure: erro 400 define FAILED_PERMANENT sem retentativas infinitas", async () => {

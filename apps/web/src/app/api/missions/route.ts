@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
@@ -65,42 +65,6 @@ export async function POST(req: NextRequest) {
 
     const db = getDb();
 
-    // Reconciliação / Idempotência: verificar se já existe missão com esta chave para o usuário
-    if (idempotencyKey) {
-      const existingMissions = await db
-        .select({
-          id: missions.id,
-          objective: missions.objective,
-          status: missions.status,
-          currentState: missions.currentState,
-          definitionOfDone: missions.definitionOfDone,
-          decisions: missions.decisions,
-          createdAt: missions.createdAt,
-          updatedAt: missions.updatedAt,
-        })
-        .from(missions)
-        .where(eq(missions.userId, user.id))
-        .orderBy(desc(missions.createdAt))
-        .limit(50);
-
-      const matched = existingMissions.find((m) => {
-        if (!Array.isArray(m.decisions)) return false;
-        return (m.decisions as Array<Record<string, unknown>>).some(
-          (d) =>
-            d.type === "idempotency" &&
-            (d.idempotencyKey === idempotencyKey || d.intentId === idempotencyKey)
-        );
-      });
-
-      if (matched) {
-        const { decisions: _, ...cleanMission } = matched;
-        return NextResponse.json(
-          { mission: cleanMission, deduplicated: true },
-          { status: 200 }
-        );
-      }
-    }
-
     const initialDecisions = idempotencyKey
       ? [
           {
@@ -112,33 +76,73 @@ export async function POST(req: NextRequest) {
         ]
       : [];
 
-    const inserted = await db
-      .insert(missions)
-      .values({
-        userId: user.id,
-        objective,
-        context,
-        constraints,
-        definitionOfDone,
-        status: "CREATED",
-        currentState: "CREATED",
-        completedSteps: [],
-        pendingSteps: [],
-        evidence: [],
-        errors: [],
-        decisions: initialDecisions,
-      })
-      .returning({
-        id: missions.id,
-        objective: missions.objective,
-        status: missions.status,
-        currentState: missions.currentState,
-        definitionOfDone: missions.definitionOfDone,
-        createdAt: missions.createdAt,
-        updatedAt: missions.updatedAt,
-      });
+    try {
+      const inserted = await db
+        .insert(missions)
+        .values({
+          userId: user.id,
+          objective,
+          context,
+          constraints,
+          definitionOfDone,
+          status: "CREATED",
+          currentState: "CREATED",
+          completedSteps: [],
+          pendingSteps: [],
+          evidence: [],
+          errors: [],
+          decisions: initialDecisions,
+          idempotencyKey: idempotencyKey || null,
+        })
+        .returning({
+          id: missions.id,
+          objective: missions.objective,
+          status: missions.status,
+          currentState: missions.currentState,
+          definitionOfDone: missions.definitionOfDone,
+          createdAt: missions.createdAt,
+          updatedAt: missions.updatedAt,
+        });
 
-    return NextResponse.json({ mission: inserted[0] }, { status: 201 });
+      return NextResponse.json({ mission: inserted[0] }, { status: 201 });
+    } catch (insertErr: unknown) {
+      // Se for erro de violação de chave única (23505 em Postgres) ou colisão no idempotencyKey
+      const isUniqueConstraintErr =
+        insertErr &&
+        typeof insertErr === "object" &&
+        "code" in insertErr &&
+        (insertErr as { code?: string }).code === "23505";
+
+      if (idempotencyKey && (isUniqueConstraintErr || String(insertErr).includes("unique"))) {
+        const existing = await db
+          .select({
+            id: missions.id,
+            objective: missions.objective,
+            status: missions.status,
+            currentState: missions.currentState,
+            definitionOfDone: missions.definitionOfDone,
+            createdAt: missions.createdAt,
+            updatedAt: missions.updatedAt,
+          })
+          .from(missions)
+          .where(
+            and(
+              eq(missions.userId, user.id),
+              eq(missions.idempotencyKey, idempotencyKey)
+            )
+          )
+          .limit(1);
+
+        if (existing.length > 0) {
+          return NextResponse.json(
+            { mission: existing[0], deduplicated: true },
+            { status: 200 }
+          );
+        }
+      }
+
+      throw insertErr;
+    }
   } catch (e) {
     console.error("[missions POST]", e);
     return NextResponse.json({ error: "Falha ao criar missão" }, { status: 500 });
