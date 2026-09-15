@@ -32,5 +32,7 @@ export async function ensureExecutionsTable(): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS "executions_user_id_idx" ON "executions" ("user_id")`;
   await sql`CREATE INDEX IF NOT EXISTS "executions_status_idx" ON "executions" ("status")`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS "executions_idempotency_key_uidx" ON "executions" ("idempotency_key")`;
+  await sql`ALTER TABLE "missions" ADD COLUMN IF NOT EXISTS "idempotency_key" text`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS "missions_user_idempotency_uidx" ON "missions" ("user_id", "idempotency_key")`;
   ensured = true;
 }
