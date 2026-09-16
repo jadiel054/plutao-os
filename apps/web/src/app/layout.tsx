@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     default: "Plutão",
     template: "%s · Plutão",
   },
-  description: "Seu sistema operacional autônomo de IA",
+  description: "Sistema Abraçado com o Esforço, Dedicação e Evolução.",
   applicationName: "Plutão",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
@@ -32,8 +32,12 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: [{ url: "/icon_192.png", sizes: "192x192", type: "image/png" }],
-    apple: [{ url: "/icon_192.png", sizes: "192x192", type: "image/png" }],
+    icon: [
+      { url: "/brand/mark.svg", type: "image/svg+xml" },
+      { url: "/icon_192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon_512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
   other: { google: "notranslate" },
 };
