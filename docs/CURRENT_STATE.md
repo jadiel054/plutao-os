@@ -71,7 +71,16 @@ Prova: missão `notes/auto-v11.txt` / `AUTO_V11` → COMPLETED sem cliques manua
 - **Cockpit UI Integration:** Exibição clara de missões "Pendente de sincronização" na interface sem falsas confirmações de persistência remota prévia.
 - **Evolução de Schema:** Modificações de schema em runtime foram completamente removidas de `apps/web/src/lib/runtime/ensure.ts`. A evolução do banco é gerida exclusivamente por migrations Drizzle versionadas (`0000_baseline`, `0001_executions`, `0002_missions_idempotency_key`).
 
+## Operação pós-merge (2026-09-16)
+
+- Código e docs alinhados na `main` (`4e0e2f39` + docs sync).
+- **Migration `0002` em Neon:** aplicar com `DATABASE_URL_UNPOOLED` + `npm run migrate -w @plutao/db` se o índice `missions_user_idempotency_uidx` ainda não existir em produção.
+- Smoke test recomendado: criar missão offline → voltar online → reconciliar → uma única mission remota (sem duplicata).
+- PR #13 e #14 fechadas (superseded pela #15 mergeada).
+
 ## Próximos marcos
 
-1. Implementar execução em background caso a missão precise continuar com o PWA fechado.
-2. Expansão do Agent Loop para suporte a Background Workers (Inngest/BullMQ).
+1. Aplicar `0002` no Neon de produção (se ainda pendente) + smoke test de Pending Intents.
+2. Background Execution — missão continua com PWA/aba fechado.
+3. Durable Execution Adapter (Inngest/BullMQ) para workers fora do processo Next.js.
+4. Smart Long-Input / Artifacts V1 (PR #2).
