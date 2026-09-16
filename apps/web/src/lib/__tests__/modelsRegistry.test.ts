@@ -1,3 +1,4 @@
+import { describe, it, expect } from "vitest";
 import { PRESET_MODELS, filterModels, ModelFilterOptions } from "@plutao/domain";
 
 describe("Model Registry & Filter Helper", () => {
