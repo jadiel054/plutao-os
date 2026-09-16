@@ -93,3 +93,15 @@ body {
 .bg-accent {
   background-color: var(--accent);
 }
+
+/* View mode: forced desktop on narrow devices */
+html.view-desktop body {
+  min-width: 0;
+}
+
+html.view-desktop .mobile-bottom-nav {
+  display: none !important;
+}
+html.view-desktop .desktop-top-nav {
+  display: flex !important;
+}
