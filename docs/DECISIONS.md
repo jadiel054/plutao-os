@@ -125,10 +125,38 @@ Começamos simples e extraímos conforme a complexidade justificar (princípio 3
 - **Infrutrutura de Modelos:** Modelo em nuvem via Groq (`openai/gpt-oss-120b`) + Modelo local cliente via `@huggingface/transformers` (`packages/domain/src/runtime/providers`). (**IMPLEMENTADA / VERIFICADA**)
 - **Execução Durável & Checkpoints:** Persistência de checkpoints em banco Neon PostgreSQL (`apps/web/src/lib/runtime/checkpoint.ts`). (**IMPLEMENTADA / VERIFICADA**)
 - **PWA Service Worker:** Custom Service Worker nativo em `apps/web/public/sw.js` com cache e suporte offline. (**IMPLEMENTADO / VERIFICADO**)
+- **Pending Intents & Reconciliação (Marco A+B):** Fila offline em IndexedDB, idempotência server-side atômica, reconciler online com backoff e recuperação de SYNCING órfão. (**IMPLEMENTADA / VERIFICADA** — 2026-09-16)
+
+---
+
+## 2026-09-16 — Pending Intents + Evolução de Schema
+
+**Decisão:** Offline mission creation usa `PendingIntent` persistido em IndexedDB (isolamento por `userId`), com reconciliação automática ao voltar online. Idempotência no servidor garantida por constraint UNIQUE `(user_id, idempotency_key)` na tabela `missions`.
+
+**Contexto:**  
+Marco A+B mergeado em `main` (`4e0e2f39`). Runtime DDL em `ensure.ts` para colunas de `missions` foi rejeitado em auditoria; a evolução de schema deve ser versionada via Drizzle migrations.
+
+**Detalhes técnicos:**
+- Contrato: `packages/domain/src/intents/types.ts`
+- Store: `apps/web/src/lib/offline/pendingIntentStore.ts` (IndexedDB `plutao_offline_db`)
+- Reconciler: backoff exponencial (5s → 15s → 45s, teto 120s); SYNCING órfão após 60s → `FAILED_RETRYABLE`
+- Migration: `packages/db/drizzle/0002_missions_idempotency_key.sql`
+- `ensure.ts` permanece apenas para bootstrap da tabela `executions` (legado de deploy antes de migrate automático)
+
+**Status:** ACEITA / IMPLEMENTADA
+
+---
+
+## 2026-09-16 — Política de migrations (confirmação)
+
+**Decisão:** Alterações estruturais de PostgreSQL **não** são feitas em runtime (exceto o bootstrap legado de `executions` em `ensure.ts`). Toda evolução nova vai para `packages/db/drizzle/` com journal Drizzle e aplicação via `DATABASE_URL_UNPOOLED`.
+
+**Status:** ACEITA
 
 ---
 
 ## Decisões em aberto / Evoluções futuras
 
-- Adapter externo para workers em background (Inngest / BullMQ para execução assíncrona fora da Vercel)
-- Fila de Pending Intents / Reconciliação Offline via IndexedDB
+- **Background Execution:** missão continua com PWA/aba completamente fechado (Service Worker / Background Sync ou worker externo)
+- Adapter externo para workers em background (Inngest / BullMQ para execução assíncrona fora do processo Next.js)
+- Smart Long-Input / Artifacts V1 (PR #2 ainda aberta)
