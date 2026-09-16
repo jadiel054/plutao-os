@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useModelMode, getStatusColor, getStatusLabel } from "@/hooks/useModelMode";
 import { UserMenu } from "@/components/UserMenu";
 import { ModeControlModal } from "@/components/ModeControlModal";
+import { ViewModeToggle } from "@/components/ViewModeToggle";
 
 export interface HeaderProps {
   userEmail?: string;
@@ -31,7 +32,6 @@ export function Header({ userEmail, onNotify }: HeaderProps) {
     <>
       <header className="border-b border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur-md sticky top-0 z-40">
         <div className="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between gap-2">
-          {/* Brand Logo & Name */}
           <div className="flex items-center gap-4">
             <Link href="/" className="flex items-center gap-2 group">
               <div className="w-8 h-8 rounded-full bg-[var(--selo)] text-[var(--base)] font-bold flex items-center justify-center text-sm shadow-sm group-hover:scale-105 transition-transform">
@@ -47,8 +47,7 @@ export function Header({ userEmail, onNotify }: HeaderProps) {
               </div>
             </Link>
 
-            {/* Desktop Nav Links */}
-            <nav className="hidden md:flex items-center gap-1 text-xs">
+            <nav className="desktop-top-nav hidden md:flex items-center gap-1 text-xs">
               <Link
                 href="/chat"
                 className={`px-3 py-1.5 rounded-lg transition-colors ${
@@ -82,9 +81,7 @@ export function Header({ userEmail, onNotify }: HeaderProps) {
             </nav>
           </div>
 
-          {/* Right Section: Global Mode Badge + User Menu */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Indicador Global do Modo Híbrido (Clicável) */}
             <button
               type="button"
               onClick={() => setIsModeModalOpen(true)}
@@ -99,7 +96,8 @@ export function Header({ userEmail, onNotify }: HeaderProps) {
               <span className="font-mono text-[11px] tracking-tight">{statusLabel}</span>
             </button>
 
-            {/* Gear Icon for Settings (quick access) */}
+            <ViewModeToggle />
+
             <Link
               href="/configuracoes"
               className="p-1.5 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:border-[var(--selo)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors hidden sm:flex items-center justify-center text-xs"
@@ -108,7 +106,6 @@ export function Header({ userEmail, onNotify }: HeaderProps) {
               ⚙️
             </Link>
 
-            {/* User Dropdown Menu */}
             <UserMenu
               userEmail={userEmail}
               onOpenModeModal={() => setIsModeModalOpen(true)}
@@ -117,7 +114,6 @@ export function Header({ userEmail, onNotify }: HeaderProps) {
         </div>
       </header>
 
-      {/* Mode Control Modal */}
       <ModeControlModal
         isOpen={isModeModalOpen}
         onClose={() => setIsModeModalOpen(false)}
