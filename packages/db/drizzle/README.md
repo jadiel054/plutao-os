@@ -8,10 +8,26 @@ Reflects the Neon database **plutao** as of 2026-09-09:
 - Already applied and verified on Neon (operator)
 - SQL uses `IF NOT EXISTS` / exception handlers — non-destructive if re-run by mistake
 
+## Additive migrations
+
+| Tag | Purpose | Notes |
+|-----|---------|-------|
+| `0001_executions` | Durable Runtime `executions` table + indexes | Also bootstrapped at runtime by `ensureExecutionsTable()` for deploys that predate migrate |
+| `0002_missions_idempotency_key` | Column `missions.idempotency_key` + UNIQUE `(user_id, idempotency_key)` | Required for atomic Pending Intent idempotency. Safe (`IF NOT EXISTS`). **Apply on production Neon with direct URL.** |
+
+Journal: `meta/_journal.json` lists all three tags.
+
 ## Operator procedure (existing Neon)
 
-Do **not** run `drizzle-kit migrate` against the live Neon that already has the schema unless you have stamped the baseline.
+1. Use **direct** connection only: `DATABASE_URL_UNPOOLED` (never pooled for migrate).
+2. From repo root:
 
-Future schema changes: edit `src/schema.ts` → `npm run generate` in packages/db → review SQL → migrate with **direct** URL (`DATABASE_URL_UNPOOLED`).
+```bash
+export DATABASE_URL_UNPOOLED="postgresql://...@...neon.tech/plutao?sslmode=require"
+npm run migrate -w @plutao/db
+```
+
+3. Do **not** re-run `0000_baseline.sql` on production.
+4. Future schema changes: edit `src/schema.ts` → `npm run generate -w @plutao/db` → review SQL → migrate with direct URL.
 
 Never run migrations over the pooled connection.

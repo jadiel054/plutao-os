@@ -5,7 +5,7 @@
 Personal Autonomous AI Operating System — mission-first cockpit.
 
 **Repo:** `jadiel054/plutao-os`  
-**Status:** Runtime + Agent Loop + Cockpit + Autonomia V1.1 → **VERIFIED em produção**
+**Status:** Runtime + Agent Loop + Cockpit + Autonomia V1.1 + Pending Intents → **VERIFIED em produção**
 **Brand:** [docs/BRAND.md](docs/BRAND.md) (grade 24×24 · φ · Grafite/Platina)
 **Production:** [https://plutao-os.vercel.app](https://plutao-os.vercel.app)
 
@@ -36,6 +36,7 @@ Plutão is a personal autonomous AI operating system designed around a **mission
 - 🛡️ **DoD Verification Gate:** Gate preventing missions from completing without passing deterministic Definition of Done (DoD) checks.
 - 📊 **Evidence Engine:** Audit logs and structured execution traces attached to every mission step.
 - 📱 **PWA & Offline Resilience:** Mobile-first cockpit with Service Worker, `OfflineBanner`, network status indicator, and controlled error handling.
+- 📬 **Pending Intents & Reconciliation (Marco A+B):** Offline mission queue in IndexedDB, atomic server idempotency, online reconciler with backoff and orphan SYNCING recovery.
 
 ---
 
@@ -75,8 +76,10 @@ Health check: `GET http://localhost:3000/api/health`
 
 ## Current Roadmap & Limitations
 
-- ⏳ **Pending Intents / Offline Sync Queue:** Queueing offline mission creations and actions for automatic reconciliation upon network restoration (planned).
-- ⏳ **Service Worker Background Execution:** Continuous mission execution while PWA browser tab is completely closed (planned).
+- ✅ **Pending Intents / Offline Sync Queue:** Implemented (IndexedDB + online reconciler). Migration `0002` must be applied on Neon for full production idempotency constraint.
+- ⏳ **Background Execution:** Continuous mission execution while PWA browser tab is completely closed (next major milestone).
+- ⏳ **Durable Execution Adapter (Inngest / BullMQ):** External workers for step replay outside the Next.js process (designed).
+- ⏳ **Smart Long-Input / Artifacts V1:** Large composer inputs as persistent artifacts (PR #2 open).
 
 ---
 
