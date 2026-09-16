@@ -2,7 +2,7 @@
  * @plutao/db — Drizzle schema
  *
  * Neon São Paulo — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
- * Baseline 0000 applied. Additive: 0001_executions.
+ * Baseline 0000 applied. Additive: 0001_executions, 0002_missions_idempotency_key, 0003_artifacts.
  */
 
 import {
@@ -11,6 +11,7 @@ import {
   timestamp,
   uuid,
   jsonb,
+  integer,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -130,10 +131,6 @@ export const tasks = pgTable(
   ]
 );
 
-/**
- * Durable Runtime — one execution attempt for a Mission (not Mission state itself).
- * Recoverable statuses: RUNNING | PAUSED | INTERRUPTED
- */
 export const executions = pgTable(
   "executions",
   {
@@ -146,10 +143,8 @@ export const executions = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     currentTaskId: uuid("current_task_id"),
     status: text("status").notNull().default("PENDING"),
-    /** Last confirmed progress: { step?, taskId?, note?, data? } */
     checkpoint: jsonb("checkpoint").notNull().default({}),
     checkpointAt: timestamp("checkpoint_at", { withTimezone: true }),
-    /** mission-scoped key so start is idempotent while recoverable */
     idempotencyKey: text("idempotency_key").notNull(),
     error: text("error"),
     startedAt: timestamp("started_at", { withTimezone: true }),
@@ -175,4 +170,28 @@ export const auditEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("audit_events_user_id_idx").on(t.userId), index("audit_events_type_idx").on(t.type)]
+);
+
+export const artifacts = pgTable(
+  "artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    missionId: uuid("mission_id").references(() => missions.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    type: text("type").notNull().default("text/plain"),
+    size: integer("size").notNull(),
+    content: text("content").notNull(),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("artifacts_user_id_idx").on(t.userId),
+    index("artifacts_mission_id_idx").on(t.missionId),
+  ]
 );

@@ -2,17 +2,19 @@
 
 import { useState, useEffect } from "react";
 
+export type ArtifactRef = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+};
+
 export interface LongInputModalProps {
   isOpen: boolean;
   initialText: string;
   onClose: () => void;
-  onConfirmTransform: (transformedText: string) => void;
-}
-
-/** Mock function to transform long input into an artifact reference or formatted text */
-export async function transformLongInput(text: string): Promise<string> {
-  // TODO: integrar com a API real de artefatos /api/artifacts
-  return text;
+  onConfirmTransform: (artifact: ArtifactRef) => void;
+  onError?: (message: string) => void;
 }
 
 export function LongInputModal({
@@ -20,13 +22,14 @@ export function LongInputModal({
   initialText,
   onClose,
   onConfirmTransform,
+  onError,
 }: LongInputModalProps) {
   const [content, setContent] = useState(initialText);
   const [isTransforming, setIsTransforming] = useState(false);
 
   useEffect(() => {
     setContent(initialText);
-  }, [initialText]);
+  }, [initialText, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -40,13 +43,27 @@ export function LongInputModal({
   if (!isOpen) return null;
 
   const handleTransform = async () => {
+    if (!content.trim() || isTransforming) return;
     setIsTransforming(true);
     try {
-      const result = await transformLongInput(content);
-      onConfirmTransform(result);
+      const res = await fetch("/api/artifacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.artifact) {
+        onError?.(data.error ?? "Falha ao criar artifact");
+        return;
+      }
+      onConfirmTransform({
+        id: data.artifact.id,
+        name: data.artifact.name,
+        type: data.artifact.type,
+        size: data.artifact.size,
+      });
     } catch {
-      // fallback
-      onConfirmTransform(content);
+      onError?.("Erro de rede ao criar artifact");
     } finally {
       setIsTransforming(false);
     }
@@ -58,7 +75,6 @@ export function LongInputModal({
         className="w-full max-w-3xl bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-6 shadow-2xl space-y-4 flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-[var(--border)] shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-xl">✨</span>
@@ -67,23 +83,18 @@ export function LongInputModal({
                 Transformar em Artefato
               </h2>
               <p className="text-xs text-[var(--text-muted)]">
-                Textos extensos podem ser convertidos em artefatos para otimizar o contexto do agente.
+                Textos extensos viram arquivo persistente; o chat envia só a referência.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1 rounded-lg hover:bg-[var(--base)] transition-colors cursor-pointer"
-          >
+          <button type="button" onClick={onClose} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1">
             ✕
           </button>
         </div>
 
-        {/* Content Area */}
-        <div className="flex-1 flex flex-col min-h-0 space-y-2">
-          <label className="text-xs font-mono text-[var(--text-muted)]">
-            CONTEÚDO DO TEXTO ({content.length} caracteres)
+        <div className="flex-1 flex flex-col gap-2 min-h-0">
+          <label className="text-[10px] uppercase font-mono text-[var(--text-muted)]">
+            Conteúdo ({content.length.toLocaleString()} caracteres)
           </label>
           <textarea
             value={content}
@@ -93,7 +104,6 @@ export function LongInputModal({
           />
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--border)] shrink-0">
           <button
             type="button"
@@ -106,17 +116,10 @@ export function LongInputModal({
           <button
             type="button"
             disabled={isTransforming || !content.trim()}
-            onClick={handleTransform}
+            onClick={() => void handleTransform()}
             className="px-5 py-2 rounded-xl bg-[var(--selo)] hover:bg-[var(--nucleo)] text-[var(--base)] text-xs font-semibold transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm cursor-pointer"
           >
-            {isTransforming ? (
-              <>
-                <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
-                Transformando…
-              </>
-            ) : (
-              <>✨ Transformar</>
-            )}
+            {isTransforming ? "Transformando…" : "✨ Transformar em arquivo"}
           </button>
         </div>
       </div>
