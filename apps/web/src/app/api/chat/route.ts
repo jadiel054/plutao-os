@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
       name: string;
       type: string;
       size: number;
+      content: string;
     };
     let validatedArtifacts: AttachedArtifactMeta[] = [];
 
@@ -89,12 +90,19 @@ export async function POST(req: NextRequest) {
             name: artifactsTable.name,
             type: artifactsTable.type,
             size: artifactsTable.size,
+            content: artifactsTable.content,
           })
           .from(artifactsTable)
           .where(
             and(eq(artifactsTable.userId, user.id), inArray(artifactsTable.id, rawArtifactIds))
           );
-        validatedArtifacts = found;
+        validatedArtifacts = found.map((r) => ({
+          id: r.id,
+          name: r.name,
+          type: r.type,
+          size: r.size,
+          content: r.content,
+        }));
       } catch {
         /* ignore */
       }
@@ -121,22 +129,33 @@ export async function POST(req: NextRequest) {
       /* fallback */
     }
 
-    let artifactContextPrompt = "";
+    // V1: injeta o conteúdo dos arquivos anexados no contexto (não depende de tool-call do modelo)
+    const MAX_INJECT_CHARS = 12000;
+    let artifactBlocks = "";
     if (validatedArtifacts.length > 0) {
-      const listStr = validatedArtifacts
-        .map(
-          (a) =>
-            `"${a.name}" (ID: ${a.id}, tamanho: ${formatFileSize(a.size)}, tipo: ${a.type})`
-        )
-        .join(", ");
-      artifactContextPrompt = `\n\nContexto de Artifacts disponíveis nesta conversa: ${listStr}.
-Para ler o conteúdo integral de um artifact quando necessário para responder com precisão ao usuário, você pode propor a ferramenta:
-{"tool":"read_artifact","input":"<ID_DO_ARTIFACT>"}
-Caso não seja necessário ler o conteúdo completo para responder à pergunta do usuário, responda diretamente em texto plano.`;
+      const parts: string[] = [];
+      let used = 0;
+      for (const a of validatedArtifacts) {
+        const header = `--- Arquivo: ${a.name} (${formatFileSize(a.size)}, ${a.type}) ---\n`;
+        const budget = MAX_INJECT_CHARS - used - header.length;
+        if (budget <= 0) break;
+        const body =
+          a.content.length > budget
+            ? a.content.slice(0, budget) + "\n[...conteúdo truncado...]"
+            : a.content;
+        parts.push(header + body);
+        used += header.length + body.length;
+      }
+      artifactBlocks = parts.join("\n\n");
     }
 
     const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
-Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom profissional e amigável.${artifactContextPrompt}`;
+Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom profissional e amigável.
+${
+  artifactBlocks
+    ? `O usuário anexou arquivo(s). O conteúdo completo está disponível abaixo. Use-o para responder (resumo, análise, etc.). Não diga que não consegue ver anexos — o conteúdo já está no contexto.\n\n${artifactBlocks}`
+    : ""
+}`;
 
     const modelConfig = getModelConfig();
 
@@ -164,61 +183,8 @@ Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom prof
       })),
     ];
 
-    let result = await chatCompletion(modelConfig, payloadMessages);
-    const readArtifactIds: string[] = [];
-
-    if (
-      result.toolProposal &&
-      (result.toolProposal.name === "read_artifact" || result.toolProposal.name === "read")
-    ) {
-      let rawInput = result.toolProposal.input.trim();
-      if (rawInput.startsWith("{") && rawInput.endsWith("}")) {
-        try {
-          const parsed = JSON.parse(rawInput);
-          rawInput = String(parsed.artifactId || parsed.id || parsed.input || rawInput).trim();
-        } catch {
-          /* ignore */
-        }
-      }
-
-      const targetArtifact = validatedArtifacts.find((a) => a.id === rawInput);
-      if (targetArtifact) {
-        try {
-          const artRows = await db
-            .select({
-              id: artifactsTable.id,
-              name: artifactsTable.name,
-              content: artifactsTable.content,
-            })
-            .from(artifactsTable)
-            .where(
-              and(eq(artifactsTable.id, targetArtifact.id), eq(artifactsTable.userId, user.id))
-            )
-            .limit(1);
-
-          if (artRows[0]) {
-            readArtifactIds.push(artRows[0].id);
-            const followUpMessages: ModelMessage[] = [
-              ...payloadMessages,
-              {
-                role: "assistant",
-                content: JSON.stringify({
-                  tool: "read_artifact",
-                  input: artRows[0].id,
-                }),
-              },
-              {
-                role: "user",
-                content: `[Conteúdo retornado da ferramenta read_artifact para "${artRows[0].name}" (${artRows[0].id})]:\n${artRows[0].content}`,
-              },
-            ];
-            result = await chatCompletion(modelConfig, followUpMessages);
-          }
-        } catch (readErr) {
-          console.error("[read_artifact tool error]", readErr);
-        }
-      }
-    }
+    const result = await chatCompletion(modelConfig, payloadMessages);
+    const readArtifactIds = validatedArtifacts.map((a) => a.id);
 
     const assistantContent =
       (result.content && result.content.trim()) ||
