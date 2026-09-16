@@ -220,8 +220,14 @@ Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom prof
       }
     }
 
+    const assistantContent =
+      (result.content && result.content.trim()) ||
+      (validatedArtifacts.length > 0
+        ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
+        : "Não consegui gerar uma resposta agora. Tente novamente.");
+
     return NextResponse.json({
-      message: { role: "assistant", content: result.content },
+      message: { role: "assistant", content: assistantContent },
       readArtifacts: readArtifactIds,
       modelConfigured: true,
       provider: result.provider,
@@ -229,8 +235,12 @@ Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom prof
     });
   } catch (e) {
     console.error("[chat POST]", e);
+    const detail = e instanceof Error ? e.message : "erro desconhecido";
     return NextResponse.json(
-      { error: "Não foi possível processar a mensagem no momento." },
+      {
+        error: "Não foi possível processar a mensagem no momento.",
+        detail: process.env.NODE_ENV === "development" ? detail : undefined,
+      },
       { status: 500 }
     );
   }

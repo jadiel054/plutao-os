@@ -125,26 +125,37 @@ export default function ChatPage() {
           artifactIds: activeArtifacts.map((a) => a.id),
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errMsg = data.error ?? "Falha ao enviar";
+        const errMsg =
+          typeof data.error === "string" && data.error.trim()
+            ? data.error
+            : `Falha ao enviar (${res.status})`;
         setError(errMsg);
         addToast(errMsg, "error");
         return;
       }
-      if (data.message) {
+      const reply =
+        typeof data.message?.content === "string" ? data.message.content.trim() : "";
+      if (reply) {
         setMessages((prev) => [
           ...prev,
           {
             id: crypto.randomUUID(),
             role: "assistant" as const,
-            content: data.message.content,
+            content: reply,
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           },
         ]);
+      } else {
+        const errMsg = "Resposta vazia do servidor. Tente novamente.";
+        setError(errMsg);
+        addToast(errMsg, "error");
       }
     } catch {
-      addToast("Erro de rede ao enviar", "error");
+      const errMsg = "Erro de rede ao enviar";
+      setError(errMsg);
+      addToast(errMsg, "error");
     } finally {
       setSending(false);
       setTimeout(() => textareaRef.current?.focus(), 50);
