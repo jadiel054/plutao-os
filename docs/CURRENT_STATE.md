@@ -1,10 +1,11 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-16 — Pending Intents & Reconciliação (Migration Versionada)
+**Última atualização:** 2026-09-16 — Pending Intents VERIFIED + Background Execution V1 (server autonomous-run)
 
 ## Fase
 
-Runtime + Agent Loop + Filesystem + Cockpit + **Autonomia V1.1** + **DoD gate** → **VERIFIED** em produção.
+Runtime + Agent Loop + Filesystem + Cockpit + **Autonomia V1.1** + **DoD gate** + Pending Intents → **VERIFIED** em produção.
+Background Execution V1 (ciclo no servidor) → **IMPLEMENTED** (validar em prod).
 
 ## Matriz
 
@@ -25,19 +26,26 @@ Runtime + Agent Loop + Filesystem + Cockpit + **Autonomia V1.1** + **DoD gate** 
 | Teste offline formal (mobile prod) | ✅ **VERIFIED** (`docs/OFFLINE_TEST.md`) |
 | Erro controlado ao interagir offline (toast sem crash) | ✅ **VERIFICADO EM PRODUÇÃO** |
 | Pending Intents / Fila de Sincronização (Marco A+B) | **IMPLEMENTED / VERIFIED** |
-| Execução em background com PWA fechado | **NÃO IMPLEMENTADO** (planejado) |
+| Execução em background com PWA fechado | **PARCIAL (V1)** — ciclo no servidor (`/autonomous-run`); SW fechado ainda não |
 
 ## Autonomia V1.1 (prod)
 
 Um clique em **▶ Executar missão**:
 1. Transições até EXECUTING
-2. Runtime + model steps (≤5)
+2. Runtime + model steps
 3. Complete runtime
 4. → VERIFYING
 5. DoD determinístico
 6. → COMPLETED se passou
 
 Prova: missão `notes/auto-v11.txt` / `AUTO_V11` → COMPLETED sem cliques manuais extras.
+
+## Background Execution V1 (2026-09-16)
+
+- Endpoint `POST /api/missions/:id/autonomous-run` executa o ciclo Autonomia V1.1 **no servidor** (transições → execution → agent loop → VERIFYING → DoD → COMPLETED).
+- O client (`runAutonomousMission`) prefere esse endpoint; fallback legado step-by-step se a rota não existir.
+- Fechar a aba **durante o request** não cancela o trabalho no servidor (até o `maxDuration` da Vercel, até 300s no plano que permitir).
+- **Ainda NÃO é:** Service Worker rodando com PWA completamente morto, nem Inngest/BullMQ.
 
 ## DoD V1
 
@@ -49,38 +57,19 @@ Prova: missão `notes/auto-v11.txt` / `AUTO_V11` → COMPLETED sem cliques manua
 
 - Protocolo: `docs/OFFLINE_TEST.md`
 - Banner: `OfflineBanner` **VERIFICADO em produção no mobile**
-- Princípio: missão não se divide; UI pode degradar; APIs cloud falham de forma controlada
-- Evidência: [`docs/testes/2026-09-14-offline-mobile/evidencia-banner-offline-falha-criar-missao.jpg`](testes/2026-09-14-offline-mobile/evidencia-banner-offline-falha-criar-missao.jpg)
-- Relatório: [`docs/testes/2026-09-14-offline-mobile/relatorio-offline-mobile.md`](testes/2026-09-14-offline-mobile/relatorio-offline-mobile.md)
-
-### Resultado real do teste offline mobile
-
-- ✅ Banner `Offline — a interface continua...` apareceu.
-- ✅ Indicador do cabeçalho mostrou `Sem conexão`.
-- ✅ Missão `COMPLETED`, timeline, evidências e DoD permaneceram legíveis.
-- ✅ Não ocorreu tela branca.
-- ❌ Criar missão offline falhou silenciosamente: não houve toast, estado pendente ou fila de sincronização.
-- ✅ Correção publicada e verificada em produção: falhas de rede agora exibem toast/erro controlado; não houve tela branca.
-- 📸 Evidência pós-deploy: [`evidencia-toast-offline-pos-deploy.jpg`](testes/2026-09-14-offline-mobile/evidencia-toast-offline-pos-deploy.jpg)
+- Pending Intents: criar missão offline → reconciliar online → **VERIFIED** (2026-09-16)
 
 ## Marco A+B — Pending Intents & Reconciliação (IMPLEMENTED / VERIFIED)
 
-- **Contrato & Idempotência (`@plutao/domain`, `/api/missions`):** `PendingIntent` com UUID, `intentId`, `userId`, `idempotencyKey`, `type`, `payload`, `status` (`PENDING`, `SYNCING`, `APPLIED`, `FAILED_RETRYABLE`, `FAILED_PERMANENT`), tentativas, logs de erro e timestamps. O endpoint POST `/api/missions` garante atomicidade real através de restrição única no banco de dados (`userId`, `idempotencyKey`) via migration versionada `packages/db/drizzle/0002_missions_idempotency_key.sql` capturando violações `23505` para responder de forma idempotente.
-- **Armazenamento Persistente Local (`PendingIntentStore`):** IndexedDB nativo (`plutao_offline_db`), isolamento estrito por `userId`.
-- **Reconciliador Online (`Reconciler` & `usePendingIntents`):** Detecção automática de retorno de conectividade (`online`), trava de concorrência em memória por aba, backoff exponencial limitado com teto (5s, 15s, 45s, max 120s), e recuperação de `SYNCING` órfão travado após timeout de 60s.
-- **Cockpit UI Integration:** Exibição clara de missões "Pendente de sincronização" na interface sem falsas confirmações de persistência remota prévia.
-- **Evolução de Schema:** Modificações de schema em runtime foram completamente removidas de `apps/web/src/lib/runtime/ensure.ts`. A evolução do banco é gerida exclusivamente por migrations Drizzle versionadas (`0000_baseline`, `0001_executions`, `0002_missions_idempotency_key`).
+- Contrato + IndexedDB + reconciler + migration `0002` no Neon aplicada e smoke test OK.
 
 ## Operação pós-merge (2026-09-16)
 
-- Código e docs alinhados na `main` (`4e0e2f39` + docs sync).
-- **Migration `0002` em Neon:** aplicar com `DATABASE_URL_UNPOOLED` + `npm run migrate -w @plutao/db` se o índice `missions_user_idempotency_uidx` ainda não existir em produção.
-- Smoke test recomendado: criar missão offline → voltar online → reconciliar → uma única mission remota (sem duplicata).
-- PR #13 e #14 fechadas (superseded pela #15 mergeada).
+- Migration `0002` aplicada no Neon (SQL Editor).
+- Smoke Pending Intents: 9 → offline pendente → online 10, sem duplicata.
 
 ## Próximos marcos
 
-1. Aplicar `0002` no Neon de produção (se ainda pendente) + smoke test de Pending Intents.
-2. Background Execution — missão continua com PWA/aba fechado.
-3. Durable Execution Adapter (Inngest/BullMQ) para workers fora do processo Next.js.
-4. Smart Long-Input / Artifacts V1 (PR #2).
+1. Validar Background Execution V1 em produção (▶ Executar e fechar aba no meio).
+2. Durable Execution Adapter (Inngest/BullMQ) além do timeout serverless.
+3. Smart Long-Input / Artifacts V1 (PR #2).
