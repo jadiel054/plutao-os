@@ -7,45 +7,39 @@ export default async function Home() {
 
   return (
     <div className="min-h-dvh flex flex-col bg-[var(--base)] text-[var(--text-primary)]">
-      <header className="border-b border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur-sm sticky top-0 z-10">
+      <header className="border-b border-[var(--border)]/60 bg-[var(--surface)]/70 backdrop-blur-md sticky top-0 z-10">
         <div className="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 hover:opacity-90 transition-opacity">
-            <BrandMark size={28} />
+          <Link href="/" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
+            <BrandMark size={30} />
             <span className="font-semibold tracking-tight text-sm sm:text-base">
               Plut<span className="text-[var(--selo)]">ão</span>
             </span>
           </Link>
 
-          <div className="flex items-center gap-2 sm:gap-3 text-xs">
+          <div className="flex items-center gap-2 text-xs">
             {user ? (
               <>
                 <Link
                   href="/chat"
-                  className="rounded-xl bg-[var(--selo)] text-[var(--base)] px-3.5 py-1.5 font-medium hover:bg-[var(--nucleo)] transition-colors"
+                  className="rounded-full bg-[var(--selo)] text-[var(--base)] px-4 py-1.5 font-medium hover:bg-[var(--nucleo)] transition-colors"
                 >
                   Chat
                 </Link>
                 <Link
-                  href="/cockpit"
-                  className="rounded-xl border border-[var(--border)] px-3.5 py-1.5 font-medium hover:border-[var(--selo)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors hidden sm:inline"
-                >
-                  Cockpit
-                </Link>
-                <Link
                   href="/configuracoes"
-                  className="rounded-xl border border-[var(--border)] px-3.5 py-1.5 font-medium hover:border-[var(--selo)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                  className="rounded-full border border-[var(--border)] px-4 py-1.5 font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--selo)]/50 transition-colors"
                 >
                   Configurações
                 </Link>
               </>
             ) : (
               <>
-                <Link href="/login" className="text-[var(--nucleo)] hover:underline px-2 py-1">
+                <Link href="/login" className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
                   Entrar
                 </Link>
                 <Link
                   href="/register"
-                  className="rounded-xl bg-[var(--selo)] text-[var(--base)] px-3.5 py-1.5 font-medium hover:bg-[var(--nucleo)] transition-colors"
+                  className="rounded-full bg-[var(--selo)] text-[var(--base)] px-4 py-1.5 font-medium hover:bg-[var(--nucleo)] transition-colors"
                 >
                   Criar conta
                 </Link>
@@ -55,39 +49,44 @@ export default async function Home() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center justify-center px-4 py-16 text-center">
-        <div className="max-w-lg space-y-8">
-          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3.5 py-1 text-xs text-[var(--text-secondary)] shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+      <main className="flex-1 flex flex-col items-center justify-center px-5 py-20 text-center">
+        <div className="max-w-md w-full space-y-10">
+          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)]/80 bg-[var(--surface)]/80 px-3.5 py-1.5 text-[11px] text-[var(--text-secondary)] tracking-wide">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
             Phase 2 · Mission Core
           </div>
 
-          <BrandLockup stacked showTagline markSize={64} className="mx-auto" />
+          <BrandLockup stacked showTagline markSize={88} className="mx-auto" />
 
-          <p className="text-[var(--text-secondary)] text-sm sm:text-base leading-relaxed">
-            Sistema operacional autônomo pessoal.
-            <br className="hidden sm:block" />
-            Missão → Entendimento → Planejamento → Execução → Verificação → Evidência.
-          </p>
+          <div className="space-y-3 px-1">
+            <p className="text-[var(--text-secondary)] text-sm leading-relaxed">
+              Sistema operacional autônomo pessoal.
+            </p>
+            <p className="text-[10px] sm:text-[11px] font-mono text-[var(--text-muted)] tracking-wide leading-relaxed">
+              Missão → Entendimento → Planejamento
+              <br />
+              Execução → Verificação → Evidência
+            </p>
+          </div>
 
-          <div className="pt-2 flex flex-col sm:flex-row gap-3 justify-center">
+          <div className="flex flex-col gap-2.5 pt-2">
             {user ? (
               <>
                 <Link
                   href="/chat"
-                  className="rounded-xl bg-[var(--selo)] text-[var(--base)] font-semibold px-6 py-3 text-xs sm:text-sm hover:bg-[var(--nucleo)] transition-all shadow-md"
+                  className="rounded-2xl bg-[var(--selo)] text-[var(--base)] font-semibold px-6 py-3.5 text-sm hover:bg-[var(--nucleo)] transition-all shadow-lg shadow-[var(--selo)]/10"
                 >
                   Abrir Chat
                 </Link>
                 <Link
                   href="/cockpit"
-                  className="rounded-xl border border-[var(--border)] font-medium px-6 py-3 text-xs sm:text-sm hover:border-[var(--selo)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"
+                  className="rounded-2xl border border-[var(--border)] font-medium px-6 py-3.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--selo)]/40 transition-all"
                 >
                   Abrir Cockpit
                 </Link>
                 <Link
                   href="/configuracoes"
-                  className="rounded-xl border border-[var(--border)] font-medium px-6 py-3 text-xs sm:text-sm hover:border-[var(--selo)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"
+                  className="rounded-2xl border border-transparent font-medium px-6 py-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-all"
                 >
                   Configurações
                 </Link>
@@ -96,13 +95,13 @@ export default async function Home() {
               <>
                 <Link
                   href="/register"
-                  className="rounded-xl bg-[var(--selo)] text-[var(--base)] font-semibold px-6 py-3 text-xs sm:text-sm hover:bg-[var(--nucleo)] transition-all shadow-md"
+                  className="rounded-2xl bg-[var(--selo)] text-[var(--base)] font-semibold px-6 py-3.5 text-sm hover:bg-[var(--nucleo)] transition-all shadow-lg shadow-[var(--selo)]/10"
                 >
                   Começar
                 </Link>
                 <Link
                   href="/login"
-                  className="rounded-xl border border-[var(--border)] px-6 py-3 text-xs sm:text-sm text-[var(--text-secondary)] hover:border-[var(--selo)] hover:text-[var(--text-primary)] transition-all"
+                  className="rounded-2xl border border-[var(--border)] px-6 py-3.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--selo)]/40 transition-all"
                 >
                   Já tenho conta
                 </Link>

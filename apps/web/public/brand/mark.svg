@@ -1,7 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
   <rect width="512" height="512" rx="112" fill="#0B0D0C"/>
-  <circle cx="256" cy="256" r="118" fill="#141816"/>
+  <defs>
+    <radialGradient id="p" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#2a302c"/>
+      <stop offset="55%" stop-color="#141816"/>
+      <stop offset="100%" stop-color="#0a0c0b"/>
+    </radialGradient>
+    <linearGradient id="r" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#b8ffe0"/>
+      <stop offset="50%" stop-color="#7DFFB3"/>
+      <stop offset="100%" stop-color="#3ecf8e"/>
+    </linearGradient>
+    <filter id="g" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="256" cy="256" r="118" fill="url(#p)"/>
   <circle cx="256" cy="256" r="118" stroke="#1E2421" stroke-width="2"/>
-  <ellipse cx="256" cy="256" rx="168" ry="42" stroke="#7DFFB3" stroke-width="10" transform="rotate(-18 256 256)" opacity="0.95"/>
-  <circle cx="392" cy="228" r="10" fill="#7DFFB3"/>
+  <ellipse cx="220" cy="210" rx="36" ry="24" fill="#fff" opacity="0.1"/>
+  <ellipse cx="256" cy="256" rx="175" ry="48" stroke="url(#r)" stroke-width="12" transform="rotate(-18 256 256)" filter="url(#g)"/>
+  <circle cx="400" cy="220" r="12" fill="#7DFFB3" filter="url(#g)"/>
 </svg>
