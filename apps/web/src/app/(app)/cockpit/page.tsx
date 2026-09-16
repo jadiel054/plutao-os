@@ -13,6 +13,7 @@ import {
 import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
 import { MissionDoDPanel } from "@/components/MissionDoDPanel";
 import { runAutonomousMission } from "@/lib/cockpit/runAutonomousMission";
+import { usePendingIntents } from "@/hooks/usePendingIntents";
 
 type MissionRow = {
   id: string;
@@ -20,6 +21,9 @@ type MissionRow = {
   status: string;
   definitionOfDone: string | null;
   createdAt: string;
+  isPendingIntent?: boolean;
+  intentStatus?: string;
+  intentError?: string | null;
 };
 
 type TaskRow = { id: string; title: string; status: string };
@@ -46,8 +50,10 @@ function networkErrorMessage(action: string): string {
 
 export default function CockpitPage() {
   const router = useRouter();
+  const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
   const [missions, setMissions] = useState<MissionRow[]>([]);
+  const { intents, reconcile, createOfflineMissionIntent } = usePendingIntents(userId);
   const [objective, setObjective] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,15 +113,19 @@ export default function CockpitPage() {
         return;
       }
       const meData = await me.json();
+      const currentUserId = meData.user?.id ?? null;
+      setUserId(currentUserId);
       setUserEmail(meData.user?.email ?? "");
+
       const res = await fetch("/api/missions", { cache: "no-store" });
-      if (!res.ok) {
-        setError("Falha ao carregar missões");
-        addToast("Falha ao carregar lista de missões", "error");
-        return;
+      let remoteMissions: MissionRow[] = [];
+      if (res.ok) {
+        const data = await res.json();
+        remoteMissions = data.missions ?? [];
+      } else {
+        setError("Falha ao carregar missões remotas");
       }
-      const data = await res.json();
-      setMissions(data.missions ?? []);
+      setMissions(remoteMissions);
     } catch {
       setError("Erro de rede ao carregar cockpit");
       addToast("Erro de rede ao carregar o cockpit", "error");
@@ -284,11 +294,27 @@ export default function CockpitPage() {
     if (!objective.trim()) return;
     setError(null);
     setActionBusy("create_mission");
+
+    const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+
+    if (isOffline) {
+      try {
+        await createOfflineMissionIntent({ objective: objective.trim() });
+        setObjective("");
+        addToast("Salvo localmente (Pendente de sincronização)", "info", "Offline");
+      } catch {
+        addToast("Erro ao salvar missão localmente", "error");
+      } finally {
+        setActionBusy(null);
+      }
+      return;
+    }
+
     try {
       const res = await fetch("/api/missions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ objective }),
+        body: JSON.stringify({ objective: objective.trim() }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -301,9 +327,19 @@ export default function CockpitPage() {
       addToast("Missão criada com sucesso!", "success");
       await load();
     } catch {
-      const errMsg = networkErrorMessage("criar a missão");
-      setError(errMsg);
-      addToast(errMsg, "error");
+      // Falha de rede ao tentar criar online -> criar PendingIntent offline
+      try {
+        await createOfflineMissionIntent({ objective: objective.trim() });
+        setObjective("");
+        addToast(
+          "Falha de rede. Missão salva localmente (Pendente de sincronização).",
+          "warning"
+        );
+      } catch {
+        const errMsg = networkErrorMessage("criar a missão");
+        setError(errMsg);
+        addToast(errMsg, "error");
+      }
     } finally {
       setActionBusy(null);
     }
@@ -606,8 +642,65 @@ export default function CockpitPage() {
         </form>
 
         <div className="space-y-3">
-          <h2 className="text-xs font-mono text-[var(--text-muted)]">MISSÕES CADASTRADAS</h2>
-          {missions.length === 0 ? (
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-mono text-[var(--text-muted)]">MISSÕES CADASTRADAS</h2>
+            {intents.filter((i) => i.status !== "APPLIED").length > 0 && (
+              <button
+                type="button"
+                onClick={() => void reconcile()}
+                className="text-[10px] font-mono text-[var(--selo)] hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                🔄 Reconciliar intents ({intents.filter((i) => i.status !== "APPLIED").length})
+              </button>
+            )}
+          </div>
+
+          {/* Lista de Pending Intents não aplicadas */}
+          {intents
+            .filter((i) => i.status !== "APPLIED")
+            .map((intent) => {
+              const payload = intent.payload as { objective?: string };
+              const statusBadgeColor =
+                intent.status === "SYNCING"
+                  ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                  : intent.status === "FAILED_PERMANENT"
+                  ? "bg-red-500/10 text-red-300 border-red-500/30"
+                  : "bg-blue-500/10 text-blue-300 border-blue-500/30";
+
+              return (
+                <div
+                  key={intent.intentId}
+                  className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface)]/50 p-4 space-y-2 opacity-90"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm">⏳</span>
+                      <span className="text-xs font-semibold truncate text-[var(--text-primary)]">
+                        {payload.objective || "Missão Pendente"}
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[9px] font-mono px-2 py-0.5 rounded-full border ${statusBadgeColor}`}
+                    >
+                      {intent.status === "PENDING"
+                        ? "Pendente de sincronização"
+                        : intent.status === "SYNCING"
+                        ? "Sincronizando…"
+                        : intent.status === "FAILED_RETRYABLE"
+                        ? "Falha temporária (tentará novamente)"
+                        : "Falha permanente"}
+                    </span>
+                  </div>
+                  {intent.lastError && (
+                    <p className="text-[10px] text-red-400 font-mono truncate">
+                      Erro: {intent.lastError}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+
+          {missions.length === 0 && intents.filter((i) => i.status !== "APPLIED").length === 0 ? (
             <div className="p-8 text-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-xs text-[var(--text-muted)]">
               Nenhuma missão cadastrada ainda. Crie uma missão acima para iniciar.
             </div>

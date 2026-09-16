@@ -96,6 +96,7 @@ export const missions = pgTable(
     evidence: jsonb("evidence").notNull().default([]),
     errors: jsonb("errors").notNull().default([]),
     decisions: jsonb("decisions").notNull().default([]),
+    idempotencyKey: text("idempotency_key"),
     status: text("status").notNull().default("CREATED"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -103,6 +104,7 @@ export const missions = pgTable(
   (t) => [
     index("missions_user_id_idx").on(t.userId),
     index("missions_status_idx").on(t.status),
+    uniqueIndex("missions_user_idempotency_uidx").on(t.userId, t.idempotencyKey),
   ]
 );
 

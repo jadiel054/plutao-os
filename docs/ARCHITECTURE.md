@@ -96,13 +96,13 @@ plutao-os/
 | **Verification & DoD Gate** | `apps/web/src/lib/missions/dod.ts`, `/api/missions/[id]/verify` | Deterministic verification of outputs against Definition of Done before transitioning to `COMPLETED`. (**VERIFIED**) |
 | **Autonomia V1.1** | `apps/web/src/lib/cockpit/runAutonomousMission.ts` | Single-click end-to-end execution: EXECUTING → Agent Loop → Runtime → VERIFYING → DoD Check → COMPLETED. (**VERIFIED**) |
 | **Offline UI & Resilience** | `apps/web/src/components/OfflineBanner.tsx` | Connectivity status detection, OfflineBanner, graceful network error toasts without application crash. (**VERIFIED**) |
+| **Pending Intents & Reconciliation** | `packages/domain/src/intents/types.ts`, `apps/web/src/lib/offline/` | Client-side IndexedDB persistent queue, strict state machine (`PENDING` → `SYNCING` → `APPLIED`), user isolation (`userId`), idempotent server processing, online reconciler. (**VERIFIED**) |
 
 ---
 
 ## 📐 Planned Architecture Extensions (Not Yet Implemented)
 
 - **External Durable Execution Adapters (Inngest / BullMQ):** External queue-based background workers (currently handled in-process via Next.js runtime with DB checkpoints).
-- **Pending Intents Sync Queue:** Local IndexedDB queue for queuing actions created while completely offline for automatic server reconciliation upon re-establishing network connection.
 - **Background Execution via Service Worker:** Background execution when the PWA browser tab is completely closed by the user.
 
 ---

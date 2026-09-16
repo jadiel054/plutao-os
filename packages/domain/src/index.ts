@@ -233,3 +233,20 @@ export type {
   ModelDownloadProgress,
   ModelFilterOptions,
 } from "./models/registry";
+
+// ============================================================
+// Pending Intents Engine (Marco A)
+// ============================================================
+
+export type {
+  PendingIntentStatus,
+  PendingIntentType,
+  CreateMissionPayload,
+  PendingIntentResult,
+  PendingIntent,
+} from "./intents/types";
+
+export {
+  canTransitionIntentStatus,
+  transitionIntent,
+} from "./intents/types";
