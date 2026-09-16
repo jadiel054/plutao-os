@@ -8,7 +8,8 @@
 - Region: São Paulo
 - PostgreSQL 17
 - Database: `plutao`
-- Schema: 8 tables applied and verified (matches `packages/db/drizzle/0000_baseline.sql`)
+- Schema: baseline 8 tables applied and verified (`0000_baseline.sql`)
+- Additive: `executions` (via `0001` / runtime ensure) and `missions.idempotency_key` + unique index (`0002` — apply with migrate if not yet present)
 
 ## Connection strategy (obrigatório)
 
@@ -32,7 +33,14 @@ curl -s http://localhost:3000/api/health
 ## Migrations policy
 
 - Baseline is already on Neon — **do not re-run** `0000_baseline.sql` on production.
-- Do not run `drizzle-kit migrate` against this Neon without explicit approval.
+- Apply additive migrations (`0001`, `0002`) with **direct** URL only when approved:
+
+```bash
+export DATABASE_URL_UNPOOLED="postgresql://...@...neon.tech/plutao?sslmode=require"
+npm run migrate -w @plutao/db
+```
+
+- `0002_missions_idempotency_key` is required for production atomic idempotency of Pending Intents.
 - Future schema changes go through reviewed SQL + direct URL only.
 
 ## Vercel

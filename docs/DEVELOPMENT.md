@@ -66,8 +66,15 @@ npm run build
 ## Migrations (do not run casually against live Neon)
 
 - Baseline `packages/db/drizzle/0000_baseline.sql` **already matches** production Neon.
-- Do **not** run `drizzle-kit migrate` on the existing Neon without explicit approval.
+- Additive migrations in journal: `0001_executions`, `0002_missions_idempotency_key`.
+- Apply additive migrations only with **direct** URL (`DATABASE_URL_UNPOOLED`):
+
+```bash
+npm run migrate -w @plutao/db
+```
+
 - Future changes: edit `schema.ts` → `npm run generate -w @plutao/db` → review SQL → migrate with **direct** URL only.
+- Runtime `ensureExecutionsTable()` still bootstraps `executions` if migrate has not run yet; it does **not** alter `missions`.
 
 ## Sandbox note
 
