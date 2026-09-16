@@ -162,7 +162,7 @@ export default function ChatPage() {
     setPendingArtifacts((prev) => [...prev, artifact]);
     setInputMessage("");
     setIsLongInputModalOpen(false);
-    addToast(`Artifact "${artifact.name}" anexado`, "success");
+    addToast(`Arquivo "${artifact.name}" anexado`, "success");
   }
 
   const charCount = inputMessage.length;
@@ -182,7 +182,7 @@ export default function ChatPage() {
       <main className="flex-1 mx-auto max-w-4xl w-full flex flex-col p-4 overflow-hidden">
         {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center py-12 text-center space-y-4">
-            <div className="text-2xl">🤖</div>
+            <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-sm font-bold text-[var(--selo)]">P</div>
             <h2 className="text-xl font-semibold">Conversar com {agentName}</h2>
             <p className="text-xs text-[var(--text-secondary)] max-w-md">{agentIdentity}</p>
           </div>
@@ -204,13 +204,13 @@ export default function ChatPage() {
                   <div className="whitespace-pre-wrap">{m.content}</div>
                   {m.artifacts?.map((art) => (
                     <span key={art.id} className="inline-block mt-1 text-[10px] font-mono opacity-80">
-                      📄 {art.name} ({formatFileSize(art.size)})
+                      {art.name} ({formatFileSize(art.size)})
                     </span>
                   ))}
                 </div>
               </div>
             ))}
-            {sending && <div className="text-xs text-[var(--text-muted)]">{agentName} está pensando…</div>}
+            {sending && <div className="text-xs text-[var(--text-muted)]">{agentName} processando…</div>}
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -255,9 +255,9 @@ export default function ChatPage() {
           </div>
           {showLongInputHint && (
             <div className="flex items-center justify-between gap-2 p-2 rounded-xl border border-[var(--selo)]/30 bg-[var(--selo)]/10 text-xs">
-              <span>✨ Texto longo — transformar em artefato?</span>
+              <span>Texto longo detectado. Salvar como arquivo antes de enviar?</span>
               <button type="button" onClick={() => setIsLongInputModalOpen(true)} className="px-3 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] font-semibold">
-                Transformar
+                Salvar arquivo
               </button>
             </div>
           )}

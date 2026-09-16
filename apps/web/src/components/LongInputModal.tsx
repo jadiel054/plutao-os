@@ -53,7 +53,7 @@ export function LongInputModal({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.artifact) {
-        onError?.(data.error ?? "Falha ao criar artifact");
+        onError?.(data.error ?? "Falha ao salvar arquivo");
         return;
       }
       onConfirmTransform({
@@ -63,7 +63,7 @@ export function LongInputModal({
         size: data.artifact.size,
       });
     } catch {
-      onError?.("Erro de rede ao criar artifact");
+      onError?.("Erro de rede ao salvar arquivo");
     } finally {
       setIsTransforming(false);
     }
@@ -76,16 +76,13 @@ export function LongInputModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between pb-3 border-b border-[var(--border)] shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">✨</span>
-            <div>
-              <h2 className="text-base font-semibold text-[var(--text-primary)]">
-                Transformar em Artefato
-              </h2>
-              <p className="text-xs text-[var(--text-muted)]">
-                Textos extensos viram arquivo persistente; o chat envia só a referência.
-              </p>
-            </div>
+          <div>
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">
+              Salvar como arquivo
+            </h2>
+            <p className="text-xs text-[var(--text-muted)]">
+              Textos longos são salvos como arquivo. O chat envia apenas a referência.
+            </p>
           </div>
           <button type="button" onClick={onClose} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1">
             ✕
@@ -119,7 +116,7 @@ export function LongInputModal({
             onClick={() => void handleTransform()}
             className="px-5 py-2 rounded-xl bg-[var(--selo)] hover:bg-[var(--nucleo)] text-[var(--base)] text-xs font-semibold transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm cursor-pointer"
           >
-            {isTransforming ? "Transformando…" : "✨ Transformar em arquivo"}
+            {isTransforming ? "Salvando…" : "Salvar arquivo"}
           </button>
         </div>
       </div>
