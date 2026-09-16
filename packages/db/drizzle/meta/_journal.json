@@ -8,6 +8,20 @@
       "when": 1725868800000,
       "tag": "0000_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1726000000000,
+      "tag": "0001_executions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1726400000000,
+      "tag": "0002_missions_idempotency_key",
+      "breakpoints": true
     }
   ]
 }
