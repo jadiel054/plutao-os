@@ -102,3 +102,19 @@ export async function GET() {
     return NextResponse.json({ error: "Erro interno ao listar artifacts" }, { status: 500 });
   }
 }
+
+export async function DELETE() {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  try {
+    const db = getDb();
+    await db.delete(artifacts).where(eq(artifacts.userId, user.id));
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("[artifacts DELETE]", e);
+    return NextResponse.json({ error: "Erro interno ao excluir artifacts" }, { status: 500 });
+  }
+}
