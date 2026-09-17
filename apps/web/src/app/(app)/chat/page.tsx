@@ -20,6 +20,8 @@ type Message = {
 
 type MissionListItem = { id: string; objective: string; status: string };
 
+type SuggestedPlan = { stepTitles: string[] };
+
 function ChatPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -39,6 +41,9 @@ function ChatPageInner() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [recentMissions, setRecentMissions] = useState<MissionListItem[]>([]);
+  const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPlan | null>(null);
+  const [applyingPlan, setApplyingPlan] = useState(false);
+  const [workspaceKey, setWorkspaceKey] = useState(0);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -46,7 +51,7 @@ function ChatPageInner() {
   const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
-  useEffect(() => { scrollToBottom(); }, [messages, sending]);
+  useEffect(() => { scrollToBottom(); }, [messages, sending, suggestedPlan]);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -57,6 +62,23 @@ function ChatPageInner() {
     textarea.style.height = `${Math.min(h, maxHeight)}px`;
     textarea.style.overflowY = h > maxHeight ? "auto" : "hidden";
   }, [inputMessage]);
+
+  const refreshMissions = useCallback(async () => {
+    try {
+      const mRes = await fetch("/api/missions?limit=8", { cache: "no-store" });
+      if (mRes.ok) {
+        const mData = await mRes.json();
+        const list = Array.isArray(mData.missions)
+          ? mData.missions.map((m: { id: string; objective: string; status: string }) => ({
+              id: m.id,
+              objective: m.objective,
+              status: m.status,
+            }))
+          : [];
+        setRecentMissions(list);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   const init = useCallback(async () => {
     setError(null);
@@ -89,26 +111,13 @@ function ChatPageInner() {
           setActiveMissionId(savedMission);
         }
       }
-      try {
-        const mRes = await fetch("/api/missions?limit=8", { cache: "no-store" });
-        if (mRes.ok) {
-          const mData = await mRes.json();
-          const list = Array.isArray(mData.missions)
-            ? mData.missions.map((m: { id: string; objective: string; status: string }) => ({
-                id: m.id,
-                objective: m.objective,
-                status: m.status,
-              }))
-            : [];
-          setRecentMissions(list);
-        }
-      } catch { /* ignore */ }
+      await refreshMissions();
     } catch {
       addToast("Erro ao conectar à sessão do usuário", "error");
     } finally {
       setLoading(false);
     }
-  }, [router, searchParams]);
+  }, [router, searchParams, refreshMissions]);
 
   useEffect(() => { void init(); }, [init]);
   useEffect(() => {
@@ -125,6 +134,73 @@ function ChatPageInner() {
     }
   }
 
+  async function applySuggestedPlan() {
+    if (!suggestedPlan || suggestedPlan.stepTitles.length === 0 || applyingPlan) return;
+    setApplyingPlan(true);
+    try {
+      let missionId = activeMissionId;
+
+      if (!missionId) {
+        const objective =
+          suggestedPlan.stepTitles[0]?.slice(0, 120) ||
+          "Missão a partir do chat";
+        const createRes = await fetch("/api/missions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            objective,
+            context: "Plano sugerido pelo Núcleo no chat",
+          }),
+        });
+        const createData = await createRes.json().catch(() => ({}));
+        if (!createRes.ok || !createData.mission?.id) {
+          addToast(
+            typeof createData.error === "string"
+              ? createData.error
+              : "Falha ao criar missão",
+            "error"
+          );
+          return;
+        }
+        missionId = createData.mission.id as string;
+        selectMission(missionId);
+        await refreshMissions();
+      }
+
+      const planRes = await fetch(`/api/missions/${missionId}/plan`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_plan",
+          stepTitles: suggestedPlan.stepTitles,
+          brief: {
+            objective:
+              recentMissions.find((m) => m.id === missionId)?.objective ??
+              suggestedPlan.stepTitles[0],
+          },
+        }),
+      });
+      const planData = await planRes.json().catch(() => ({}));
+      if (!planRes.ok) {
+        addToast(
+          typeof planData.error === "string"
+            ? planData.error
+            : "Falha ao gravar plano",
+          "error"
+        );
+        return;
+      }
+
+      setSuggestedPlan(null);
+      setWorkspaceKey((k) => k + 1);
+      addToast("Plano gravado na missão. Revise e alinhe antes de executar.", "success");
+    } catch {
+      addToast("Erro de rede ao aplicar plano", "error");
+    } finally {
+      setApplyingPlan(false);
+    }
+  }
+
   async function handleSend(e?: FormEvent) {
     if (e) e.preventDefault();
     const text = inputMessage.trim();
@@ -134,6 +210,7 @@ function ChatPageInner() {
       return;
     }
     setError(null);
+    setSuggestedPlan(null);
     const activeArtifacts = [...pendingArtifacts];
     const displayContent =
       text ||
@@ -159,6 +236,7 @@ function ChatPageInner() {
         body: JSON.stringify({
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           artifactIds: activeArtifacts.map((a) => a.id),
+          missionId: activeMissionId,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -187,6 +265,16 @@ function ChatPageInner() {
         const errMsg = "Resposta vazia do servidor. Tente novamente.";
         setError(errMsg);
         addToast(errMsg, "error");
+      }
+
+      if (
+        data.suggestedPlan &&
+        Array.isArray(data.suggestedPlan.stepTitles) &&
+        data.suggestedPlan.stepTitles.length >= 3
+      ) {
+        setSuggestedPlan({
+          stepTitles: data.suggestedPlan.stepTitles.map((t: unknown) => String(t)),
+        });
       }
     } catch {
       const errMsg = "Erro de rede ao enviar";
@@ -233,7 +321,7 @@ function ChatPageInner() {
             <h2 className="text-xl font-semibold">Conversar com {agentName}</h2>
             <p className="text-xs text-[var(--text-secondary)] max-w-md">{agentIdentity}</p>
             <p className="text-[11px] text-[var(--text-muted)] max-w-sm">
-              Conversa livre ou projeto: o agente descobre a intenção, alinha o caminho e só então executa.
+              Conversa livre ou projeto: o Núcleo descobre a intenção, alinha o caminho e só então executa.
             </p>
           </div>
         ) : (
@@ -261,6 +349,41 @@ function ChatPageInner() {
               </div>
             ))}
             {sending && <div className="text-xs text-[var(--text-muted)]">{agentName} processando…</div>}
+
+            {suggestedPlan && suggestedPlan.stepTitles.length >= 3 ? (
+              <div className="rounded-2xl border border-[var(--selo)]/40 bg-[var(--surface)] p-3 space-y-2">
+                <div className="text-[11px] font-medium text-[var(--selo)]">
+                  Plano sugerido ({suggestedPlan.stepTitles.length} passos)
+                </div>
+                <ol className="text-[11px] text-[var(--text-secondary)] list-decimal list-inside space-y-0.5">
+                  {suggestedPlan.stepTitles.map((t, i) => (
+                    <li key={i} className="truncate">{t}</li>
+                  ))}
+                </ol>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={applyingPlan}
+                    onClick={() => void applySuggestedPlan()}
+                    className="px-3 py-1.5 rounded-xl bg-[var(--selo)] text-[var(--base)] text-[11px] font-semibold disabled:opacity-40"
+                  >
+                    {applyingPlan
+                      ? "Gravando…"
+                      : activeMissionId
+                        ? "Aplicar na missão ativa"
+                        : "Criar missão e gravar plano"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSuggestedPlan(null)}
+                    className="px-3 py-1.5 rounded-xl border border-[var(--border)] text-[11px] text-[var(--text-muted)]"
+                  >
+                    Dispensar
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -271,7 +394,6 @@ function ChatPageInner() {
           </div>
         )}
 
-        {/* Mission Workspace: planejador + view acima do input */}
         <div className="space-y-2 mb-2">
           {recentMissions.length > 0 ? (
             <div className="flex items-center gap-2 overflow-x-auto pb-1">
@@ -305,6 +427,7 @@ function ChatPageInner() {
             </div>
           ) : null}
           <MissionWorkspaceBar
+            key={workspaceKey}
             missionId={activeMissionId}
             onNotify={(msg, type) => addToast(msg, type ?? "info")}
           />
