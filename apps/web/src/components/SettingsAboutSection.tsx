@@ -1,38 +1,55 @@
 "use client";
 
+import Link from "next/link";
+
+type Row = {
+  label: string;
+  href?: string;
+  external?: boolean;
+  detail?: string;
+};
+
+const ROWS: Row[] = [
+  { label: "Central de ajuda", href: "/ajuda" },
+  { label: "Termos de uso", href: "/legal/termos" },
+  { label: "Política de Privacidade", href: "/legal/privacidade" },
+  { label: "Licenças", href: "/legal/licencas" },
+];
+
 export function SettingsAboutSection() {
   return (
-    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 space-y-6 animate-in fade-in duration-200">
-      <div className="flex items-center gap-2 pb-3 border-b border-[var(--border)]">
-        <div>
-          <h2 className="text-base font-semibold">Sobre o Sistema</h2>
-          <p className="text-xs text-[var(--text-muted)]">
-            Arquitetura do Plutão e estado da plataforma
-          </p>
+    <section className="space-y-4 animate-in fade-in duration-200">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden divide-y divide-[var(--border)]">
+        {ROWS.map((row) => {
+          const className =
+            "flex items-center justify-between w-full px-4 py-3.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--base)]/60 transition-colors";
+          if (row.href) {
+            return (
+              <Link key={row.label} href={row.href} className={className}>
+                <span>{row.label}</span>
+                <span className="text-[var(--text-muted)] text-xs">›</span>
+              </Link>
+            );
+          }
+          return (
+            <div key={row.label} className={className}>
+              <span>{row.label}</span>
+              {row.detail ? (
+                <span className="text-[11px] font-mono text-[var(--text-muted)]">{row.detail}</span>
+              ) : null}
+            </div>
+          );
+        })}
+        <div className="flex items-center justify-between w-full px-4 py-3.5 text-sm text-[var(--text-primary)]">
+          <span>Plutão</span>
+          <span className="text-[11px] font-mono text-[var(--text-muted)]">0.1.0</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-        <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--base)] space-y-2">
-          <h3 className="font-semibold text-[var(--text-primary)]">Plutão</h3>
-          <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-            Sistema operacional autônomo pessoal — Chat, Cockpit, Runtime Loop e Provedor Híbrido.
-          </p>
-          <div className="pt-2 border-t border-[var(--border)] text-[11px] font-mono text-[var(--selo)]">
-            Versão: 0.1.0 (Phase 2 · Mission Core)
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--base)] space-y-2">
-          <h3 className="font-semibold text-[var(--text-primary)]">Tecnologias</h3>
-          <ul className="text-[11px] text-[var(--text-muted)] space-y-1 font-mono">
-            <li>• Next.js 15 (App Router)</li>
-            <li>• Neon PostgreSQL + Drizzle ORM</li>
-            <li>• HuggingFace Transformers (WebGPU)</li>
-            <li>• Groq LLM API Integration</li>
-          </ul>
-        </div>
-      </div>
+      <p className="text-[11px] text-[var(--text-muted)] text-center px-4 leading-relaxed">
+        Sistema operacional autônomo pessoal. Versão e detalhes técnicos ficam aqui —
+        a interface principal permanece limpa.
+      </p>
     </section>
   );
 }

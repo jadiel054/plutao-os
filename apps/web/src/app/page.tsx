@@ -51,23 +51,11 @@ export default async function Home() {
 
       <main className="flex-1 flex flex-col items-center justify-center px-5 py-20 text-center">
         <div className="max-w-md w-full space-y-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)]/80 bg-[var(--surface)]/80 px-3.5 py-1.5 text-[11px] text-[var(--text-secondary)] tracking-wide">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            Phase 2 · Mission Core
-          </div>
-
           <BrandLockup stacked showTagline markSize={88} className="mx-auto" />
 
-          <div className="space-y-3 px-1">
-            <p className="text-[var(--text-secondary)] text-sm leading-relaxed">
-              Sistema operacional autônomo pessoal.
-            </p>
-            <p className="text-[10px] sm:text-[11px] font-mono text-[var(--text-muted)] tracking-wide leading-relaxed">
-              Missão → Entendimento → Planejamento
-              <br />
-              Execução → Verificação → Evidência
-            </p>
-          </div>
+          <p className="text-[var(--text-secondary)] text-sm leading-relaxed px-1">
+            Sistema operacional autônomo pessoal.
+          </p>
 
           <div className="flex flex-col gap-2.5 pt-2">
             {user ? (
