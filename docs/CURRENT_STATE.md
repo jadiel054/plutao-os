@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-17 — Kernel de agentes + 1.2 auto-plan + 1.1 tools→View
+**Última atualização:** 2026-09-17 — Rota priorizada até conectores MCP OAuth (GitHub)
 
 ## Fase
 
@@ -21,50 +21,63 @@ Auto suggestedPlan no chat (1.2) → **IMPLEMENTED**.
 | Agent Loop & Tool Dispatcher | **VERIFIED** |
 | Model nuvem + local | **VERIFIED** |
 | Evidence / DoD gate | **VERIFIED** |
-| Filesystem Tool V1 | **VERIFIED** |
+| Filesystem Tool V1 + Note + Sandbox | **VERIFIED** |
 | Pending Intents offline | **VERIFIED** |
 | Background autonomous-run | **IMPLEMENTED** |
-| Artifacts + Long Input | **VERIFIED** |
-| Brand + home limpa (sem Phase badge) | **IMPLEMENTED** |
-| Sobre em lista (ajuda / legal / versão) | **IMPLEMENTED** |
-| Privacidade (export / delete / toggles) | **IMPLEMENTED** |
-| Mission Workspace V1 | **IMPLEMENTED** |
-| Tools → plan.events (View ao vivo) | **IMPLEMENTED** |
-| Domain AgentRole (Núcleo/Planejador/Executor/Verificador) | **IMPLEMENTED** |
-| Auto suggestedPlan no chat (1.2) | **IMPLEMENTED** |
-| Aplicar plano na missão a partir do card do chat | **IMPLEMENTED** (UI) |
-| Stop-mission / cancel runtime | **PENDENTE** (1.3) |
-| Páginas /ajuda e /legal/* com conteúdo original | **PENDENTE** (pesquisa de domínio antes) |
-| Conectores MCP (OAuth estados completos) | **PENDENTE** (pós-kernel) |
-| Lixeira + recibo de exclusão | **PENDENTE** |
-| Computador / browser virtual | **PENDENTE** |
+| Mission Workspace V1 + tools→View | **IMPLEMENTED** |
+| Domain AgentRole (4 papéis) | **IMPLEMENTED** |
+| Auto suggestedPlan (1.2) | **IMPLEMENTED** |
+| Stop-mission / cancel runtime | **PENDENTE** (1.3 — pré-requisito curto) |
+| Conectores MCP + OAuth (GitHub 1º) | **PENDENTE** — **prioridade de produto** |
+| Painel de conectores (estados + capacidades) | **PENDENTE** |
+| Tools MCP no dispatcher + View | **PENDENTE** |
+| Páginas /ajuda e /legal/* originais | **DEFERIDO** (após pesquisa) |
+| Lixeira + recibo | **DEFERIDO** |
+| Computador / browser virtual | **DEFERIDO** (visão; não bloqueia MCP) |
 
-## O que NÃO está feito (honesto)
+## O que já dá para testar hoje (sem MCP)
 
-- Conteúdo de `/ajuda` e `/legal/*` — links no Sobre existem; páginas dedicadas só após pesquisa e redação original Plutão (sem template genérico).
-- Conectores MCP (GitHub etc.) — decisão registrada; implementação depois do kernel estável.
-- Stop de missão no runtime (1.3).
-- APK / lojas / assinaturas — visão de produto, não código ainda.
+- Cockpit + `▶ Executar` / autonomous-run
+- Tools internas: filesystem, note, sandbox
+- Trilha na Mission View (poll 2,5s + plan.events)
+- Chat → plano sugerido → gravar na missão → alinhar
 
-## Kernel de agentes
+Isso já é execução real no kernel. MCP multiplica as ferramentas externas (GitHub e depois outras).
 
-Papéis em `packages/domain/src/agents`:
+## Rota até a experiência que você quer (MCP ao vivo)
 
-- **Núcleo** — voz com o usuário, intent
-- **Planejador** — missions.plan + align
-- **Executor** — loop + tools + plan.events
-- **Verificador** — DoD + failure gate
+Objetivo de produto: conectar GitHub de verdade, ver estados de auth, listar capacidades, o Executor usar essas tools na missão e a View mostrar a trilha.
 
-## 1.2 Auto-plan
+### Ordem executável (documentação alinhada à prioridade)
 
-- `extractSuggestedPlan` lê passos numerados da resposta do Núcleo
-- API `/api/chat` devolve `suggestedPlan: { stepTitles }`
-- UI do chat oferece criar/aplicar plano na missão ativa
+| # | Marco | Por quê | Estimativa relativa |
+|---|--------|---------|---------------------|
+| **1.3** | **Stop-mission / cancel no runtime** | Segurança: não deixar missão rodando sem freio antes de tools externas | Curto |
+| **M1** | **Domain + schema de conectores** | `ConnectorStatus`, registro por usuário, tokens cifrados, migration Drizzle | Médio |
+| **M2** | **OAuth GitHub completo** | Fluxo: desconectado → autorizando → conectado → reconectar → erro; callback; refresh; revogar | Médio–longo |
+| **M3** | **UI painel de conectores** | Configurações: estado, URL/servidor, lista de tools, Conectar / Desconectar / Reconectar | Médio |
+| **M4** | **Bridge MCP → dispatcher** | Tools do GitHub (e depois outros) entram no Executor; evidência + plan.events | Médio |
+| **M5** | **Missão de fumaça end-to-end** | Ex.: “listar issues do meu repo” → plano → align → tools GitHub → View ao vivo | Curto (validação) |
 
-## Próximos marcos
+**Depois disso (não bloqueiam a felicidade do teste MCP):** 2.1 background aba fechada, lixeira, legal/ajuda originais, browser virtual.
 
-1. Stop-mission / cancel runtime — 1.3
-2. Validar background com aba fechada — 2.1
-3. Lixeira V1 — 2.2
-4. Pesquisa + redação original `/ajuda` e `/legal/*`
-5. Conectores MCP (estados: desconectado → autorizando → conectado → reconectar → erro)
+## Kernel de agentes (já no código)
+
+- **Núcleo** — chat + intent  
+- **Planejador** — plan + align  
+- **Executor** — loop + dispatcher + tools  
+- **Verificador** — DoD + failure gate  
+
+MCP = ferramentas novas sob o **Executor**, com auth no painel de produto.
+
+## Decisão de prioridade (2026-09-17)
+
+Com base em `DECISIONS.md` (conectores pós-kernel estável) e no objetivo do dono do produto (teste real de tools/habilidades):
+
+1. Kernel de missão está estável o bastante (Workspace + 1.1 + 1.2).
+2. Único pré-requisito técnico curto antes de OAuth externo: **1.3 stop**.
+3. Em seguida **MCP GitHub** (M1→M5) sobe na frente de lixeira, legal e PC virtual.
+
+## Próximo passo imediato de engenharia
+
+**1.3 Stop-mission** → em seguida **M1 domain/schema conectores**.
