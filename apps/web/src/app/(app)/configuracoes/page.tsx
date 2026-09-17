@@ -11,9 +11,10 @@ import { SettingsModelsSection } from "@/components/SettingsModelsSection";
 import { SettingsAboutSection } from "@/components/SettingsAboutSection";
 import { SettingsProfileSection } from "@/components/SettingsProfileSection";
 import { SettingsNotificationsSection } from "@/components/SettingsNotificationsSection";
+import { SettingsConnectorsSection } from "@/components/SettingsConnectorsSection";
 import { useModelMode } from "@/hooks/useModelMode";
 
-type TabType = "ia" | "perfil" | "notificacoes" | "seguranca" | "sobre";
+type TabType = "ia" | "conectores" | "perfil" | "notificacoes" | "seguranca" | "sobre";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -74,6 +75,18 @@ export default function SettingsPage() {
             if (p.theme) setThemeMode(p.theme);
             if (p.density) setDensityMode(p.density);
             if (p.language) setLanguage(p.language);
+          }
+          const params = new URLSearchParams(window.location.search);
+          const tab = params.get("tab");
+          if (
+            tab === "conectores" ||
+            tab === "ia" ||
+            tab === "perfil" ||
+            tab === "notificacoes" ||
+            tab === "seguranca" ||
+            tab === "sobre"
+          ) {
+            setActiveTab(tab);
           }
         } catch {
           /* ignore */
@@ -164,6 +177,7 @@ export default function SettingsPage() {
 
   const tabs: { id: TabType; label: string }[] = [
     { id: "ia", label: "Modelos" },
+    { id: "conectores", label: "Conectores" },
     { id: "perfil", label: "Conta" },
     { id: "notificacoes", label: "Notificações" },
     { id: "seguranca", label: "Privacidade" },
@@ -177,7 +191,7 @@ export default function SettingsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Painel de Configurações</h1>
-            <p className="text-xs text-[var(--text-muted)]">IA, perfil, preferências e dados da conta</p>
+            <p className="text-xs text-[var(--text-muted)]">Modelos, conectores, perfil e dados</p>
           </div>
           <button
             type="button"
@@ -188,7 +202,7 @@ export default function SettingsPage() {
             {saving ? "Salvando…" : "Salvar alterações"}
           </button>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 border-b border-[var(--border)] pb-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 border-b border-[var(--border)] pb-3">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -206,6 +220,7 @@ export default function SettingsPage() {
         </div>
         <div className="space-y-6">
           {activeTab === "ia" && <SettingsModelsSection onNotify={addToast} />}
+          {activeTab === "conectores" && <SettingsConnectorsSection onNotify={addToast} />}
           {activeTab === "perfil" && (
             <SettingsProfileSection
               userEmail={userEmail}

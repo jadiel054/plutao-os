@@ -1,48 +1,46 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-17 — **1.3 Stop-mission IMPLEMENTADO** → próximo: MCP GitHub (M1)
-
-## Fase
-
-Kernel de missão (Workspace + tools→View + auto-plan + **stop**) → **IMPLEMENTED**.
-Próximo foco de produto: **conectores MCP OAuth (GitHub 1º)**.
+**Última atualização:** 2026-09-17 — M1+M2 conectores GitHub OAuth + painel
 
 ## Matriz
 
 | Área | Status |
 |------|--------|
-| Durable Runtime & Checkpoints | **VERIFIED** |
-| Agent Loop & Tool Dispatcher | **VERIFIED** |
-| Mission Workspace V1 + tools→View | **IMPLEMENTED** |
-| Auto suggestedPlan (1.2) | **IMPLEMENTED** |
-| **Stop-mission / cancel (1.3)** | **IMPLEMENTED** |
-| Conectores MCP + OAuth (GitHub 1º) | **PENDENTE** — **próximo** |
-| Painel de conectores | **PENDENTE** |
-| Bridge MCP → dispatcher | **PENDENTE** |
-| /ajuda e /legal originais | **DEFERIDO** |
-| Lixeira | **DEFERIDO** |
-| Browser virtual | **DEFERIDO** |
+| Mission Workspace + tools→View + auto-plan + stop (1.3) | **IMPLEMENTED** |
+| **M1 Domain + schema connectors** | **IMPLEMENTED** |
+| **M2 OAuth GitHub (authorize / callback / disconnect)** | **IMPLEMENTED** |
+| **M3 UI painel Conectores** | **IMPLEMENTED** |
+| M4 Bridge MCP/tools GitHub → dispatcher | **PENDENTE** |
+| M5 Smoke missão com GitHub | **PENDENTE** |
 
-## 1.3 Stop-mission (feito)
+## Conectores (M1–M3)
 
-- Status de execução **`CANCELLED`** (terminal; libera `idempotency_key`)
-- `stopExecution` / `stopMissionExecution` em `lib/runtime/service.ts`
-- Agent loop já checa `RECOVERABLE` a cada iteração → para na próxima volta
-- `POST /api/missions/:id/stop` — para run ativo + evento `stopped` no plano
-- `PATCH /api/executions/:id` action `stop`
-- View: botão **Parar missão** chama stop real (não só append_event)
+Estados: `disconnected → authorizing → connected → reconnecting → error`
 
-## Rota até MCP ao vivo
+- Tabela `connectors` (migration **0004**)
+- Tokens AES-256-GCM (`CONNECTOR_TOKEN_SECRET` ou `SESSION_SECRET`)
+- `POST /api/connectors/github/authorize` → URL OAuth
+- `GET /api/connectors/github/callback` → troca code, capabilities, `connected`
+- `POST /api/connectors/github/disconnect` → limpa tokens
+- Configurações → aba **Conectores**
 
-| # | Marco | Status |
-|---|--------|--------|
-| 1.3 | Stop-mission | **DONE** |
-| **M1** | Domain + schema conectores | **NEXT** |
-| M2 | OAuth GitHub (estados completos) | PENDENTE |
-| M3 | UI painel conectores | PENDENTE |
-| M4 | Bridge MCP → dispatcher + View | PENDENTE |
-| M5 | Smoke end-to-end | PENDENTE |
+### Variáveis de ambiente (obrigatórias para conectar de verdade)
 
-## Próximo passo imediato
+```
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+CONNECTOR_TOKEN_SECRET=   # ou SESSION_SECRET ≥16 chars
+APP_URL=https://seu-dominio   # callback estável (recomendado)
+```
 
-**M1 — Domain + schema de conectores** (status, tokens cifrados, migration Drizzle), depois M2 OAuth GitHub.
+GitHub OAuth App → Authorization callback URL:
+`https://seu-dominio/api/connectors/github/callback`
+
+### Migration
+
+Aplicar `packages/db/drizzle/0004_connectors.sql` no Neon (`DATABASE_URL_UNPOOLED`).
+
+## Próximo passo de engenharia
+
+**M4** — tools GitHub no dispatcher (repos_list, issues_list, …) usando `getAccessToken`, evidência + plan.events.
+**M5** — missão de fumaça end-to-end.
