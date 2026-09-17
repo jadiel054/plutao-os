@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, KeyboardEvent } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, KeyboardEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/components/Header";
 import { MobileNav } from "@/components/MobileNav";
@@ -20,7 +20,7 @@ type Message = {
 
 type MissionListItem = { id: string; objective: string; status: string };
 
-export default function ChatPage() {
+function ChatPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [userEmail, setUserEmail] = useState("");
@@ -377,5 +377,19 @@ export default function ChatPage() {
       />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-dvh flex items-center justify-center text-[var(--text-muted)] text-sm font-mono">
+          Carregando Chat Plutão…
+        </div>
+      }
+    >
+      <ChatPageInner />
+    </Suspense>
   );
 }
