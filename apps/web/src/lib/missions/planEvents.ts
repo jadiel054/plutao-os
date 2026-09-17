@@ -9,6 +9,7 @@ import {
   parseMissionPlan,
   type MissionEvent,
   type MissionPlanV1,
+  type MissionStepStatus,
 } from "@plutao/domain";
 import { getDb } from "@/lib/db";
 
@@ -108,5 +109,79 @@ export async function recordToolOnMissionPlan(opts: {
       .where(and(eq(missions.id, opts.missionId), eq(missions.userId, opts.userId)));
   } catch (e) {
     console.error("[planEvents.recordToolOnMissionPlan]", e);
+  }
+}
+
+const STOPPABLE_STEP: ReadonlySet<MissionStepStatus> = new Set([
+  "RUNNING",
+  "FAILED",
+  "INSPECTING",
+  "FIXING",
+  "TESTING",
+]);
+
+/**
+ * 1.3: registra stop no plano — evento + cancela passos ativos no ciclo.
+ */
+export async function recordStopOnMissionPlan(opts: {
+  missionId: string;
+  userId: string;
+  reason?: string;
+  executionId?: string | null;
+}): Promise<MissionPlanV1 | null> {
+  try {
+    const db = getDb();
+    const rows = await db
+      .select({ plan: missions.plan, status: missions.status })
+      .from(missions)
+      .where(and(eq(missions.id, opts.missionId), eq(missions.userId, opts.userId)))
+      .limit(1);
+
+    const plan = parseMissionPlan(rows[0]?.plan);
+    if (!plan) return null;
+
+    const now = new Date().toISOString();
+    const reason = opts.reason?.trim() || "Parado pelo usuário";
+    const event: MissionEvent = {
+      id: randomUUID(),
+      kind: "stopped",
+      label: "Missão parada",
+      detail: opts.executionId
+        ? `${reason} · execution ${opts.executionId.slice(0, 8)}`
+        : reason,
+      stepId: plan.steps[plan.currentStepIndex]?.id ?? null,
+      at: now,
+    };
+
+    const steps = plan.steps.map((s) => {
+      if (!STOPPABLE_STEP.has(s.status)) return s;
+      return {
+        ...s,
+        status: "CANCELLED" as const,
+        updatedAt: now,
+      };
+    });
+
+    const next: MissionPlanV1 = {
+      ...plan,
+      steps,
+      events: [...plan.events, event],
+      updatedAt: now,
+    };
+
+    await db
+      .update(missions)
+      .set({
+        plan: next,
+        status: "CANCELLED",
+        currentState: "CANCELLED",
+        updatedAt: new Date(),
+      })
+      .where(and(eq(missions.id, opts.missionId), eq(missions.userId, opts.userId)));
+
+    return next;
+  } catch (e) {
+    console.error("[planEvents.recordStopOnMissionPlan]", e);
+    return null;
   }
 }

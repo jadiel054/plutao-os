@@ -77,10 +77,8 @@ export async function startExecution(opts: {
       .returning();
     return { execution: inserted[0], created: true as const };
   } catch (e: unknown) {
-    // unique violation on idempotency_key — concurrent start
     const again = await findRecoverableExecution(opts.missionId, opts.userId);
     if (again) return { execution: again, created: false as const };
-    // stale key from terminal run: rotate key by completing path handled elsewhere
     throw e;
   }
 }
@@ -168,7 +166,7 @@ export async function resumeExecution(executionId: string, userId: string) {
 export async function completeExecution(
   executionId: string,
   userId: string,
-  status: "COMPLETED" | "FAILED",
+  status: "COMPLETED" | "FAILED" | "CANCELLED",
   error?: string
 ) {
   const row = await getOwnedExecution(executionId, userId);
@@ -178,7 +176,6 @@ export async function completeExecution(
   }
   const now = new Date();
   const db = getDb();
-  // free idempotency key for a future run on same mission
   const freedKey = `${row.idempotencyKey}:done:${row.id}`;
   const updated = await db
     .update(executions)
@@ -192,4 +189,40 @@ export async function completeExecution(
     .where(eq(executions.id, executionId))
     .returning();
   return { execution: updated[0], alreadyTerminal: false as const };
+}
+
+/**
+ * 1.3 Stop: marca execução como CANCELLED (terminal).
+ * O agent loop checa RECOVERABLE a cada iteração e para na próxima volta.
+ */
+export async function stopExecution(
+  executionId: string,
+  userId: string,
+  reason = "Parado pelo usuário"
+) {
+  return completeExecution(executionId, userId, "CANCELLED", reason);
+}
+
+/**
+ * Para a execução recuperável ativa da missão (se houver).
+ * Idempotente: sem run ativo → ok sem erro.
+ */
+export async function stopMissionExecution(
+  missionId: string,
+  userId: string,
+  reason = "Parado pelo usuário"
+) {
+  const active = await findRecoverableExecution(missionId, userId);
+  if (!active) {
+    return { stopped: false as const, execution: null, reason: "NO_ACTIVE_RUN" as const };
+  }
+  const result = await stopExecution(active.id, userId, reason);
+  if ("error" in result) {
+    return { stopped: false as const, execution: null, reason: result.error };
+  }
+  return {
+    stopped: true as const,
+    execution: result.execution,
+    alreadyTerminal: result.alreadyTerminal,
+  };
 }

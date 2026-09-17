@@ -6,8 +6,10 @@ import {
   interruptExecution,
   pauseExecution,
   resumeExecution,
+  stopExecution,
   writeCheckpoint,
 } from "@/lib/runtime/service";
+import { recordStopOnMissionPlan } from "@/lib/missions/planEvents";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 
 export const runtime = "nodejs";
@@ -82,6 +84,29 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         );
       }
       return NextResponse.json({ execution: result.execution });
+    }
+
+    if (action === "stop") {
+      const reason =
+        typeof body.reason === "string" && body.reason.trim()
+          ? body.reason.trim()
+          : "Parado pelo usuário";
+      const result = await stopExecution(id, user.id, reason);
+      if ("error" in result) {
+        return NextResponse.json({ error: result.error }, { status: 404 });
+      }
+      if (result.execution?.missionId) {
+        await recordStopOnMissionPlan({
+          missionId: result.execution.missionId,
+          userId: user.id,
+          reason,
+          executionId: result.execution.id,
+        });
+      }
+      return NextResponse.json({
+        execution: result.execution,
+        alreadyTerminal: result.alreadyTerminal,
+      });
     }
 
     if (action === "complete" || action === "fail") {

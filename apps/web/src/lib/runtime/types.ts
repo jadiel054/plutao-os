@@ -5,6 +5,7 @@ export const EXECUTION_STATUSES = [
   "INTERRUPTED",
   "COMPLETED",
   "FAILED",
+  "CANCELLED",
 ] as const;
 
 export type ExecutionStatus = (typeof EXECUTION_STATUSES)[number];
@@ -19,6 +20,7 @@ export const RECOVERABLE: ReadonlySet<ExecutionStatus> = new Set([
 export const TERMINAL: ReadonlySet<ExecutionStatus> = new Set([
   "COMPLETED",
   "FAILED",
+  "CANCELLED",
 ]);
 
 export type CheckpointPayload = {

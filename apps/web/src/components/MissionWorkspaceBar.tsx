@@ -8,7 +8,7 @@ import { MissionExecutionView } from "@/components/MissionExecutionView";
 
 /**
  * Barra de Mission Workspace acima do input do chat.
- * Carrega plano da missão ativa e permite alinhar / ciclar falha.
+ * Carrega plano da missão ativa e permite alinhar / ciclar falha / stop real (1.3).
  * Poll 2.5s para trail de tools ao vivo (1.1).
  */
 export function MissionWorkspaceBar({
@@ -52,7 +52,6 @@ export function MissionWorkspaceBar({
     void load();
   }, [load]);
 
-  // Live trail: poll plan while mission is selected (tools update plan.events server-side)
   useEffect(() => {
     if (!missionId) return;
     const id = window.setInterval(() => {
@@ -88,6 +87,41 @@ export function MissionWorkspaceBar({
     }
   }
 
+  async function stopMission() {
+    if (!missionId) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/missions/${missionId}/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Parado pelo usuário" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        onNotify?.(
+          typeof data.error === "string" ? data.error : "Falha ao parar missão",
+          "error"
+        );
+        return;
+      }
+      const next = parseMissionPlan(data.plan);
+      if (next) setPlan(next);
+      else await load();
+
+      if (data.stoppedExecution) {
+        onNotify?.("Execução cancelada. Loop para na próxima iteração.", "success");
+      } else if (data.noActiveRun) {
+        onNotify?.("Sem execução ativa — plano marcado como parado.", "info");
+      } else {
+        onNotify?.("Missão parada", "success");
+      }
+    } catch {
+      onNotify?.("Erro de rede ao parar missão", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!missionId) return null;
 
   if (loading && !plan) {
@@ -101,8 +135,7 @@ export function MissionWorkspaceBar({
   if (!plan) {
     return (
       <div className="rounded-2xl border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)]">
-        Missão ativa sem plano estruturado. Crie o plano no Cockpit ou via API
-        create_plan.
+        Missão ativa sem plano estruturado. Use o plano sugerido no chat ou o Cockpit.
       </div>
     );
   }
@@ -147,13 +180,7 @@ export function MissionWorkspaceBar({
             eventLabel: `Testar: ${step.title}`,
           })
         }
-        onStop={() =>
-          void patch({
-            action: "append_event",
-            kind: "stopped",
-            label: "Execução interrompida pelo usuário",
-          })
-        }
+        onStop={() => void stopMission()}
       />
     </div>
   );
