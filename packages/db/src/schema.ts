@@ -1,8 +1,8 @@
 /**
  * @plutao/db — Drizzle schema
  *
- * Neon São Paulo — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
- * Baseline 0000 applied. Additive: 0001_executions, 0002_missions_idempotency_key, 0003_artifacts.
+ * Neon — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
+ * Additive: 0001_executions, 0002_missions_idempotency_key, 0003_artifacts, 0004_connectors.
  */
 
 import {
@@ -193,5 +193,36 @@ export const artifacts = pgTable(
   (t) => [
     index("artifacts_user_id_idx").on(t.userId),
     index("artifacts_mission_id_idx").on(t.missionId),
+  ]
+);
+
+/** MCP / OAuth connectors — one row per (user, provider). Tokens encrypted at app layer. */
+export const connectors = pgTable(
+  "connectors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    status: text("status").notNull().default("disconnected"),
+    serverUrl: text("server_url"),
+    accountLogin: text("account_login"),
+    accountLabel: text("account_label"),
+    scopes: jsonb("scopes").notNull().default([]),
+    capabilities: jsonb("capabilities").notNull().default([]),
+    accessTokenEnc: text("access_token_enc"),
+    refreshTokenEnc: text("refresh_token_enc"),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+    oauthState: text("oauth_state"),
+    lastError: text("last_error"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("connectors_user_provider_uidx").on(t.userId, t.provider),
+    index("connectors_user_id_idx").on(t.userId),
+    index("connectors_status_idx").on(t.status),
   ]
 );

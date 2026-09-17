@@ -2,12 +2,8 @@
  * @plutao/domain
  * Core domain types for Plutão — Personal Autonomous Operating System
  *
- * Status: FOUNDATION + Mission Workspace + Agent kernel roles
+ * Status: FOUNDATION + Mission Workspace + Agent kernel + Connectors
  */
-
-// ============================================================
-// Identity & Account
-// ============================================================
 
 export type UserId = string;
 export type AgentId = string;
@@ -34,10 +30,6 @@ export interface Session {
   userAgent: string | null;
   ip: string | null;
 }
-
-// ============================================================
-// Mission Engine (core states from spec §5)
-// ============================================================
 
 export type MissionStatus =
   | "CREATED"
@@ -71,10 +63,6 @@ export interface Mission {
   updatedAt: Date;
 }
 
-// ============================================================
-// Task Engine (spec §6)
-// ============================================================
-
 export type TaskStatus =
   | "CREATED"
   | "READY"
@@ -98,10 +86,6 @@ export interface Task {
   completedAt: Date | null;
 }
 
-// ============================================================
-// Agent (minimal account-level record)
-// ============================================================
-
 export interface Agent {
   id: AgentId;
   userId: UserId;
@@ -112,10 +96,6 @@ export interface Agent {
   updatedAt: Date;
 }
 
-// ============================================================
-// Project (minimal)
-// ============================================================
-
 export interface Project {
   id: ProjectId;
   userId: UserId;
@@ -124,10 +104,6 @@ export interface Project {
   createdAt: Date;
   updatedAt: Date;
 }
-
-// ============================================================
-// Audit / Observability foundation
-// ============================================================
 
 export type AuditEventType =
   | "user.created"
@@ -138,7 +114,8 @@ export type AuditEventType =
   | "task.created"
   | "task.status_changed"
   | "auth.password_reset_requested"
-  | "auth.password_changed";
+  | "auth.password_changed"
+  | "connector.status_changed";
 
 export interface AuditEvent {
   id: string;
@@ -147,10 +124,6 @@ export interface AuditEvent {
   payload: Record<string, unknown>;
   createdAt: Date;
 }
-
-// ============================================================
-// Agent Loop (Runtime)
-// ============================================================
 
 export type {
   AgentLoopState,
@@ -169,10 +142,6 @@ export {
   formatLoopResult,
 } from "./runtime/agentLoop";
 
-// ============================================================
-// Model Providers
-// ============================================================
-
 export type {
   LocalModelConfig,
   LocalModelStatus,
@@ -186,10 +155,6 @@ export {
   getLocalProvider,
   resetLocalProvider,
 } from "./runtime/providers/localProvider";
-
-// ============================================================
-// Model Selector (Híbrido Online/Offline)
-// ============================================================
 
 export type {
   ModelMode,
@@ -214,10 +179,6 @@ export {
   getModelProvider,
 } from "./runtime/modelSelector";
 
-// ============================================================
-// Model Registry & Management
-// ============================================================
-
 export {
   PRESET_MODELS,
   filterModels,
@@ -233,10 +194,6 @@ export type {
   ModelFilterOptions,
 } from "./models/registry";
 
-// ============================================================
-// Pending Intents Engine (Marco A)
-// ============================================================
-
 export type {
   PendingIntentStatus,
   PendingIntentType,
@@ -249,10 +206,6 @@ export {
   canTransitionIntentStatus,
   transitionIntent,
 } from "./intents/types";
-
-// ============================================================
-// Mission Workspace V1 (plan + failure gate + execution trail)
-// ============================================================
 
 export type {
   MissionStepStatus,
@@ -276,10 +229,6 @@ export {
   applyStepTransition,
 } from "./mission-workspace";
 
-// ============================================================
-// Agent kernel roles (plan-and-execute hierarchy)
-// ============================================================
-
 export type { AgentRoleId, AgentRoleDefinition } from "./agents";
 export {
   AGENT_ROLES,
@@ -287,3 +236,16 @@ export {
   getAgentRole,
   listAgentRoles,
 } from "./agents";
+
+export type {
+  ConnectorProviderId,
+  ConnectorStatus,
+  ConnectorCapability,
+  ConnectorPublicView,
+  ConnectorCatalogEntry,
+} from "./connectors";
+export {
+  CONNECTOR_CATALOG,
+  canTransitionConnector,
+  getCatalogEntry,
+} from "./connectors";
