@@ -180,10 +180,11 @@ export function SettingsModelsSection({ onNotify }: Props) {
                 isActive={activeModelId === m.id}
                 progress={progresses[m.id]}
                 onActivate={() => {
-                  void activateModel(m.id).then(() => onNotify(`Modelo ${m.name} ativado`, "success"));
+                  activateModel(m.id);
+                  onNotify(`Modelo ${m.name} ativado`, "success");
                 }}
                 onDownload={() => {
-                  void startDownload(m);
+                  startDownload(m);
                   onNotify(`Download de ${m.name}`, "info");
                 }}
                 onCancel={() => {
@@ -191,7 +192,8 @@ export function SettingsModelsSection({ onNotify }: Props) {
                   onNotify("Download cancelado", "warning");
                 }}
                 onDelete={() => {
-                  void deleteModel(m.id).then(() => onNotify("Cache removido", "warning"));
+                  deleteModel(m.id);
+                  onNotify("Cache removido", "warning");
                 }}
                 onTest={() => setSelectedTestModel(m)}
               />
