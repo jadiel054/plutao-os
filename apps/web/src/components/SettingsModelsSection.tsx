@@ -28,6 +28,7 @@ export function SettingsModelsSection({ onNotify }: Props) {
 
   const {
     filteredModels,
+    downloadedModelIds,
     activeModelId,
     progresses,
     filterOptions,
@@ -177,25 +178,26 @@ export function SettingsModelsSection({ onNotify }: Props) {
               <ModelCard
                 key={m.id}
                 model={m}
+                isDownloaded={downloadedModelIds.includes(m.id)}
                 isActive={activeModelId === m.id}
                 progress={progresses[m.id]}
-                onActivate={() => {
-                  activateModel(m.id);
+                onActivate={(id) => {
+                  activateModel(id);
                   onNotify(`Modelo ${m.name} ativado`, "success");
                 }}
-                onDownload={() => {
-                  startDownload(m);
-                  onNotify(`Download de ${m.name}`, "info");
+                onStartDownload={(model) => {
+                  startDownload(model);
+                  onNotify(`Download de ${model.name}`, "info");
                 }}
-                onCancel={() => {
-                  cancelDownload(m.id);
+                onCancelDownload={(id) => {
+                  cancelDownload(id);
                   onNotify("Download cancelado", "warning");
                 }}
-                onDelete={() => {
-                  deleteModel(m.id);
+                onDeleteModel={(id) => {
+                  deleteModel(id);
                   onNotify("Cache removido", "warning");
                 }}
-                onTest={() => setSelectedTestModel(m)}
+                onOpenTest={(model) => setSelectedTestModel(model)}
               />
             ))}
           </div>
