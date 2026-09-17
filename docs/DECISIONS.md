@@ -5,6 +5,27 @@ Formato: DATA | DECISÃO | CONTEXTO | STATUS
 
 ---
 
+## 2026-09-17 — Mission Workspace V1 (OS de trabalho)
+
+**Decisão:** O Plutão não é chat com botões. Ciclo oficial:
+
+`conversa → descobrir intenção → alinhar caminho → executar de verdade → artefato + evidência`
+
+**Mission Workspace V1**
+- Plano estruturado em `missions.plan` (JSON versionado v1): steps + events + `aligned`
+- Planejador **acima do input** do chat + View de execução (trilha real)
+- **Gate de falha:** nenhum passo N+1 inicia sem o N em `PASSED`
+- Loop obrigatório: `FAILED → INSPECTING → FIXING → TESTING → PASSED`
+- Alinhamento (`aligned: true`) obrigatório antes de `RUNNING`
+- API: `GET/PATCH /api/missions/:id/plan` (create_plan, align, transition, append_event)
+- Chat system prompt orienta intent (chat | mission | project | config) e alinhamento
+
+**Não incluso nesta fatia:** browser/desktop virtual, lixeira, e-mail → missão.
+
+**Status:** ACEITA / EM IMPLEMENTAÇÃO (`feat/mission-workspace-v1`)
+
+---
+
 ## 2026-09-07 — Identidade de Produto
 
 **Decisão:** O nome oficial do sistema é **Plutão**.
@@ -159,4 +180,6 @@ Marco A+B mergeado em `main` (`4e0e2f39`). Runtime DDL em `ensure.ts` para colun
 
 - **Background Execution:** missão continua com PWA/aba completamente fechado (Service Worker / Background Sync ou worker externo)
 - Adapter externo para workers em background (Inngest / BullMQ para execução assíncrona fora do processo Next.js)
-- Smart Long-Input / Artifacts V1 (PR #2 ainda aberta)
+- Lixeira + exclusão granular + recibo de exclusão (P0 privacidade)
+- Computador / Browser virtual (View V3)
+- E-mail → missão; agenda de missões

@@ -1,12 +1,13 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/components/Header";
 import { MobileNav } from "@/components/MobileNav";
 import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LongInputModal, type ArtifactRef } from "@/components/LongInputModal";
+import { MissionWorkspaceBar } from "@/components/MissionWorkspaceBar";
 import { formatFileSize } from "@/lib/artifacts";
 
 type Message = {
@@ -17,8 +18,11 @@ type Message = {
   artifacts?: ArtifactRef[];
 };
 
+type MissionListItem = { id: string; objective: string; status: string };
+
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [userEmail, setUserEmail] = useState("");
   const [agentName, setAgentName] = useState("Plutão");
   const [agentIdentity, setAgentIdentity] = useState("Assistente Pessoal Autônomo");
@@ -33,6 +37,8 @@ export default function ChatPage() {
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isLongInputModalOpen, setIsLongInputModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
+  const [recentMissions, setRecentMissions] = useState<MissionListItem[]>([]);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -74,13 +80,35 @@ export default function ChatPage() {
             if (Array.isArray(parsed)) setMessages(parsed);
           } catch { /* ignore */ }
         }
+        const savedMission = localStorage.getItem(`plutao_chat_mission_${email}`);
+        const fromQuery = searchParams.get("mission");
+        if (fromQuery) {
+          setActiveMissionId(fromQuery);
+          localStorage.setItem(`plutao_chat_mission_${email}`, fromQuery);
+        } else if (savedMission) {
+          setActiveMissionId(savedMission);
+        }
       }
+      try {
+        const mRes = await fetch("/api/missions?limit=8", { cache: "no-store" });
+        if (mRes.ok) {
+          const mData = await mRes.json();
+          const list = Array.isArray(mData.missions)
+            ? mData.missions.map((m: { id: string; objective: string; status: string }) => ({
+                id: m.id,
+                objective: m.objective,
+                status: m.status,
+              }))
+            : [];
+          setRecentMissions(list);
+        }
+      } catch { /* ignore */ }
     } catch {
       addToast("Erro ao conectar à sessão do usuário", "error");
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, searchParams]);
 
   useEffect(() => { void init(); }, [init]);
   useEffect(() => {
@@ -88,6 +116,14 @@ export default function ChatPage() {
       localStorage.setItem(`plutao_chat_${userEmail}`, JSON.stringify(messages));
     }
   }, [messages, userEmail]);
+
+  function selectMission(id: string | null) {
+    setActiveMissionId(id);
+    if (userEmail) {
+      if (id) localStorage.setItem(`plutao_chat_mission_${userEmail}`, id);
+      else localStorage.removeItem(`plutao_chat_mission_${userEmail}`);
+    }
+  }
 
   async function handleSend(e?: FormEvent) {
     if (e) e.preventDefault();
@@ -196,6 +232,9 @@ export default function ChatPage() {
             <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-sm font-bold text-[var(--selo)]">P</div>
             <h2 className="text-xl font-semibold">Conversar com {agentName}</h2>
             <p className="text-xs text-[var(--text-secondary)] max-w-md">{agentIdentity}</p>
+            <p className="text-[11px] text-[var(--text-muted)] max-w-sm">
+              Conversa livre ou projeto: o agente descobre a intenção, alinha o caminho e só então executa.
+            </p>
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto space-y-4 pb-4">
@@ -231,6 +270,45 @@ export default function ChatPage() {
             {error}
           </div>
         )}
+
+        {/* Mission Workspace: planejador + view acima do input */}
+        <div className="space-y-2 mb-2">
+          {recentMissions.length > 0 ? (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <span className="text-[10px] font-mono text-[var(--text-muted)] shrink-0">Missão</span>
+              <button
+                type="button"
+                onClick={() => selectMission(null)}
+                className={`shrink-0 px-2 py-1 rounded-lg text-[10px] border ${
+                  !activeMissionId
+                    ? "border-[var(--selo)] text-[var(--selo)]"
+                    : "border-[var(--border)] text-[var(--text-muted)]"
+                }`}
+              >
+                Só chat
+              </button>
+              {recentMissions.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => selectMission(m.id)}
+                  title={m.objective}
+                  className={`shrink-0 max-w-[140px] truncate px-2 py-1 rounded-lg text-[10px] border ${
+                    activeMissionId === m.id
+                      ? "border-[var(--selo)] text-[var(--selo)]"
+                      : "border-[var(--border)] text-[var(--text-muted)]"
+                  }`}
+                >
+                  {m.objective.slice(0, 28)}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <MissionWorkspaceBar
+            missionId={activeMissionId}
+            onNotify={(msg, type) => addToast(msg, type ?? "info")}
+          />
+        </div>
 
         <form onSubmit={handleSend} className="space-y-2">
           {pendingArtifacts.length > 0 && (
