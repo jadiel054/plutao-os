@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-17 — Mission Workspace V1 na main + Controles de dados (Privacidade)
+**Última atualização:** 2026-09-17 — Build fix SettingsModelsSection ↔ ModelCard + Mission Workspace V1 + Privacidade
 
 ## Fase
 
@@ -28,9 +28,18 @@ Controles de dados (Privacidade) → **IMPLEMENTED** (main).
 | Data controls (export, delete, toggles opt-in) | **IMPLEMENTED** |
 | Mission Workspace V1 (plan / align / failure loop / chat UI) | **IMPLEMENTED** |
 | Auto create_plan a partir do LLM no chat | **PENDENTE** |
-| Tools reais → eventos da View | **PENDENTE** |
+| Tools reais → eventos da View | **PENDENTE** (código local em feat/tools-to-view-events) |
 | Lixeira + recibo de exclusão | **PENDENTE** |
 | Computador / browser virtual | **PENDENTE** |
+
+## Build / Deploy (2026-09-17)
+
+Sequência de falhas no Vercel (typecheck):
+
+1. `activateModel`/`deleteModel` tratados como Promise (`.then`) — fix `1a71509`
+2. Props de `SettingsModelsSection` desalinhadas de `ModelCardProps` (`onDownload` vs `onStartDownload`, falta `isDownloaded`) — fix `8d49689`
+
+Após o segundo fix, redeploy em produção deve passar. Confirmar health + WorkspaceBar no chat.
 
 ## Mission Workspace V1 (2026-09-17)
 
@@ -64,8 +73,9 @@ Migration `0002` no Neon + smoke OK (2026-09-16).
 
 ## Próximos marcos
 
-1. Ligar runtime/tools aos eventos da View (execução ao vivo de verdade)
-2. Auto `create_plan` a partir do alinhamento no chat
-3. Lixeira V1 + recibo de exclusão
-4. Validar Background Execution V1 fechando a aba no meio do request
-5. Computador / browser virtual (fase posterior)
+1. Ligar runtime/tools aos eventos da View (execução ao vivo de verdade) — 1.1
+2. Auto `create_plan` a partir do alinhamento no chat — 1.2
+3. Stop-mission / cancel runtime — 1.3
+4. Validar Background Execution V1 fechando a aba no meio do request — 2.1
+5. Lixeira V1 + recibo de exclusão — 2.2
+6. Computador / browser virtual (fase posterior)
