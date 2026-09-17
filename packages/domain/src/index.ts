@@ -1,9 +1,8 @@
 /**
  * @plutao/domain
- * Core domain types for Plutão — Personal Autonomous AI Operating System
- * Aligned with PROJECT_SPECIFICATION.md (Architecture Baseline v1.0)
+ * Core domain types for Plutão — Personal Autonomous Operating System
  *
- * Status: FOUNDATION — only entities needed for Phase 1
+ * Status: FOUNDATION + Mission Workspace + Agent kernel roles
  */
 
 // ============================================================
@@ -100,7 +99,7 @@ export interface Task {
 }
 
 // ============================================================
-// Agent (minimal for Phase 1)
+// Agent (minimal account-level record)
 // ============================================================
 
 export interface Agent {
@@ -276,3 +275,15 @@ export {
   parseMissionPlan,
   applyStepTransition,
 } from "./mission-workspace";
+
+// ============================================================
+// Agent kernel roles (plan-and-execute hierarchy)
+// ============================================================
+
+export type { AgentRoleId, AgentRoleDefinition } from "./agents";
+export {
+  AGENT_ROLES,
+  AGENT_ROLE_ORDER,
+  getAgentRole,
+  listAgentRoles,
+} from "./agents";
