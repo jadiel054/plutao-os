@@ -1,17 +1,13 @@
 export type {
-  ConnectorAuthMode,
-  ConnectorWave,
-  ConnectorCategory,
-  NativeConnectorDefinition,
-  ConnectorConnectionStatus,
-} from "./native";
+  ConnectorProviderId,
+  ConnectorStatus,
+  ConnectorCapability,
+  ConnectorPublicView,
+  ConnectorCatalogEntry,
+} from "./types";
 
 export {
-  NATIVE_CONNECTORS,
-  NATIVE_CONNECTORS_WAVE_A,
-  NATIVE_CONNECTORS_WAVE_B,
-  NATIVE_CONNECTORS_WAVE_C,
-  CONNECTOR_STATUS_FLOW,
-  getNativeConnector,
-  listNativeConnectorsByWave,
-} from "./native";
+  CONNECTOR_CATALOG,
+  canTransitionConnector,
+  getCatalogEntry,
+} from "./types";
