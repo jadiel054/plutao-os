@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { executions, missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
+import { recordToolOnMissionPlan } from "@/lib/missions/planEvents";
 import { getOwnedExecution } from "@/lib/runtime/service";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { runNote } from "./note";
@@ -118,7 +119,6 @@ export async function dispatchTool(opts: {
   if (!missionRows[0]) return { error: "NOT_FOUND" as const };
 
   const prevEv = parseEvidence(missionRows[0].evidence);
-  // secondary idempotency: same tool+hash in evidence content prefix
   const already = prevEv.some(
     (e) =>
       e.source === "tool_dispatcher" &&
@@ -166,6 +166,16 @@ export async function dispatchTool(opts: {
     })
     .where(eq(executions.id, opts.executionId))
     .returning();
+
+  // Mirror into Mission Workspace plan View (non-blocking)
+  await recordToolOnMissionPlan({
+    missionId: execution.missionId,
+    userId: opts.userId,
+    toolName: opts.name,
+    ok: result.ok,
+    outputOrError: result.ok ? result.output : (result.error ?? "erro"),
+    evidenceId,
+  });
 
   return {
     applied: true as const,

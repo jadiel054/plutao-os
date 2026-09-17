@@ -9,6 +9,7 @@ import { MissionExecutionView } from "@/components/MissionExecutionView";
 /**
  * Barra de Mission Workspace acima do input do chat.
  * Carrega plano da missão ativa e permite alinhar / ciclar falha.
+ * Poll 2.5s para trail de tools ao vivo (1.1).
  */
 export function MissionWorkspaceBar({
   missionId,
@@ -50,6 +51,15 @@ export function MissionWorkspaceBar({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live trail: poll plan while mission is selected (tools update plan.events server-side)
+  useEffect(() => {
+    if (!missionId) return;
+    const id = window.setInterval(() => {
+      void load();
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [missionId, load]);
 
   async function patch(body: Record<string, unknown>) {
     if (!missionId) return;
