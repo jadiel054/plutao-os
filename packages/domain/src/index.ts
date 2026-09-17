@@ -250,3 +250,29 @@ export {
   canTransitionIntentStatus,
   transitionIntent,
 } from "./intents/types";
+
+// ============================================================
+// Mission Workspace V1 (plan + failure gate + execution trail)
+// ============================================================
+
+export type {
+  MissionStepStatus,
+  MissionEventKind,
+  ChatIntent,
+  ProjectBrief,
+  MissionStep,
+  MissionEvent,
+  MissionPlanV1,
+} from "./mission-workspace";
+
+export {
+  canTransitionStep,
+  canStartStep,
+  isStepInFailureLoop,
+  countPassedSteps,
+  getActiveStep,
+  createEmptyPlan,
+  createPlanFromTitles,
+  parseMissionPlan,
+  applyStepTransition,
+} from "./mission-workspace";

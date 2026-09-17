@@ -129,7 +129,6 @@ export async function POST(req: NextRequest) {
       /* fallback */
     }
 
-    // V1: injeta o conteúdo dos arquivos anexados no contexto (não depende de tool-call do modelo)
     const MAX_INJECT_CHARS = 12000;
     let artifactBlocks = "";
     if (validatedArtifacts.length > 0) {
@@ -139,18 +138,41 @@ export async function POST(req: NextRequest) {
         const header = `--- Arquivo: ${a.name} (${formatFileSize(a.size)}, ${a.type}) ---\n`;
         const budget = MAX_INJECT_CHARS - used - header.length;
         if (budget <= 0) break;
-        const body =
+        const bodyText =
           a.content.length > budget
             ? a.content.slice(0, budget) + "\n[...conteúdo truncado...]"
             : a.content;
-        parts.push(header + body);
-        used += header.length + body.length;
+        parts.push(header + bodyText);
+        used += header.length + bodyText.length;
       }
       artifactBlocks = parts.join("\n\n");
     }
 
     const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
-Responda de forma clara, prestativa e objetiva ao usuário. Preserve um tom profissional e amigável.
+
+IDENTIDADE DO SISTEMA:
+Você não é um chatbot genérico. Você é o agente de um OS de trabalho (Plutão):
+conversa → descobre intenção → alinha caminho → executa de verdade → entrega artefato + evidência.
+
+INTENÇÃO (classifique mentalmente a cada mensagem):
+- chat: conversa casual, saudação, dúvida rápida — responda naturalmente, sem forçar missão.
+- mission: tarefa pontual com objetivo claro.
+- project: iniciativa maior (app, sistema, auditoria, construção) — descubra objetivo, restrições e perfil.
+- config: ajustes de conta/preferências.
+
+QUANDO FOR PROJETO OU MISSÃO:
+1. Resuma o que entendeu em 2–4 linhas.
+2. Faça só as perguntas essenciais que faltam (máx. 3).
+3. Proponga 1 caminho recomendado (+ 1 alternativa se fizer diferença), com motivo objetivo.
+4. Sugira um plano em passos numerados curtos (3–7 passos).
+5. Peça confirmação explícita antes de "começar a executar".
+Nunca invente capacidades que o runtime ainda não tem. Seja objetivo e competente.
+
+FALHAS E QUALIDADE:
+Se algo falhar na execução, o sistema exige: Falha → Causa → Inspecionar → Corrigir → Testar → Passed.
+Não incentive pular erros.
+
+Tom: profissional, direto, sem emojis decorativos nem linguagem de "IA genérica".
 ${
   artifactBlocks
     ? `O usuário anexou arquivo(s). O conteúdo completo está disponível abaixo. Use-o para responder (resumo, análise, etc.). Não diga que não consegue ver anexos — o conteúdo já está no contexto.\n\n${artifactBlocks}`
