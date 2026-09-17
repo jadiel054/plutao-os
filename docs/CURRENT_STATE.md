@@ -1,14 +1,17 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-17 — Build fix SettingsModelsSection ↔ ModelCard + Mission Workspace V1 + Privacidade
+**Última atualização:** 2026-09-17 — Kernel de agentes + 1.2 auto-plan + 1.1 tools→View
 
 ## Fase
 
 Runtime + Agent Loop + Filesystem + Cockpit + Autonomia V1.1 + DoD + Pending Intents → **VERIFIED**.
 Background Execution V1 → **IMPLEMENTED**.
 Smart Long-Input / Artifacts → **VERIFIED**.
-Controles de dados (Privacidade) → **IMPLEMENTED** (main).
-**Mission Workspace V1** (plano + View + gate de falha + intent no chat) → **IMPLEMENTED** (main, 2026-09-17).
+Controles de dados (Privacidade) → **IMPLEMENTED**.
+Mission Workspace V1 → **IMPLEMENTED**.
+Tools → eventos da View (1.1) → **IMPLEMENTED**.
+Kernel de papéis (domain) → **IMPLEMENTED**.
+Auto suggestedPlan no chat (1.2) → **IMPLEMENTED**.
 
 ## Matriz
 
@@ -16,66 +19,52 @@ Controles de dados (Privacidade) → **IMPLEMENTED** (main).
 |------|--------|
 | Durable Runtime & Checkpoints | **VERIFIED** |
 | Agent Loop & Tool Dispatcher | **VERIFIED** |
-| Model Groq + Local | **VERIFIED** |
+| Model nuvem + local | **VERIFIED** |
 | Evidence / DoD gate | **VERIFIED** |
 | Filesystem Tool V1 | **VERIFIED** |
 | Pending Intents offline | **VERIFIED** |
-| Background autonomous-run (servidor) | **IMPLEMENTED** |
+| Background autonomous-run | **IMPLEMENTED** |
 | Artifacts + Long Input | **VERIFIED** |
-| Toggle layout mobile ↔ desktop | **IMPLEMENTED** |
-| Brand mark + home polida | **IMPLEMENTED** |
-| Configurações completas (Modelos, Conta, Notificações, Privacidade, Sobre) | **IMPLEMENTED** |
-| Data controls (export, delete, toggles opt-in) | **IMPLEMENTED** |
-| Mission Workspace V1 (plan / align / failure loop / chat UI) | **IMPLEMENTED** |
-| Auto create_plan a partir do LLM no chat | **PENDENTE** |
-| Tools reais → eventos da View | **PENDENTE** (código local em feat/tools-to-view-events) |
+| Brand + home limpa (sem Phase badge) | **IMPLEMENTED** |
+| Sobre em lista (ajuda / legal / versão) | **IMPLEMENTED** |
+| Privacidade (export / delete / toggles) | **IMPLEMENTED** |
+| Mission Workspace V1 | **IMPLEMENTED** |
+| Tools → plan.events (View ao vivo) | **IMPLEMENTED** |
+| Domain AgentRole (Núcleo/Planejador/Executor/Verificador) | **IMPLEMENTED** |
+| Auto suggestedPlan no chat (1.2) | **IMPLEMENTED** |
+| Aplicar plano na missão a partir do card do chat | **IMPLEMENTED** (UI) |
+| Stop-mission / cancel runtime | **PENDENTE** (1.3) |
+| Páginas /ajuda e /legal/* com conteúdo original | **PENDENTE** (pesquisa de domínio antes) |
+| Conectores MCP (OAuth estados completos) | **PENDENTE** (pós-kernel) |
 | Lixeira + recibo de exclusão | **PENDENTE** |
 | Computador / browser virtual | **PENDENTE** |
 
-## Build / Deploy (2026-09-17)
+## O que NÃO está feito (honesto)
 
-Sequência de falhas no Vercel (typecheck):
+- Conteúdo de `/ajuda` e `/legal/*` — links no Sobre existem; páginas dedicadas só após pesquisa e redação original Plutão (sem template genérico).
+- Conectores MCP (GitHub etc.) — decisão registrada; implementação depois do kernel estável.
+- Stop de missão no runtime (1.3).
+- APK / lojas / assinaturas — visão de produto, não código ainda.
 
-1. `activateModel`/`deleteModel` tratados como Promise (`.then`) — fix `1a71509`
-2. Props de `SettingsModelsSection` desalinhadas de `ModelCardProps` (`onDownload` vs `onStartDownload`, falta `isDownloaded`) — fix `8d49689`
+## Kernel de agentes
 
-Após o segundo fix, redeploy em produção deve passar. Confirmar health + WorkspaceBar no chat.
+Papéis em `packages/domain/src/agents`:
 
-## Mission Workspace V1 (2026-09-17)
+- **Núcleo** — voz com o usuário, intent
+- **Planejador** — missions.plan + align
+- **Executor** — loop + tools + plan.events
+- **Verificador** — DoD + failure gate
 
-Ciclo de produto:
+## 1.2 Auto-plan
 
-`conversa → intenção → alinhamento → execução → artefato + evidência`
-
-- Plano em `missions.plan` (JSON v1): steps, events, `aligned`
-- Gate: passo N+1 só com N em `PASSED`
-- Loop: `FAILED → INSPECTING → FIXING → TESTING → PASSED`
-- API: `GET/PATCH /api/missions/:id/plan`
-- UI: planejador + View acima do input do chat; seletor de missão
-- Chat system prompt: intent chat | mission | project | config
-
-Sem migration Neon nesta fatia.
-
-## Controles de dados (2026-09-17)
-
-- Aba Privacidade em Configurações
-- Toggles opt-in (localStorage)
-- DELETE `/api/artifacts`
-- Export / limpar conversas / exclusão de conta (fluxo com confirmação)
-
-## Autonomia V1.1 / Background V1
-
-Inalterados: `▶ Executar` + `/autonomous-run` no servidor.
-
-## Offline / Pending Intents
-
-Migration `0002` no Neon + smoke OK (2026-09-16).
+- `extractSuggestedPlan` lê passos numerados da resposta do Núcleo
+- API `/api/chat` devolve `suggestedPlan: { stepTitles }`
+- UI do chat oferece criar/aplicar plano na missão ativa
 
 ## Próximos marcos
 
-1. Ligar runtime/tools aos eventos da View (execução ao vivo de verdade) — 1.1
-2. Auto `create_plan` a partir do alinhamento no chat — 1.2
-3. Stop-mission / cancel runtime — 1.3
-4. Validar Background Execution V1 fechando a aba no meio do request — 2.1
-5. Lixeira V1 + recibo de exclusão — 2.2
-6. Computador / browser virtual (fase posterior)
+1. Stop-mission / cancel runtime — 1.3
+2. Validar background com aba fechada — 2.1
+3. Lixeira V1 — 2.2
+4. Pesquisa + redação original `/ajuda` e `/legal/*`
+5. Conectores MCP (estados: desconectado → autorizando → conectado → reconectar → erro)

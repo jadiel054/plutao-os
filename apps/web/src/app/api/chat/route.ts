@@ -7,6 +7,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelMessage } from "@/lib/runtime/model/types";
+import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
 
 export const runtime = "nodejs";
 
@@ -64,6 +65,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const missionId =
+      typeof body.missionId === "string" && body.missionId.trim()
+        ? body.missionId.trim()
+        : null;
 
     const db = getDb();
     let rawArtifactIds: string[] = [];
@@ -151,7 +157,7 @@ export async function POST(req: NextRequest) {
     const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
 
 IDENTIDADE DO SISTEMA:
-Você não é um chatbot genérico. Você é o agente de um OS de trabalho (Plutão):
+Você não é um chatbot genérico. Você é o Núcleo do Plutão (SO de trabalho):
 conversa → descobre intenção → alinha caminho → executa de verdade → entrega artefato + evidência.
 
 INTENÇÃO (classifique mentalmente a cada mensagem):
@@ -163,8 +169,10 @@ INTENÇÃO (classifique mentalmente a cada mensagem):
 QUANDO FOR PROJETO OU MISSÃO:
 1. Resuma o que entendeu em 2–4 linhas.
 2. Faça só as perguntas essenciais que faltam (máx. 3).
-3. Proponga 1 caminho recomendado (+ 1 alternativa se fizer diferença), com motivo objetivo.
-4. Sugira um plano em passos numerados curtos (3–7 passos).
+3. Proponha 1 caminho recomendado (+ 1 alternativa se fizer diferença), com motivo objetivo.
+4. Sugira um plano em passos numerados curtos (3–7 passos), um por linha, no formato:
+   1. Título do passo
+   2. Título do passo
 5. Peça confirmação explícita antes de "começar a executar".
 Nunca invente capacidades que o runtime ainda não tem. Seja objetivo e competente.
 
@@ -172,7 +180,7 @@ FALHAS E QUALIDADE:
 Se algo falhar na execução, o sistema exige: Falha → Causa → Inspecionar → Corrigir → Testar → Passed.
 Não incentive pular erros.
 
-Tom: profissional, direto, sem emojis decorativos nem linguagem de "IA genérica".
+Tom: profissional, direto, sem emojis decorativos nem linguagem genérica de assistente.
 ${
   artifactBlocks
     ? `O usuário anexou arquivo(s). O conteúdo completo está disponível abaixo. Use-o para responder (resumo, análise, etc.). Não diga que não consegue ver anexos — o conteúdo já está no contexto.\n\n${artifactBlocks}`
@@ -188,12 +196,14 @@ ${
         validatedArtifacts.length > 0
           ? ` (com ${validatedArtifacts.length} arquivo(s) anexado(s))`
           : "";
-      const replyContent = `[${agentName}] Recebi sua mensagem: "${userText}"${artNotice}. O ambiente atual não possui MODEL_API_KEY configurada. Configure a chave de API nas variáveis de ambiente para respostas inteligentes com LLM.`;
+      const replyContent = `[${agentName}] Recebi sua mensagem: "${userText}"${artNotice}. O ambiente atual não possui MODEL_API_KEY configurada. Configure a chave de API nas variáveis de ambiente para respostas com o modelo ativo.`;
 
       return NextResponse.json({
         message: { role: "assistant", content: replyContent },
         readArtifacts: [],
         modelConfigured: false,
+        suggestedPlan: null,
+        missionId,
       });
     }
 
@@ -214,12 +224,18 @@ ${
         ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
         : "Não consegui gerar uma resposta agora. Tente novamente.");
 
+    const suggestedPlan = extractSuggestedPlan(assistantContent);
+
     return NextResponse.json({
       message: { role: "assistant", content: assistantContent },
       readArtifacts: readArtifactIds,
       modelConfigured: true,
       provider: result.provider,
       model: result.model,
+      suggestedPlan: suggestedPlan
+        ? { stepTitles: suggestedPlan.stepTitles }
+        : null,
+      missionId,
     });
   } catch (e) {
     console.error("[chat POST]", e);
