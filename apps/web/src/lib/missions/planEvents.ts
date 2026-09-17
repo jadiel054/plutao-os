@@ -58,7 +58,7 @@ export async function recordToolOnMissionPlan(opts: {
     };
 
     let steps = plan.steps;
-    let currentStepIndex = plan.currentStepIndex;
+    const currentStepIndex = plan.currentStepIndex;
 
     if (plan.aligned && steps.length > 0) {
       const idx = Math.min(Math.max(0, currentStepIndex), steps.length - 1);
