@@ -1,6 +1,6 @@
 /**
  * Model Step - Execução de passo do modelo com integração híbrida (Online/Offline)
- * 
+ *
  * Implementa:
  * - Chamada ao modelo (Groq ou Local)
  * - Persistência de checkpoints no banco de dados
@@ -20,10 +20,6 @@ import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
 import { ModelProviderFactory, setModelProviderMode } from "./provider";
 import type { ModelMessage, ModelStepResult } from "./types";
 import type { ModelMode } from "@plutao/domain";
-
-// ============================================================
-// Types
-// ============================================================
 
 type CheckpointShape = {
   step?: string;
@@ -50,13 +46,6 @@ type ModelProviderLike = {
   getModelId: () => string;
 };
 
-// ============================================================
-// Helper Functions
-// ============================================================
-
-/**
- * Obtém o provedor de modelo apropriado com base no modo
- */
 async function getModelProvider(mode: ModelMode): Promise<ModelProviderLike | null> {
   try {
     const provider = await ModelProviderFactory.getProvider({ mode });
@@ -67,9 +56,6 @@ async function getModelProvider(mode: ModelMode): Promise<ModelProviderLike | nu
   }
 }
 
-/**
- * Chama o modelo usando o provedor apropriado
- */
 async function callModelWithProvider(
   provider: ModelProviderLike,
   messages: ModelMessage[]
@@ -92,9 +78,6 @@ async function callModelWithProvider(
   };
 }
 
-/**
- * Build system prompt para o modelo
- */
 function buildSystemPrompt(agent: {
   name: string;
   identity: string | null;
@@ -121,39 +104,22 @@ You may either:
 {"tool":"note","input":"text to record"}
 or
 {"tool":"filesystem","input":"{\"action\":\"list\",\"payload\":{\"path\":\"dir\"}}"}
+or
+{"tool":"github","input":"{\"action\":\"repos_list\"}"}
+{"tool":"github","input":"{\"action\":\"issues_list\",\"owner\":\"ORG\",\"repo\":\"REPO\"}"}
 
-Available tools: note, filesystem
+Available tools: note, filesystem, github
+GitHub actions: repos_list | repo_get | issues_list | issues_get | pulls_list | actions_list
+(github requires the user to have connected GitHub OAuth; otherwise the tool returns an error recorded as evidence)
 Rules:
 - Stay consistent with the agent identity above.
 - Prefer a tool call only when it helps the mission.
-- For filesystem: use valid JSON input with action (list/read/write/mkdir/stat) and payload.path
-- filesystem paths are relative to a secure sandbox
+- For filesystem: valid JSON with action (list/read/write/mkdir/stat) and payload.path
+- For github: valid JSON with action and owner/repo/number when required
 - Never invent other tool names.
 - Keep replies concise.`;
 }
 
-// ============================================================
-// Main Function
-// ============================================================
-
-/**
- * Executa um passo do modelo para uma execução
- * 
- * Fluxo:
- * 1. Obtém configuração do modelo com base no modo (auto/online/offline)
- * 2. Verifica se execução existe e está em estado recuperável
- * 3. Carrega contexto (missão, agent, tasks, evidence)
- * 4. Chama o modelo (Groq ou Local) com base no modo
- * 5. Salva evidence no banco
- * 6. Salva checkpoint no banco (PERSISTÊNCIA)
- * 7. Executa tool dispatch se modelo propuser tool
- * 
- * @param executionId - ID da execução
- * @param userId - ID do usuário
- * @param additionalMessages - Mensagens adicionais de contexto
- * @param mode - Modo de modelo (auto/online/offline)
- * @returns Resultado do passo do modelo
- */
 export async function runModelStep(
   executionId: string,
   userId: string,
@@ -174,15 +140,11 @@ export async function runModelStep(
       detail?: string;
     }
 > {
-  // Determina modo a usar
   const effectiveMode = mode || "auto";
-  
-  // Define modo no provider factory
   setModelProviderMode(effectiveMode);
 
-  // Obtém provedor de modelo com base no modo
   const provider = await getModelProvider(effectiveMode);
-  
+
   if (!provider) {
     return { error: "MODEL_PROVIDER_NOT_AVAILABLE" as const };
   }
@@ -228,7 +190,6 @@ export async function runModelStep(
   const evidence = parseEvidence(mission.evidence).slice(-8);
   const cp = asCp(execution.checkpoint);
 
-  // Adiciona informação do modo ao checkpoint
   const cpWithMode: CheckpointShape = {
     ...cp,
     modelMode: effectiveMode,
@@ -254,7 +215,6 @@ export async function runModelStep(
     ...additionalMessages,
   ];
 
-  // Chama o modelo usando o provedor apropriado
   let modelResult: ModelStepResult;
   let providerType: "groq" | "local";
   let modelId: string;
@@ -289,7 +249,6 @@ export async function runModelStep(
     .set({ evidence: [...prevEv, evidenceItem], updatedAt: now })
     .where(eq(missions.id, execution.missionId));
 
-  // Cria checkpoint com informações do modelo
   const nextCp: CheckpointShape = {
     ...cp,
     step: "model_step",
@@ -307,10 +266,8 @@ export async function runModelStep(
     localModelStatus: providerType === "local" ? ("loaded" as const) : undefined,
   };
 
-  // Salva checkpoint no banco (PERSISTÊNCIA)
   await saveCheckpoint(executionId, userId, nextCp);
-  
-  // Atualiza execução com checkpoint
+
   const updatedExec = await db
     .update(executions)
     .set({
@@ -332,7 +289,6 @@ export async function runModelStep(
       taskId: execution.currentTaskId,
     });
 
-    // Atualiza checkpoint com informação da tool
     if (toolDispatch && typeof toolDispatch === "object" && "ok" in toolDispatch) {
       const toolDispatchResult = toolDispatch as { ok: boolean; evidenceId?: string };
       const toolCp = updateCheckpointWithTool(nextCp, {
@@ -340,8 +296,7 @@ export async function runModelStep(
         toolInput: modelResult.toolProposal.input,
         toolEvidenceId: toolDispatchResult.evidenceId,
       });
-      
-      // Salva checkpoint atualizado
+
       await saveCheckpoint(executionId, userId, toolCp);
     }
   }
@@ -358,13 +313,6 @@ export async function runModelStep(
   };
 }
 
-// ============================================================
-// Helper para atualizar checkpoint com tool
-// ============================================================
-
-/**
- * Atualiza checkpoint com informação de tool call
- */
 function updateCheckpointWithTool(
   checkpoint: CheckpointShape,
   toolInfo: {
