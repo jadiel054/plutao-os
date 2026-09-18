@@ -1,0 +1,36 @@
+name: restore-chat-page
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/restore-chat-page.yml'
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode and write chat page
+        run: |
+          python3 << 'EOF'
+          import gzip, base64, pathlib
+          b64 = open('.github/workflows/chat_page.b64.gz.txt').read()
+          data = gzip.decompress(base64.b64decode(''.join(b64.split())))
+          path = pathlib.Path('apps/web/src/app/(app)/chat/page.tsx')
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_bytes(data)
+          print('wrote', path, 'bytes', len(data))
+          assert b'ConnectorActionCard' in data
+          EOF
+      - name: Commit if changed
+        run: |
+          git config user.name "plutao-bot"
+          git config user.email "bot@plutao.local"
+          git add "apps/web/src/app/(app)/chat/page.tsx"
+          if git diff --staged --quiet; then
+            echo "no changes"
+          else
+            git commit -m "fix(chat): restaura page com card Conectar/Pular no fio"
+            git push
+          fi
