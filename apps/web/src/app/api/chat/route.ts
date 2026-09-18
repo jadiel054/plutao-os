@@ -4,6 +4,7 @@ import { agents, artifacts as artifactsTable } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { formatFileSize } from "@/lib/artifacts";
 import { getSessionUser } from "@/lib/auth/session";
+import { getAccessToken, getConnectorRow } from "@/lib/connectors/service";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelMessage } from "@/lib/runtime/model/types";
@@ -135,6 +136,19 @@ export async function POST(req: NextRequest) {
       /* fallback */
     }
 
+    let githubConnected = false;
+    let githubLogin: string | null = null;
+    try {
+      const token = await getAccessToken(user.id, "github");
+      githubConnected = Boolean(token);
+      if (githubConnected) {
+        const row = await getConnectorRow(user.id, "github");
+        githubLogin = row?.accountLogin ?? null;
+      }
+    } catch {
+      /* connector table may be missing until migration 0004 */
+    }
+
     const MAX_INJECT_CHARS = 12000;
     let artifactBlocks = "";
     if (validatedArtifacts.length > 0) {
@@ -154,10 +168,20 @@ export async function POST(req: NextRequest) {
       artifactBlocks = parts.join("\n\n");
     }
 
+    const runtimeCapabilities = githubConnected
+      ? `CAPACIDADES DE RUNTIME (reais):
+- Tools locais: note, filesystem (na execução da missão).
+- GitHub: CONECTADO${githubLogin ? ` (@${githubLogin})` : ""}. Na execução, a tool "github" pode: repos_list, repo_get, issues_list, issues_get, pulls_list, actions_list. Inclua no plano quando o objetivo envolver repositórios, issues, PRs ou actions.
+- Não invente outras tools ou provedores.`
+      : `CAPACIDADES DE RUNTIME (reais):
+- Tools locais: note, filesystem (na execução da missão).
+- GitHub: NÃO CONECTADO. Se o objetivo exigir código no GitHub, oriente o usuário a Configurações → Conectores (ou menu + no chat) antes de prometer listar repos/issues.
+- Não invente outras tools ou provedores.`;
+
     const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
 
 IDENTIDADE DO SISTEMA:
-Você não é um chatbot genérico. Você é o Núcleo do Plutão (SO de trabalho):
+Você é o Núcleo do Plutão (sistema de trabalho):
 conversa → descobre intenção → alinha caminho → executa de verdade → entrega artefato + evidência.
 
 INTENÇÃO (classifique mentalmente a cada mensagem):
@@ -165,6 +189,8 @@ INTENÇÃO (classifique mentalmente a cada mensagem):
 - mission: tarefa pontual com objetivo claro.
 - project: iniciativa maior (app, sistema, auditoria, construção) — descubra objetivo, restrições e perfil.
 - config: ajustes de conta/preferências.
+
+${runtimeCapabilities}
 
 QUANDO FOR PROJETO OU MISSÃO:
 1. Resuma o que entendeu em 2–4 linhas.
@@ -236,6 +262,7 @@ ${
         ? { stepTitles: suggestedPlan.stepTitles }
         : null,
       missionId,
+      connectors: { github: githubConnected },
     });
   } catch (e) {
     console.error("[chat POST]", e);
