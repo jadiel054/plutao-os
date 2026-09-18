@@ -1,6 +1,6 @@
 # DESIGN_SYSTEM.md — Plutão
 
-**Status:** Baseline v0.3 (BRAND-001 + motion tokens)  
+**Status:** Baseline v0.3.1 (BRAND-001 + motion · sem confete)  
 **Princípios:** Profissional • Sóbrio • Leve • Mobile-first • Informação em destaque  
 **Marca:** ver [BRAND.md](./BRAND.md) (grade 24×24 · φ · Grafite/Platina)
 
@@ -119,7 +119,9 @@ Usar `--papel` como fundo e inverter contraste mantendo selo/núcleo. Prioridade
 
 ## 7. Motion (tokens de produto)
 
-**Regra de ouro:** evento comum = discreto; evento raro = pode ser celebrativo ou carregar marca.
+**Regra de ouro:** evento comum = discreto; evento raro = pode carregar marca com sobriedade (nunca “festa”).
+
+**Proibido no produto:** confete, partículas celebrativas, animações de “vitória” estilo gamificação. O protótipo HTML de motion pode tê-los tido para demo; o app real **não** implementa confete.
 
 | Momento | Comportamento | Duração alvo |
 |---------|---------------|--------------|
@@ -129,10 +131,10 @@ Usar `--papel` como fundo e inverter contraste mantendo selo/núcleo. Prioridade
 | `EXECUTING` | Borda card selo→núcleo (ou fallback opacidade) | contínuo discreto |
 | Checkpoint `PASSED` | Card “respira” verde discreto | ~2,4 s |
 | Checkpoint `FAILED` | Glow âmbar sóbrio no card + ✗ no passo | até sair do loop |
-| Entrega comum | Borda núcleo + confete canvas (cores marca) | 3–4 s |
-| **Marco** (raro) | Overlay de propósito + confete | ~4 s |
+| Entrega comum | Borda núcleo + badge “Concluída” + resumo factual | estático / transição curta |
+| **Marco** (raro) | Overlay de propósito (copy factual) — **sem** confete | ~3–4 s |
 
-**Sempre** respeitar `prefers-reduced-motion: reduce` → estados estáticos, sem confete/pulso.
+**Sempre** respeitar `prefers-reduced-motion: reduce` → estados estáticos, sem pulso/varredura.
 
 Implementação: classes em `apps/web/src/app/globals.css` (`.mission-motion*`). Front só reage a estados do runtime — sem seletor de demo no produto.
 
@@ -146,7 +148,7 @@ Texto **factual**, ligado a regra de produto — não tagline de marketing gené
 | Nª entrega (comum com marco configurável) | Missão concluída | {passed}/{total} checkpoints · resumo no Cockpit | ENTREGA #{n} |
 | 1º merge em `main` (quando houver sinal) | Primeiro merge em main | Código no caminho real. Próximo: verificar produção. | MARCO · MAIN |
 
-Marca no overlay: “Plutão OS” (nome) — sem slogans longos. Confete em entregas; overlay de propósito **só** em marcos configuráveis (1ª missão, 1º merge, Nª missão).
+Marca no overlay: “Plutão OS” (nome) — sem slogans longos. Overlay de propósito **só** em marcos configuráveis (1ª missão, 1º merge, Nª missão).
 
 ---
 
