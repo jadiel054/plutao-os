@@ -1,6 +1,6 @@
 # DESIGN_SYSTEM.md — Plutão
 
-**Status:** Baseline v0.2 (alinhado a BRAND-001)  
+**Status:** Baseline v0.3 (BRAND-001 + motion tokens)  
 **Princípios:** Profissional • Sóbrio • Leve • Mobile-first • Informação em destaque  
 **Marca:** ver [BRAND.md](./BRAND.md) (grade 24×24 · φ · Grafite/Platina)
 
@@ -39,11 +39,11 @@
 | Token | Valor | Uso |
 |-------|-------|-----|
 | `--cyan` | `#9CD9C2` | Executando / vivo (alinhado ao núcleo) |
-| `--success` | `#10B981` | Completed |
-| `--warning` | `#F59E0B` | Blocked / atenção |
-| `--danger` | `#EF4444` | Failed / erro |
+| `--success` | `#10B981` | Completed / PASSED |
+| `--warning` | `#F59E0B` | Blocked / FAILED sóbrio (card) |
+| `--danger` | `#EF4444` | Marcador de passo falhou / erro |
 
-Indigo legado (`#6366F1`) **não** é mais accent de marca (BRAND-001).
+Indigo legado (`#6366F1`) **não** é accent de marca (BRAND-001).
 
 ### Light
 
@@ -95,22 +95,75 @@ Usar `--papel` como fundo e inverter contraste mantendo selo/núcleo. Prioridade
 - `BLOCKED` / `FAILED` → warning / danger  
 - `CANCELLED` → muted
 
+### Passos do plano (idioma visual)
+
+| Estado | Marcador |
+|--------|----------|
+| `PENDING` | círculo oco mid |
+| `RUNNING` / `TESTING` / `FIXING` / `INSPECTING` | ponto núcleo pulsante |
+| `PASSED` | ✔ success |
+| `FAILED` | ✗ danger no passo; **card** com glow âmbar sóbrio (não vermelho piscante) |
+| `CANCELLED` | traço muted |
+
+### Nav / abas
+
+- Mobile: nav inferior em **pills** (borda mid; ativa com preenchimento selo ~14%).
+- Não duplicar abas no header do chat.
+
+### Chips de atalho
+
+- Sugestões iniciais de conversa: ocultam após a 1ª mensagem do usuário e **não voltam** na mesma conversa.
+- Seletor de missão ativa (“Só chat” / missões) é independente e pode permanecer.
+
 ---
 
-## 7. PWA / Atualizações
+## 7. Motion (tokens de produto)
+
+**Regra de ouro:** evento comum = discreto; evento raro = pode ser celebrativo ou carregar marca.
+
+| Momento | Comportamento | Duração alvo |
+|---------|---------------|--------------|
+| Chat ocioso | Blobs de fundo só em cores de marca (opcional; CSS puro) | contínuo suave |
+| Foco no campo | Glow selo que dissolve | ~2,5 s |
+| Início de execução | Pulso anel núcleo (1×) | ~0,9 s |
+| `EXECUTING` | Borda card selo→núcleo (ou fallback opacidade) | contínuo discreto |
+| Checkpoint `PASSED` | Card “respira” verde discreto | ~2,4 s |
+| Checkpoint `FAILED` | Glow âmbar sóbrio no card + ✗ no passo | até sair do loop |
+| Entrega comum | Borda núcleo + confete canvas (cores marca) | 3–4 s |
+| **Marco** (raro) | Overlay de propósito + confete | ~4 s |
+
+**Sempre** respeitar `prefers-reduced-motion: reduce` → estados estáticos, sem confete/pulso.
+
+Implementação: classes em `apps/web/src/app/globals.css` (`.mission-motion*`). Front só reage a estados do runtime — sem seletor de demo no produto.
+
+### Copy de marco (overlay)
+
+Texto **factual**, ligado a regra de produto — não tagline de marketing genérica.
+
+| Marco | Título | Linha de apoio | Meta |
+|-------|--------|----------------|------|
+| 1ª missão concluída | Primeira missão concluída | Objetivo alinhado. Evidência registrada. | ENTREGA #1 · MARCO |
+| Nª entrega (comum com marco configurável) | Missão concluída | {passed}/{total} checkpoints · resumo no Cockpit | ENTREGA #{n} |
+| 1º merge em `main` (quando houver sinal) | Primeiro merge em main | Código no caminho real. Próximo: verificar produção. | MARCO · MAIN |
+
+Marca no overlay: “Plutão OS” (nome) — sem slogans longos. Confete em entregas; overlay de propósito **só** em marcos configuráveis (1ª missão, 1º merge, Nª missão).
+
+---
+
+## 8. PWA / Atualizações
 
 - Service Worker: versionamento + `skipWaiting` + `clients.claim`
 - theme_color / background: `#0B0D0C`
 
 ---
 
-## 8. Tokens no código
+## 9. Tokens no código
 
-Implementados em `apps/web/src/app/globals.css` (BRAND-001).
+Implementados em `apps/web/src/app/globals.css` (BRAND-001 + motion).
 
 ---
 
-## 9. Evolução
+## 10. Evolução
 
 Mudanças de marca → `BRAND.md` + `DECISIONS.md`.  
-Mudanças só de UI → este arquivo.
+Mudanças só de UI / motion → este arquivo.
