@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { formatFileSize } from "@/lib/artifacts";
 import { getSessionUser } from "@/lib/auth/session";
 import { getAccessToken, getConnectorRow } from "@/lib/connectors/service";
+import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelMessage } from "@/lib/runtime/model/types";
@@ -175,8 +176,7 @@ export async function POST(req: NextRequest) {
 - Não invente outras tools ou provedores.`
       : `CAPACIDADES DE RUNTIME (reais):
 - Tools locais: note, filesystem (na execução da missão).
-- GitHub: NÃO CONECTADO. Se o objetivo exigir código no GitHub, oriente o usuário a Configurações → Conectores (ou menu + no chat) antes de prometer listar repos/issues.
-- Não invente outras tools ou provedores.`;
+- GitHub: NÃO CONECTADO. A interface pode mostrar um card "Conectar" no chat. Explique de forma breve que a integração é necessária; não diga que já conectou. Não invente outras tools.`;
 
     const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
 
@@ -213,23 +213,32 @@ ${
     : ""
 }`;
 
+    const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
+    const lastUserText = lastUserMsg?.content || "";
+
     const modelConfig = getModelConfig();
 
     if (!modelConfig) {
-      const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
-      const userText = lastUserMsg?.content || "";
       const artNotice =
         validatedArtifacts.length > 0
           ? ` (com ${validatedArtifacts.length} arquivo(s) anexado(s))`
           : "";
-      const replyContent = `[${agentName}] Recebi sua mensagem: "${userText}"${artNotice}. O ambiente atual não possui MODEL_API_KEY configurada. Configure a chave de API nas variáveis de ambiente para respostas com o modelo ativo.`;
+      const replyContent = `[${agentName}] Recebi sua mensagem: "${lastUserText}"${artNotice}. O ambiente atual não possui MODEL_API_KEY configurada. Configure a chave de API nas variáveis de ambiente para respostas com o modelo ativo.`;
+
+      const suggestedConnectors = detectSuggestedConnectors({
+        lastUserText,
+        assistantText: replyContent,
+        githubConnected,
+      });
 
       return NextResponse.json({
         message: { role: "assistant", content: replyContent },
         readArtifacts: [],
         modelConfigured: false,
         suggestedPlan: null,
+        suggestedConnectors,
         missionId,
+        connectors: { github: githubConnected },
       });
     }
 
@@ -251,6 +260,11 @@ ${
         : "Não consegui gerar uma resposta agora. Tente novamente.");
 
     const suggestedPlan = extractSuggestedPlan(assistantContent);
+    const suggestedConnectors = detectSuggestedConnectors({
+      lastUserText,
+      assistantText: assistantContent,
+      githubConnected,
+    });
 
     return NextResponse.json({
       message: { role: "assistant", content: assistantContent },
@@ -261,6 +275,7 @@ ${
       suggestedPlan: suggestedPlan
         ? { stepTitles: suggestedPlan.stepTitles }
         : null,
+      suggestedConnectors,
       missionId,
       connectors: { github: githubConnected },
     });
