@@ -8,6 +8,8 @@ import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LongInputModal, type ArtifactRef } from "@/components/LongInputModal";
 import { MissionWorkspaceBar } from "@/components/MissionWorkspaceBar";
+import { ChatAttachMenu } from "@/components/ChatAttachMenu";
+import { ConnectorsSheet } from "@/components/ConnectorsSheet";
 import { formatFileSize } from "@/lib/artifacts";
 
 type Message = {
@@ -44,6 +46,7 @@ function ChatPageInner() {
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPlan | null>(null);
   const [applyingPlan, setApplyingPlan] = useState(false);
   const [workspaceKey, setWorkspaceKey] = useState(0);
+  const [isConnectorsSheetOpen, setIsConnectorsSheetOpen] = useState(false);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -405,7 +408,7 @@ function ChatPageInner() {
                   !activeMissionId
                     ? "border-[var(--selo)] text-[var(--selo)]"
                     : "border-[var(--border)] text-[var(--text-muted)]"
-                }`}
+                  }`}
               >
                 Só chat
               </button>
@@ -446,6 +449,11 @@ function ChatPageInner() {
             </div>
           )}
           <div className="p-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] flex items-end gap-2">
+            <ChatAttachMenu
+              disabled={sending}
+              onOpenFiles={() => setIsLongInputModalOpen(true)}
+              onOpenConnectors={() => setIsConnectorsSheetOpen(true)}
+            />
             <textarea
               ref={textareaRef}
               rows={1}
@@ -497,6 +505,11 @@ function ChatPageInner() {
         onClose={() => setIsLongInputModalOpen(false)}
         onConfirmTransform={handleConfirmTransform}
         onError={(msg) => addToast(msg, "error")}
+      />
+      <ConnectorsSheet
+        open={isConnectorsSheetOpen}
+        onClose={() => setIsConnectorsSheetOpen(false)}
+        onNotify={(msg, type) => addToast(msg, type ?? "info")}
       />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
