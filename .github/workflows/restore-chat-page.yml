@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '.github/workflows/restore-chat-page.yml'
+      - '.github/workflows/chat_b64_part_*.txt'
 jobs:
   restore:
     runs-on: ubuntu-latest
@@ -14,13 +15,14 @@ jobs:
       - name: Decode and write chat page
         run: |
           python3 << 'EOF'
-          import gzip, base64, pathlib
-          b64 = open('.github/workflows/chat_page.b64.gz.txt').read()
-          data = gzip.decompress(base64.b64decode(''.join(b64.split())))
+          import gzip, base64, pathlib, glob
+          parts = sorted(glob.glob('.github/workflows/chat_b64_part_*.txt'))
+          b64 = ''.join(pathlib.Path(p).read_text().strip() for p in parts)
+          data = gzip.decompress(base64.b64decode(b64))
           path = pathlib.Path('apps/web/src/app/(app)/chat/page.tsx')
           path.parent.mkdir(parents=True, exist_ok=True)
           path.write_bytes(data)
-          print('wrote', path, 'bytes', len(data))
+          print('wrote', path, 'bytes', len(data), 'from', len(parts), 'parts')
           assert b'ConnectorActionCard' in data
           EOF
       - name: Commit if changed
