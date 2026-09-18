@@ -101,9 +101,13 @@ export async function GET(req: NextRequest) {
     });
 
     if ("error" in result) {
-      await failOAuth(row.userId, "github", result.error);
+      const errMsg =
+        typeof result.error === "string" && result.error.trim()
+          ? result.error
+          : "falha ao completar OAuth";
+      await failOAuth(row.userId, "github", errMsg);
       return NextResponse.redirect(
-        `${settingsUrl}&connector_error=${encodeURIComponent(result.error)}`
+        `${settingsUrl}&connector_error=${encodeURIComponent(errMsg)}`
       );
     }
 
