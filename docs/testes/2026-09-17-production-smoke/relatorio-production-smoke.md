@@ -32,7 +32,7 @@ A execução testada alcançou `VERIFYING`, registrou um `model_step` e produziu
 | Modos | `Offline` foi selecionado, exibido como `OFFLINE (CPU)` e persistiu | Funcional na preferência; inferência local não foi comprovada neste smoke test |
 | Modelos | Catálogo exibiu 8 modelos, 1 local pronto e ações de uso/teste/download | UI funcional; cada modelo não foi executado individualmente |
 | Configurações | Abas Conta, Notificações, Privacidade e Sobre carregaram | Funcional como interface |
-| Links legais | Ajuda, Termos, Privacidade e Licenças retornaram 404 | Não funcional; pendência confirmada |
+| Links legais | Ajuda, Termos, Privacidade e Licenças retornaram 404 | Páginas previstas para próxima etapa; ainda não publicadas |
 | Responsividade | Alternância desktop/mobile alterou o controle e manteve o cockpit utilizável | Funcional na verificação visual |
 
 ## Roteiro executado
@@ -97,7 +97,7 @@ Os links abaixo foram acessados diretamente e retornaram uma página 404:
 - `/legal/privacidade`;
 - `/legal/licencas`.
 
-Eles não devem ser apresentados como páginas publicadas até serem implementados ou removidos da interface.
+Eles ainda não devem ser apresentados como páginas publicadas. O resultado é compatível com o planejamento atual: as páginas serão implementadas posteriormente com conteúdo próprio.
 
 ## Evidências visuais
 
@@ -109,7 +109,7 @@ Este smoke test não confirmou individualmente todos os modelos do catálogo, in
 
 ## Próximas correções documentais e de produto
 
-1. Corrigir ou retirar os quatro links públicos que retornam 404.
+1. Implementar os quatro links públicos previstos com conteúdo próprio e validar as rotas após a publicação.
 2. Documentar o checkpoint como verificado somente após uma nova execução que confirme a nota na timeline e após reload/login.
 3. Criar um teste específico de missão com `tool_result` real para verificar o caminho até `COMPLETED`.
 4. Criar um teste separado para inferência local em modo Offline; a preferência persistida não é evidência suficiente de execução local.

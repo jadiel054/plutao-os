@@ -23,7 +23,7 @@ Este documento registra o estado observado no repositório e no ambiente publica
 | Inferência local Offline | **NÃO VERIFICADO** | A preferência foi confirmada, mas o smoke test não comprovou uma resposta produzida localmente. |
 | Catálogo de modelos | **IMPLEMENTADO / UI verificada** | 8 modelos listados, 1 local indicado como pronto; modelos não foram testados individualmente. |
 | Configurações | **VERIFICADO como interface** | Conta, Notificações, Privacidade e Sobre carregaram. |
-| Links de ajuda e documentos legais | **NÃO FUNCIONAL** | `/ajuda`, `/legal/termos`, `/legal/privacidade` e `/legal/licencas` retornaram 404. |
+| Links de ajuda e documentos legais | **PREVISTOS / A IMPLEMENTAR** | `/ajuda`, `/legal/termos`, `/legal/privacidade` e `/legal/licencas` ainda retornam 404; as páginas estão previstas para uma próxima etapa com conteúdo próprio. |
 | Responsividade | **VERIFICADO visualmente** | Alternância desktop/mobile funcionou e manteve o cockpit utilizável. |
 | M1 Domain + schema connectors | **IMPLEMENTED** | Domínio e schema de conectores presentes no repositório. |
 | M2 OAuth GitHub (authorize / callback / disconnect) | **IMPLEMENTED; não exercitado neste smoke test** | Rotas e serviço existem; OAuth real requer credenciais e callback configurados. |
@@ -60,7 +60,7 @@ Aplicar `packages/db/drizzle/0004_connectors.sql` no Neon (`DATABASE_URL_UNPOOLE
 
 ## Pendências confirmadas em produção
 
-1. Publicar ou remover as páginas `/ajuda`, `/legal/termos`, `/legal/privacidade` e `/legal/licencas`.
+1. Implementar as páginas previstas `/ajuda`, `/legal/termos`, `/legal/privacidade` e `/legal/licencas` com conteúdo real e revisar os links após a publicação.
 2. Executar uma missão com efeito real de ferramenta para verificar o caminho até `COMPLETED`.
 3. Revalidar a persistência de checkpoint manual após reload e novo login.
 4. Verificar inferência local real em modo Offline; a preferência persistida não prova o backend de inferência.
