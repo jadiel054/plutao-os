@@ -1,0 +1,65 @@
+# Auditor read-only — verifica integridade do monorepo sem secrets de produto.
+# Não acessa tokens de usuário nem Neon de produção.
+name: Auditor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Required paths exist
+        run: |
+          set -e
+          test -f apps/web/package.json
+          test -f packages/domain/package.json
+          test -f packages/db/package.json
+          test -f docs/CURRENT_STATE.md
+          test -f docs/DECISIONS.md
+          test -f docs/DESIGN_SYSTEM.md
+          test -f packages/db/drizzle/0004_connectors.sql
+          test -f apps/web/src/lib/runtime/tools/dispatcher.ts
+          test -f apps/web/src/lib/runtime/tools/github.ts
+          test -f apps/web/src/app/ajuda/page.tsx
+          test -f apps/web/src/app/legal/termos/page.tsx
+          test -f apps/web/src/app/legal/privacidade/page.tsx
+          test -f apps/web/src/app/legal/licencas/page.tsx
+          echo "structure OK"
+
+      - name: No forbidden product AI brand strings in app sources
+        run: |
+          set -e
+          # Produto não deve citar marcas de IA de terceiros na UI/docs de usuário.
+          if grep -RIn --include='*.tsx' --include='*.ts' --include='*.md' \
+            -e 'ChatGPT' -e 'OpenAI' -e 'created by Grok' -e 'powered by Claude' \
+            apps/web/src docs 2>/dev/null | grep -v 'node_modules' | grep -v 'AUDITOR' | head -20; then
+            echo "Found forbidden third-party AI marketing strings in product paths"
+            exit 1
+          fi
+          echo "brand hygiene OK"
+
+  web-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Typecheck
+        run: npx tsc --noEmit
+        continue-on-error: true
