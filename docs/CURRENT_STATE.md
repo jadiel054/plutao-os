@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-18 — motion tokens (DESIGN_SYSTEM v0.3) no Mission Workspace
+**Última atualização:** 2026-09-18 — motion tokens; confete proibido no produto
 
 Este documento registra o estado observado no repositório e no ambiente publicado. A presença de uma tela, rota ou especificação não é suficiente para classificar uma capacidade como verificada. O roteiro e as evidências do ciclo mais recente estão em [`docs/testes/2026-09-17-production-smoke/relatorio-production-smoke.md`](testes/2026-09-17-production-smoke/relatorio-production-smoke.md).
 
@@ -12,7 +12,7 @@ Este documento registra o estado observado no repositório e no ambiente publica
 | Autenticação e sessão | **VERIFICADO** | Cadastro, login, logout e novo login foram executados com conta de teste. |
 | Isolamento e persistência básica | **VERIFICADO no fluxo testado** | Perfil, missão e preferência de modo permaneceram após novo login; não substitui auditoria de isolamento entre contas. |
 | Mission Workspace + listagem + auto-plan | **VERIFICADO no fluxo testado** | Missão criada como `CREATED`, aberta no cockpit e recebeu execução automática. |
-| **Motion do card de missão** | **IMPLEMENTED** | Tokens em DESIGN_SYSTEM §7; classes `.mission-motion*` em globals.css; MissionPlanner/ExecutionView reagem a EXECUTING / FAILED / PASSED / COMPLETE. Confete e overlay de marco só quando entrega real existir. |
+| **Motion do card de missão** | **IMPLEMENTED** | Tokens em DESIGN_SYSTEM §7; classes `.mission-motion*`; Planner/ExecutionView reagem a EXECUTING / FAILED / PASSED / COMPLETE. **Sem confete** (proibido — entrega sóbria). Overlay de marco (copy factual) só quando regra de produto existir. |
 | Runtime / Agent Loop | **VERIFICADO até `VERIFYING`** | Execução persistida, `model_step` registrado e resposta textual produzida. |
 | DoD Gate | **VERIFICADO** | DoD falhou sem `tool_result` e bloqueou `COMPLETED`, como esperado para a missão testada. |
 | Registros de evidência | **IMPLEMENTADO / verificado para `model_step`** | A timeline e o painel exibiram a evidência do passo do modelo. Isso não é uma Evidence Engine independente. |
@@ -58,7 +58,7 @@ Migration: `packages/db/drizzle/0004_connectors.sql` no Neon.
 1. Páginas `/ajuda` e `/legal/*` com conteúdo próprio.
 2. Missão com `tool_result` real até `COMPLETED`.
 3. OAuth GitHub + M4/M5.
-4. Overlay de marco + confete só na entrega real (copy já em DESIGN_SYSTEM).
+4. Overlay de marco (copy factual, sem confete) quando regra de produto existir.
 5. Workflow `auditor.yml` (opcional paralelo).
 
 ## Próximo passo de engenharia
