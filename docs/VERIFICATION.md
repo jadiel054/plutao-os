@@ -1,9 +1,11 @@
 # VERIFICATION.md — Plutão Verification Matrix & Criteria
 
-**Last Updated:** 2026-09-14
+**Last Updated:** 2026-09-17
 **Status:** Multi-Layer Verification Operational (`Foundation` → `Runtime` → `Autonomia V1.1` → `DoD Gate` → `Production`)
 
 This document tracks verified capabilities across all architectural layers of Project Plutão. Status transitions from **IMPLEMENTED** → **VERIFIED** only when real evidence (automated test green, production response, or documented mobile/e2e proof) exists.
+
+The latest user-flow production smoke test is documented in [`docs/testes/2026-09-17-production-smoke/relatorio-production-smoke.md`](testes/2026-09-17-production-smoke/relatorio-production-smoke.md). It confirms the authentication, mission, chat, settings, persistence and DoD paths tested on 17/09/2026, and records the capabilities that remain unverified.
 
 ---
 
@@ -82,10 +84,12 @@ This document tracks verified capabilities across all architectural layers of Pr
 
 ---
 
-## 10. Layer J — Evidence Engine & Trace Logging
+## 10. Layer J — Evidence Records & Trace Logging
 
-- [x] **Evidence Logging:** Tool outputs, model parameters, and step execution traces logged to `/api/missions/:id/evidence`.
+- [x] **Evidence Records:** Tool outputs, model parameters, and step execution traces can be logged to `/api/missions/:id/evidence`.
 - [x] **Evidence UI Panel:** `MissionEvidencePanel` renders structured audit logs and tool results in the mission detail view.
+
+> **Escopo atual:** os registros e o painel existem, mas não constituem ainda uma Evidence Engine independente por classe de evidência. A missão de produção executada em 17/09/2026 registrou um `model_step`; o DoD bloqueou a conclusão porque não havia `tool_result`.
 
 ---
 
@@ -108,5 +112,5 @@ This document tracks verified capabilities across all architectural layers of Pr
 
 ## 🚨 Pending / Unverified Capabilities (Roadmap)
 
-- [ ] **Pending Intents / Sync Queue:** Local offline queue for sync operations created while offline (`NOT IMPLEMENTED`).
+- [ ] **Pending Intents / Sync Queue:** Implemented in the current code path, but not reverified in the 17/09/2026 production smoke test. A new network-loss test is required before marking the end-to-end behavior as VERIFIED.
 - [ ] **Service Worker Background Execution:** Long-running mission execution when PWA tab is completely closed (`NOT IMPLEMENTED`).
