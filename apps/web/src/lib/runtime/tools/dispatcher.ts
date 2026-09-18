@@ -8,18 +8,25 @@ import { getOwnedExecution } from "@/lib/runtime/service";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { runNote } from "./note";
 import { runFilesystem } from "./filesystem";
+import { runGithub } from "./github";
 import { isToolName, type ToolName, type ToolResult } from "./types";
 
 function inputHash(name: string, input: string): string {
   return createHash("sha256").update(`${name}\0${input}`).digest("hex").slice(0, 16);
 }
 
-async function dispatchLocal(name: ToolName, input: string, executionId?: string): Promise<ToolResult> {
+async function dispatchLocal(
+  name: ToolName,
+  input: string,
+  opts: { executionId?: string; userId: string }
+): Promise<ToolResult> {
   switch (name) {
     case "note":
       return runNote(input);
     case "filesystem":
-      return await runFilesystem(input, executionId);
+      return await runFilesystem(input, opts.executionId);
+    case "github":
+      return await runGithub(input, opts.userId);
     default: {
       const _exhaustive: never = name;
       return {
@@ -63,7 +70,10 @@ export async function dispatchTool(opts: {
   taskId?: string | null;
 }) {
   if (!isToolName(opts.name)) {
-    return { error: "UNKNOWN_TOOL" as const, known: ["note", "filesystem"] as const };
+    return {
+      error: "UNKNOWN_TOOL" as const,
+      known: ["note", "filesystem", "github"] as const,
+    };
   }
 
   const execution = await getOwnedExecution(opts.executionId, opts.userId);
@@ -92,7 +102,10 @@ export async function dispatchTool(opts: {
     };
   }
 
-  const result = await dispatchLocal(opts.name, String(opts.input ?? ""), opts.executionId);
+  const result = await dispatchLocal(opts.name, String(opts.input ?? ""), {
+    executionId: opts.executionId,
+    userId: opts.userId,
+  });
   const now = new Date();
   const evidenceId = randomUUID();
   const taskId = opts.taskId ?? execution.currentTaskId ?? null;
@@ -167,7 +180,6 @@ export async function dispatchTool(opts: {
     .where(eq(executions.id, opts.executionId))
     .returning();
 
-  // Mirror into Mission Workspace plan View (non-blocking)
   await recordToolOnMissionPlan({
     missionId: execution.missionId,
     userId: opts.userId,

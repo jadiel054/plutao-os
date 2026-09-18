@@ -1,4 +1,4 @@
-export type ToolName = "note" | "filesystem";
+export type ToolName = "note" | "filesystem" | "github";
 
 export type ToolInput = {
   name: ToolName;
@@ -23,7 +23,7 @@ export type ToolFailure = {
 
 export type ToolResult = ToolSuccess | ToolFailure;
 
-export const KNOWN_TOOLS: readonly ToolName[] = ["note", "filesystem"];
+export const KNOWN_TOOLS: readonly ToolName[] = ["note", "filesystem", "github"];
 
 export function isToolName(v: string): v is ToolName {
   return (KNOWN_TOOLS as readonly string[]).includes(v);
