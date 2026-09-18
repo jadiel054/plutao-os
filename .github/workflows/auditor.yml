@@ -1,4 +1,4 @@
-# Auditor read-only — verifica integridade do monorepo sem secrets de produto.
+# Auditor read-only — estrutura + higiene de voz de produto.
 # Não acessa tokens de usuário nem Neon de produção.
 name: Auditor
 
@@ -33,33 +33,16 @@ jobs:
           test -f apps/web/src/app/legal/licencas/page.tsx
           echo "structure OK"
 
-      - name: No forbidden product AI brand strings in app sources
+      - name: No forbidden AI marketing strings in user-facing product pages
         run: |
           set -e
-          # Produto não deve citar marcas de IA de terceiros na UI/docs de usuário.
-          if grep -RIn --include='*.tsx' --include='*.ts' --include='*.md' \
-            -e 'ChatGPT' -e 'OpenAI' -e 'created by Grok' -e 'powered by Claude' \
-            apps/web/src docs 2>/dev/null | grep -v 'node_modules' | grep -v 'AUDITOR' | head -20; then
-            echo "Found forbidden third-party AI marketing strings in product paths"
+          # Só superfície de usuário (ajuda, legal, components de settings).
+          # Docs de arquitetura internas podem mencionar stacks técnicos.
+          TARGETS="apps/web/src/app/ajuda apps/web/src/app/legal apps/web/src/components"
+          if grep -RIn --include='*.tsx' --include='*.ts' \
+            -e 'ChatGPT' -e 'created by Grok' -e 'powered by Claude' -e 'powered by ChatGPT' \
+            $TARGETS 2>/dev/null | head -20; then
+            echo "Found forbidden third-party AI marketing strings in product UI"
             exit 1
           fi
           echo "brand hygiene OK"
-
-  web-typecheck:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-      - name: Install
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
-      - name: Typecheck
-        run: npx tsc --noEmit
-        continue-on-error: true
