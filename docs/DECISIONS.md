@@ -5,6 +5,37 @@ Formato: DATA | DECISÃO | CONTEXTO | STATUS
 
 ---
 
+## 2026-09-18 — Linguagem de produto (“cockpit”) é provisória
+
+**Decisão:** A metáfora “cockpit de missão” entrou por influência de conversas anteriores e **não** define a identidade final do Plutão.
+
+**Contexto:** O que importa são as capacidades de **executor inteligente** (plano, tools, evidência, gate, conectores, entrega de artefatos) — no espírito das funções que tornam sistemas sérios utilizáveis no trabalho real — não a estética ou o rótulo “cockpit”.
+
+**Regra:**
+- Não reescrever UI/docs em massa agora.
+- Após a entrega estável (OAuth + tools reais exercitados), **revisar identidade de produto** com o usuário: o que o Plutão é de verdade, nome das superfícies (rota `/cockpit`, copy, Sobre), sem herdar metáfora de terceiros.
+- Até lá: priorizar execução e evidência sobre branding de metáfora.
+
+**Status:** ACEITA / AGENDADA PÓS-ENTREGA
+
+---
+
+## 2026-09-18 — Motion sem confete
+
+**Decisão:** Confete e partículas celebrativas são **proibidos** no produto. Entrega = borda/badge + copy factual. Overlay de marco (se houver) sem confete.
+
+**Status:** ACEITA / DOCUMENTADA (DESIGN_SYSTEM v0.3.1)
+
+---
+
+## 2026-09-18 — M4 bridge GitHub → dispatcher
+
+**Decisão:** Tool `github` no dispatcher usa token OAuth do conector do usuário (`getAccessToken`). Sem status `connected` + token válido → erro explícito apontando Configurações → Conectores. Actions: `repos_list`, `repo_get`, `issues_list`, `issues_get`, `pulls_list`, `actions_list`. GET `/api/executions/:id/tools` expõe inventário + disponibilidade.
+
+**Status:** ACEITA / IMPLEMENTADA (código); exercício real depende de env OAuth + migration 0004
+
+---
+
 ## 2026-09-17 — Voz do produto e originalidade (anti-genérico)
 
 **Decisão:**
@@ -53,17 +84,17 @@ Verificador         ← DoD + gate FAILED→INSPECTING→FIXING→TESTING→PASS
 
 ---
 
-## 2026-09-17 — Conectores MCP (requisito executável, pós-kernel)
+## 2026-09-17 — Conectores MCP (requisito executável)
 
-**Decisão:** Quando implementar conectores (GitHub primeiro), a superfície é de produto completo:
+**Decisão:** Superfície de produto completa (não “conectado ✓” vazio).
 
 Estados: `desconectado → autorizando → conectado → reconectar → erro`
 
-Exigências: OAuth/link real, fallbacks (token, escopo, rede, revogação), URL do servidor visível, inventário de capacidades/tools, desconectar que revoga de verdade, runtime só oferece o que o conector expõe.
+Exigências: OAuth/link real, fallbacks, inventário de capacidades, desconectar que limpa token, runtime só oferece o que o conector permite.
 
-**Não** é “conectado ✓” vazio. Entra depois do núcleo de missão estável.
+**Wave A nativa (domain):** github, vercel, neon — depois B/C.
 
-**Status:** ACEITA / AGENDADA
+**Status:** ACEITA · M1–M3 + tool github (M4) no código · OAuth real + M5 smoke pendentes de credenciais
 
 ---
 
@@ -178,6 +209,8 @@ Social login fica como evolução posterior.
 - **PWA SW:** `apps/web/public/sw.js`. (**VERIFICADO**)
 - **Pending Intents + reconciliação:** (**VERIFICADA** — 2026-09-16)
 - **Mission Workspace V1 + tools→View (1.1):** (**IMPLEMENTADA** — 2026-09-17)
+- **1.3 stop-mission:** (**IMPLEMENTADA**)
+- **M1–M4 conectores + tool github:** (**IMPLEMENTADA** no código — 2026-09-18)
 
 ---
 
@@ -199,11 +232,12 @@ Social login fica como evolução posterior.
 
 ## Decisões em aberto / Evoluções futuras
 
-- Formalizar papéis de agente no domain (Núcleo, Planejador, Executor, Verificador) e 1.2 auto-plan
-- 1.3 stop-mission no runtime
+- **Identidade de superfície** (revisar metáfora/rotas/copy após entrega estável)
+- Formalizar papéis de agente no domain (Núcleo, Planejador, Executor, Verificador)
 - Background Execution com aba fechada
-- Conectores MCP (estados: desconectado → autorizando → conectado → reconectar → erro; capacidades listadas)
+- OAuth real exercitado + M5 smoke missão com GitHub
 - Lixeira + recibo de exclusão
 - Páginas `/ajuda` e `/legal/*` **somente** após pesquisa de domínio + redação original Plutão
 - Computador / browser virtual
 - E-mail → missão; agenda de missões
+- Waves B/C de conectores (vercel, neon, …)
