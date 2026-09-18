@@ -132,6 +132,7 @@ Os testes unitários existentes estão distribuídos entre o registro de modelos
 | [`docs/BRAND.md`](docs/BRAND.md) | Identidade visual e tokens de marca. |
 | [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) | Diretrizes de interface. |
 | [`docs/PLATAFORMA_VISAO.md`](docs/PLATAFORMA_VISAO.md) | Visão de produto e evolução futura. |
+| [Evidências de produção](docs/testes/2026-09-17-production-smoke/relatorio-production-smoke.md) · [screenshot](docs/testes/2026-09-17-production-smoke/captura-home.webp) | Roteiro, resultados e captura pública do smoke test funcional. |
 
 ## Princípios do projeto
 
