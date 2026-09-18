@@ -42,13 +42,20 @@ export function MissionExecutionView({
   const toolCount = plan.events.filter((e) => e.kind === "tool").length;
   const failCount = plan.events.filter((e) => e.kind === "step_failed").length;
   const stopped = plan.events.some((e) => e.kind === "stopped");
+  const inFailure = active && isStepInFailureLoop(active.status);
 
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]/60 overflow-hidden">
+    <div
+      className={`rounded-2xl border bg-[var(--surface)]/60 overflow-hidden ${
+        inFailure
+          ? "border-amber-500/35 mission-motion mission-motion--failed"
+          : "border-[var(--border)]"
+      }`}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left relative z-[1]"
       >
         <div className="min-w-0">
           <p className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">
@@ -64,13 +71,15 @@ export function MissionExecutionView({
         </div>
         <div className="flex items-center gap-2 shrink-0 text-[10px] font-mono text-[var(--text-muted)]">
           <span>{toolCount} tools</span>
-          {failCount > 0 ? <span className="text-red-400">{failCount} falhas</span> : null}
+          {failCount > 0 ? (
+            <span className="text-amber-400">{failCount} falhas</span>
+          ) : null}
           <span>{open ? "▾" : "▸"}</span>
         </div>
       </button>
 
       {open ? (
-        <div className="border-t border-[var(--border)]/60 px-3 pb-3 pt-2 space-y-3">
+        <div className="border-t border-[var(--border)]/60 px-3 pb-3 pt-2 space-y-3 relative z-[1]">
           <div className="flex flex-wrap gap-2">
             {onStop ? (
               <button
@@ -84,13 +93,13 @@ export function MissionExecutionView({
             ) : null}
           </div>
 
-          {active && isStepInFailureLoop(active.status) ? (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 space-y-2">
-              <p className="text-xs text-red-300 font-medium">
+          {inFailure ? (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 space-y-2">
+              <p className="text-xs text-amber-200 font-medium">
                 Passo bloqueado — ciclo de correção obrigatório
               </p>
               {active.failureCause ? (
-                <p className="text-[11px] text-red-200/90">
+                <p className="text-[11px] text-amber-100/85">
                   Causa: {active.failureCause}
                 </p>
               ) : null}
