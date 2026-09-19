@@ -174,7 +174,7 @@ export function ConnectorsSheet({
                       className="w-8 h-8 rounded-xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-xs font-bold text-[var(--text-secondary)] shrink-0"
                       aria-hidden
                     >
-                      {c.provider === "github" ? "GH" : c.provider.slice(0, 2).toUpperCase()}
+                      {c.provider === "github" ? "GH" : String(c.provider).slice(0, 2).toUpperCase()}
                     </span>
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-[var(--text-primary)] truncate">

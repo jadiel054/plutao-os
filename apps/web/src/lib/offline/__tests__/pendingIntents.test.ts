@@ -11,21 +11,21 @@ import { PendingIntentStore } from "../pendingIntentStore";
 // In-memory fake IndexedDB storage map for testing
 const fakeStore = new Map<string, PendingIntent>();
 
-vi.spyOn(PendingIntentStore, "saveIntent").mockImplementation(async (intent) => {
+vi.spyOn(PendingIntentStore, "saveIntent").mockImplementation(async (intent: PendingIntent) => {
   fakeStore.set(intent.intentId, { ...intent });
 });
 
-vi.spyOn(PendingIntentStore, "getIntentsByUser").mockImplementation(async (userId) => {
+vi.spyOn(PendingIntentStore, "getIntentsByUser").mockImplementation(async (userId: string) => {
   return Array.from(fakeStore.values()).filter((i) => i.userId === userId);
 });
 
-vi.spyOn(PendingIntentStore, "getIntentById").mockImplementation(async (intentId, userId) => {
+vi.spyOn(PendingIntentStore, "getIntentById").mockImplementation(async (intentId: string, userId: string) => {
   const item = fakeStore.get(intentId);
   if (item && item.userId === userId) return { ...item };
   return null;
 });
 
-vi.spyOn(PendingIntentStore, "removeIntent").mockImplementation(async (intentId, userId) => {
+vi.spyOn(PendingIntentStore, "removeIntent").mockImplementation(async (intentId: string, userId: string) => {
   const item = fakeStore.get(intentId);
   if (item && item.userId === userId) {
     fakeStore.delete(intentId);
@@ -167,11 +167,11 @@ describe("Marco B — Reconciliação, Idempotência, Retry & Concorrência", ()
 
     vi.stubGlobal("navigator", { onLine: true });
 
-    vi.spyOn(PendingIntentStore, "saveIntent").mockImplementation(async (intent) => {
+    vi.spyOn(PendingIntentStore, "saveIntent").mockImplementation(async (intent: PendingIntent) => {
       fakeStore.set(intent.intentId, { ...intent });
     });
 
-    vi.spyOn(PendingIntentStore, "getIntentsByUser").mockImplementation(async (userId) => {
+    vi.spyOn(PendingIntentStore, "getIntentsByUser").mockImplementation(async (userId: string) => {
       return Array.from(fakeStore.values()).filter((i) => i.userId === userId);
     });
   });
