@@ -1,14 +1,17 @@
 import * as XLSX from "xlsx";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require("pdf-parse");
-
 /**
  * Extrai texto legível de arquivos PDF em Buffer.
  */
 export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   try {
-    const pdfFn = typeof pdfParse === "function" ? pdfParse : pdfParse.default;
+    if (typeof globalThis.DOMMatrix === "undefined") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).DOMMatrix = class DOMMatrix {};
+    }
+    const pdfParseModule = await import("pdf-parse");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfFn = (pdfParseModule as any).default || pdfParseModule;
     const pdfData = await pdfFn(buffer);
     return pdfData && pdfData.text ? pdfData.text.trim() : "";
   } catch (err) {
