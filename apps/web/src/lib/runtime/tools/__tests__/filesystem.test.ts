@@ -57,6 +57,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { entries: Array<{ name: string; type: string }> };
       expect(output.entries).toEqual([]);
     });
@@ -73,6 +74,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { entries: Array<{ name: string; type: string }> };
       
       // Should have at least the files we created
@@ -91,6 +93,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { entries: Array<{ name: string; type: string }> };
       expect(output.entries).toHaveLength(1);
       expect(output.entries[0].name).toBe("file.txt");
@@ -108,6 +111,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { path: string; content: string; size: number };
       expect(output.path).toBe("test.txt");
       expect(output.content).toBe("hello world");
@@ -124,6 +128,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { content: string };
       expect(output.content).toBe("readme content");
     });
@@ -135,6 +140,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("FILE_NOT_FOUND");
     });
   });
@@ -147,6 +153,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { path: string; size: number };
       expect(output.path).toBe("new.txt");
       expect(output.size).toBe(11);
@@ -161,6 +168,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { size: number };
       expect(output.size).toBe(7);
 
@@ -205,6 +213,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { path: string; created: boolean };
       expect(output.path).toBe("newdir");
       expect(output.created).toBe(true);
@@ -219,6 +228,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { created: boolean };
       expect(output.created).toBe(false);
     });
@@ -230,6 +240,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { created: boolean };
       expect(output.created).toBe(true);
     });
@@ -245,6 +256,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { path: string; exists: boolean; type: string };
       expect(output.path).toBe("test.txt");
       expect(output.exists).toBe(true);
@@ -260,7 +272,8 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
-      const output = JSON.parse(result.output) as { type: string };
+      if (!result.ok) return;
+      const output = JSON.parse(result.output) as { exists: boolean; type: string };
       expect(output.exists).toBe(true);
       expect(output.type).toBe("directory");
     });
@@ -272,6 +285,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { exists: boolean; type: string };
       expect(output.exists).toBe(false);
       expect(output.type).toBe("missing");
@@ -284,6 +298,7 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { exists: boolean; type: string };
       expect(output.exists).toBe(true);
       expect(output.type).toBe("directory");
@@ -308,6 +323,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PATH_TRAVERSAL");
     });
 
@@ -318,6 +334,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PATH_TRAVERSAL");
     });
 
@@ -328,6 +345,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PATH_TRAVERSAL");
     });
 
@@ -338,6 +356,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PATH_TRAVERSAL");
     });
 
@@ -348,6 +367,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PATH_TRAVERSAL");
     });
 
@@ -358,6 +378,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PATH_TRAVERSAL");
     });
 
@@ -368,6 +389,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PATH_TRAVERSAL");
     });
   });
@@ -380,6 +402,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PATH_OUTSIDE_SANDBOX");
     });
 
@@ -401,6 +424,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("FILE_NOT_FOUND");
     });
 
@@ -411,6 +435,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("INVALID_INPUT");
     });
 
@@ -421,6 +446,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("INVALID_INPUT");
     });
 
@@ -431,6 +457,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("UNSUPPORTED_OPERATION");
     });
 
@@ -441,6 +468,7 @@ describe("Filesystem Tool - Security Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("PERMISSION_DENIED");
     });
   });
@@ -476,6 +504,7 @@ describe("Filesystem Tool - Size Limit Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("WRITE_TOO_LARGE");
     });
 
@@ -491,6 +520,7 @@ describe("Filesystem Tool - Size Limit Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("FILE_TOO_LARGE");
     });
 
@@ -530,6 +560,7 @@ describe("Filesystem Tool - Execution Isolation Tests", () => {
       );
 
       expect(result.ok).toBe(false);
+      if (result.ok) return;
       expect(result.error).toBe("FILE_NOT_FOUND");
     });
 
@@ -544,6 +575,7 @@ describe("Filesystem Tool - Execution Isolation Tests", () => {
       );
 
       expect(result.ok).toBe(true);
+      if (!result.ok) return;
       const output = JSON.parse(result.output) as { exists: boolean };
       expect(output.exists).toBe(false);
     });
@@ -714,6 +746,7 @@ describe("Filesystem Tool - Edge Cases", () => {
     );
 
     expect(result.ok).toBe(true);
+    if (!result.ok) return;
     const output = JSON.parse(result.output) as { exists: boolean; type: string };
     expect(output.exists).toBe(true);
     expect(output.type).toBe("directory");
@@ -728,6 +761,7 @@ describe("Filesystem Tool - Edge Cases", () => {
     );
 
     expect(result.ok).toBe(true);
+    if (!result.ok) return;
     const output = JSON.parse(result.output) as { entries: Array<{ name: string }> };
     expect(output.entries).toEqual([]);
   });
