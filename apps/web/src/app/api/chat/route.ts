@@ -9,6 +9,7 @@ import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
+import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
 
 export const runtime = "nodejs";
@@ -213,7 +214,7 @@ Não incentive pular erros.
 Tom: profissional, direto, sem emojis decorativos nem linguagem genérica de assistente.
 ${
   artifactBlocks
-    ? `O usuário anexou arquivo(s). O conteúdo completo está disponível abaixo. Use-o para responder (resumo, análise, etc.). Não diga que não consegue ver anexos — o conteúdo já está no contexto.\n\n${artifactBlocks}`
+    ? `O usuário pode anexar arquivos. Texto e planilhas chegam como conteúdo textual no contexto; imagens chegam como partes visuais quando processadas por um modelo multimodal. Se um anexo estiver visível no contexto, analise-o normalmente. Se por alguma falha técnica o conteúdo de um anexo não tiver chegado, seja honesto, diga que não recebeu o conteúdo e peça para tentar novamente — não finja ter visto.\n\nConteúdo dos anexos em texto:\n${artifactBlocks}`
     : ""
 }`;
 
@@ -281,18 +282,9 @@ ${
       })),
     ];
 
-    // Se o provedor for Gemini/multimodal e houver imagens anexadas, formatar o último mensagem do usuário com partes de imagem
-    if (effectiveModelConfig.provider === "gemini" && validatedArtifacts.length > 0) {
-      const imageParts: MultimodalContentPart[] = [];
-      for (const a of validatedArtifacts) {
-        const meta = a.metadata || {};
-        if (Boolean(meta.isImage) || a.type.startsWith("image/")) {
-          const url = (meta.dataUrl as string) || (meta.blobUrl as string);
-          if (url) {
-            imageParts.push({ type: "image_url", image_url: { url } });
-          }
-        }
-      }
+    // Montar imageParts para QUALQUER provider com capacidade de visão (ex.: gemini, openai)
+    if (VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig.provider) && validatedArtifacts.length > 0) {
+      const imageParts = buildImageParts(validatedArtifacts);
 
       if (imageParts.length > 0 && payloadMessages.length > 0) {
         const lastIdx = payloadMessages.length - 1;
@@ -307,7 +299,51 @@ ${
       }
     }
 
-    const result = await chatCompletion(effectiveModelConfig, payloadMessages);
+    let result;
+    let modelFallback = false;
+
+    try {
+      result = await chatCompletion(effectiveModelConfig, payloadMessages);
+    } catch (err) {
+      const isGemini = effectiveModelConfig.provider === "gemini";
+      const fallbackConfig = isGemini ? getModelConfig() : null;
+
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
+
+      if (isGemini && fallbackConfig && !isClient4xx) {
+        console.warn("[chat] Gemini indisponível, fallback para", fallbackConfig.model, "-", errMsg);
+
+        // Se o fallbackConfig também for de visão (ex.: openai), garantir que imageParts estejam presentes se necessário
+        if (VISION_CAPABLE_PROVIDERS.includes(fallbackConfig.provider) && validatedArtifacts.length > 0) {
+          const imageParts = buildImageParts(validatedArtifacts);
+          if (imageParts.length > 0 && payloadMessages.length > 0) {
+            const lastIdx = payloadMessages.length - 1;
+            const existingContent =
+              typeof payloadMessages[lastIdx].content === "string"
+                ? (payloadMessages[lastIdx].content as string)
+                : Array.isArray(payloadMessages[lastIdx].content)
+                  ? (payloadMessages[lastIdx].content as MultimodalContentPart[]).find((p) => p.type === "text")?.text || ""
+                  : "";
+            payloadMessages[lastIdx] = {
+              role: payloadMessages[lastIdx].role,
+              content: [{ type: "text", text: existingContent }, ...imageParts],
+            };
+          }
+        }
+
+        try {
+          result = await chatCompletion(fallbackConfig, payloadMessages);
+          modelFallback = true;
+        } catch (fallbackErr) {
+          console.error("[chat] Fallback provider também falhou:", fallbackErr);
+          throw fallbackErr;
+        }
+      } else {
+        throw err;
+      }
+    }
+
     const readArtifactIds = validatedArtifacts.map((a) => a.id);
 
     const assistantContent =
@@ -329,6 +365,7 @@ ${
       modelConfigured: true,
       provider: result.provider,
       model: result.model,
+      modelFallback,
       suggestedPlan: suggestedPlan
         ? { stepTitles: suggestedPlan.stepTitles }
         : null,

@@ -7,6 +7,7 @@ export type ArtifactRef = {
   name: string;
   type: string;
   size: number;
+  thumbnailUrl?: string;
 };
 
 export interface LongInputModalProps {
