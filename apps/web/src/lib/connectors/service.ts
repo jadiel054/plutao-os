@@ -99,7 +99,11 @@ export async function ensureConnectorRow(userId: string, provider: ConnectorProv
       capabilities: [],
     })
     .returning();
-  return inserted[0];
+  const created = inserted[0];
+  if (!created) {
+    throw new Error("Falha ao criar registro do conector");
+  }
+  return created;
 }
 
 export async function beginOAuth(
