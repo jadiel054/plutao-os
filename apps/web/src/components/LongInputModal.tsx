@@ -14,6 +14,7 @@ export interface LongInputModalProps {
   initialText: string;
   onClose: () => void;
   onConfirmTransform: (artifact: ArtifactRef) => void;
+  onOpenFileSelector?: () => void;
   onError?: (message: string) => void;
 }
 
@@ -22,6 +23,7 @@ export function LongInputModal({
   initialText,
   onClose,
   onConfirmTransform,
+  onOpenFileSelector,
   onError,
 }: LongInputModalProps) {
   const [content, setContent] = useState(initialText);
@@ -101,23 +103,38 @@ export function LongInputModal({
           />
         </div>
 
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--border)] shrink-0">
-          <button
-            type="button"
-            disabled={isTransforming}
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            disabled={isTransforming || !content.trim()}
-            onClick={() => void handleTransform()}
-            className="px-5 py-2 rounded-xl bg-[var(--selo)] hover:bg-[var(--nucleo)] text-[var(--base)] text-xs font-semibold transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm cursor-pointer"
-          >
-            {isTransforming ? "Salvando…" : "Salvar arquivo"}
-          </button>
+        <div className="flex items-center justify-between gap-3 pt-3 border-t border-[var(--border)] shrink-0">
+          {onOpenFileSelector ? (
+            <button
+              type="button"
+              disabled={isTransforming}
+              onClick={() => {
+                onClose();
+                onOpenFileSelector();
+              }}
+              className="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-xs font-medium text-[var(--text-secondary)] transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              📁 Selecionar arquivo local
+            </button>
+          ) : <div />}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={isTransforming}
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={isTransforming || !content.trim()}
+              onClick={() => void handleTransform()}
+              className="px-5 py-2 rounded-xl bg-[var(--selo)] hover:bg-[var(--nucleo)] text-[var(--base)] text-xs font-semibold transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm cursor-pointer"
+            >
+              {isTransforming ? "Salvando…" : "Salvar arquivo"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

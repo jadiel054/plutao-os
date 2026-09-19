@@ -97,7 +97,15 @@ export class LocalAdapter {
         throw new Error("LocalAdapter requires browser environment");
       }
 
-      const result = await this.provider.callModel(messages);
+      const textMessages = messages.map((m) => ({
+        role: m.role,
+        content:
+          typeof m.content === "string"
+            ? m.content
+            : m.content.map((c) => (c.type === "text" ? c.text : "")).join(" "),
+      }));
+
+      const result = await this.provider.callModel(textMessages);
 
       if (!result.ok) {
         throw new Error(result.error || "Local model call failed");
