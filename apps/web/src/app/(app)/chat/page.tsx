@@ -11,6 +11,7 @@ import { MissionWorkspaceBar } from "@/components/MissionWorkspaceBar";
 import { ChatAttachMenu } from "@/components/ChatAttachMenu";
 import { ConnectorsSheet } from "@/components/ConnectorsSheet";
 import { ConnectorActionCard, type SuggestedConnector } from "@/components/ConnectorActionCard";
+import { ImageAnnotatorModal } from "@/components/ImageAnnotatorModal";
 import { formatFileSize } from "@/lib/artifacts";
 
 type Message = {
@@ -50,6 +51,7 @@ function ChatPageInner() {
   const [applyingPlan, setApplyingPlan] = useState(false);
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [isConnectorsSheetOpen, setIsConnectorsSheetOpen] = useState(false);
+  const [annotatorArtifact, setAnnotatorArtifact] = useState<ArtifactRef | null>(null);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -354,11 +356,16 @@ function ChatPageInner() {
             addToast(data.error ?? `Falha ao enviar "${file.name}"`, "error");
             continue;
           }
+          const meta = data.artifact.metadata || {};
+          const isImg = Boolean(meta.isImage) || (data.artifact.type && data.artifact.type.startsWith("image/"));
+          const thumbnailUrl = isImg ? ((meta.blobUrl as string) || (meta.dataUrl as string) || undefined) : undefined;
+
           setPendingArtifacts((prev) => [...prev, {
             id: data.artifact.id,
             name: data.artifact.name,
             type: data.artifact.type,
             size: data.artifact.size,
+            thumbnailUrl,
           }]);
           addToast(`Arquivo "${data.artifact.name}" anexado`, "success");
         } else {
@@ -376,11 +383,16 @@ function ChatPageInner() {
             addToast(data.error ?? `Falha ao processar "${file.name}"`, "error");
             continue;
           }
+          const meta = data.artifact.metadata || {};
+          const isImg = Boolean(meta.isImage) || (data.artifact.type && data.artifact.type.startsWith("image/"));
+          const thumbnailUrl = isImg ? ((meta.blobUrl as string) || (meta.dataUrl as string) || undefined) : undefined;
+
           setPendingArtifacts((prev) => [...prev, {
             id: data.artifact.id,
             name: data.artifact.name,
             type: data.artifact.type,
             size: data.artifact.size,
+            thumbnailUrl,
           }]);
           addToast(`Arquivo "${data.artifact.name}" anexado`, "success");
         }
@@ -435,11 +447,28 @@ function ChatPageInner() {
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{m.content}</div>
-                  {m.artifacts?.map((art) => (
-                    <span key={art.id} className="inline-block mt-1 text-[10px] font-mono opacity-80">
-                      {art.name} ({formatFileSize(art.size)})
-                    </span>
-                  ))}
+                  {m.artifacts?.map((art) =>
+                    art.thumbnailUrl ? (
+                      <div key={art.id} className="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setAnnotatorArtifact(art)}
+                          className="w-12 h-12 rounded-lg overflow-hidden border border-[var(--border)] hover:border-[var(--selo)] transition-colors shrink-0 cursor-pointer"
+                          title="Clique para visualizar/anotar"
+                        >
+                          <img src={art.thumbnailUrl} alt={art.name} className="w-full h-full object-cover" />
+                        </button>
+                        <div className="flex flex-col text-[10px] font-mono opacity-80">
+                          <span className="font-semibold truncate max-w-[140px]">{art.name}</span>
+                          <span>{formatFileSize(art.size)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <span key={art.id} className="inline-block mt-1 text-[10px] font-mono opacity-80">
+                        {art.name} ({formatFileSize(art.size)})
+                      </span>
+                    )
+                  )}
                 </div>
               </div>
             ))}
@@ -545,13 +574,38 @@ function ChatPageInner() {
         <form onSubmit={handleSend} className="space-y-2">
           {pendingArtifacts.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {pendingArtifacts.map((art) => (
-                <div key={art.id} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] text-xs">
-                  <span className="truncate max-w-[140px]">{art.name}</span>
-                  <span className="text-[10px] text-[var(--text-muted)]">{formatFileSize(art.size)}</span>
-                  <button type="button" onClick={() => setPendingArtifacts((p) => p.filter((a) => a.id !== art.id))}>✕</button>
-                </div>
-              ))}
+              {pendingArtifacts.map((art) =>
+                art.thumbnailUrl ? (
+                  <div key={art.id} className="flex items-center gap-2 p-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setAnnotatorArtifact(art)}
+                      className="relative w-12 h-12 rounded-lg overflow-hidden border border-[var(--border)] hover:border-[var(--selo)] transition-colors shrink-0 group/img cursor-pointer"
+                      title="Clique para visualizar/anotar"
+                    >
+                      <img src={art.thumbnailUrl} alt={art.name} className="w-full h-full object-cover" />
+                      <span className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 flex items-center justify-center text-xs text-white transition-opacity font-medium">✏️</span>
+                    </button>
+                    <div className="flex flex-col min-w-0 pr-1">
+                      <span className="truncate max-w-[120px] text-xs font-medium text-[var(--text-primary)]">{art.name}</span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">{formatFileSize(art.size)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPendingArtifacts((p) => p.filter((a) => a.id !== art.id))}
+                      className="text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1 text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <div key={art.id} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs">
+                    <span className="truncate max-w-[140px]">{art.name}</span>
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono">{formatFileSize(art.size)}</span>
+                    <button type="button" onClick={() => setPendingArtifacts((p) => p.filter((a) => a.id !== art.id))} className="cursor-pointer">✕</button>
+                  </div>
+                )
+              )}
             </div>
           )}
           <div className="p-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] flex items-end gap-2">
@@ -626,6 +680,16 @@ function ChatPageInner() {
         open={isConnectorsSheetOpen}
         onClose={() => setIsConnectorsSheetOpen(false)}
         onNotify={(msg, type) => addToast(msg, type ?? "info")}
+      />
+      <ImageAnnotatorModal
+        artifact={annotatorArtifact}
+        onClose={() => setAnnotatorArtifact(null)}
+        onSaveAnnotatedCopy={(newArtifact) => {
+          setPendingArtifacts((prev) => [...prev, newArtifact]);
+          addToast(`Cópia anotada "${newArtifact.name}" anexada`, "success");
+        }}
+        activeMissionId={activeMissionId}
+        onError={(msg) => addToast(msg, "error")}
       />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
