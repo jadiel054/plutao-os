@@ -8,7 +8,7 @@ import { getAccessToken, getConnectorRow } from "@/lib/connectors/service";
 import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
-import type { ModelMessage } from "@/lib/runtime/model/types";
+import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
 
 export const runtime = "nodejs";
@@ -16,6 +16,15 @@ export const runtime = "nodejs";
 type ChatInputMessage = {
   role: "user" | "assistant";
   content: string;
+};
+
+type AttachedArtifactMeta = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  content: string;
+  metadata: Record<string, unknown>;
 };
 
 const MAX_MESSAGE_LENGTH = 4000;
@@ -81,13 +90,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    type AttachedArtifactMeta = {
-      id: string;
-      name: string;
-      type: string;
-      size: number;
-      content: string;
-    };
     let validatedArtifacts: AttachedArtifactMeta[] = [];
 
     if (rawArtifactIds.length > 0) {
@@ -99,6 +101,7 @@ export async function POST(req: NextRequest) {
             type: artifactsTable.type,
             size: artifactsTable.size,
             content: artifactsTable.content,
+            metadata: artifactsTable.metadata,
           })
           .from(artifactsTable)
           .where(
@@ -110,6 +113,7 @@ export async function POST(req: NextRequest) {
           type: r.type,
           size: r.size,
           content: r.content,
+          metadata: (r.metadata as Record<string, unknown>) || {},
         }));
       } catch {
         /* ignore */
@@ -185,7 +189,7 @@ Você é o Núcleo do Plutão (sistema de trabalho):
 conversa → descobre intenção → alinha caminho → executa de verdade → entrega artefato + evidência.
 
 INTENÇÃO (classifique mentalmente a cada mensagem):
-- chat: conversa casual, saudação, dúvida rápida — responda naturalmente, sem forçar missão.
+- chat: conversa casual, saudação, dúvida rápida — responda naturally, sem forçar missão.
 - mission: tarefa pontual com objetivo claro.
 - project: iniciativa maior (app, sistema, auditoria, construção) — descubra objetivo, restrições e perfil.
 - config: ajustes de conta/preferências.
@@ -216,14 +220,41 @@ ${
     const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
     const lastUserText = lastUserMsg?.content || "";
 
-    const modelConfig = getModelConfig();
+    // Roteamento inteligente de modelo:
+    // Se a mensagem contiver imagem ou documento binário (PDF, Excel) anexado e GEMINI_API_KEY estiver configurada,
+    // roteamos especificamente para o Gemini 3.1 Flash-Lite (gemini-3.1-flash-lite) via endpoint compatível com OpenAI.
+    const hasImageOrBinary = validatedArtifacts.some((a) => {
+      const meta = a.metadata || {};
+      return (
+        Boolean(meta.isImage) ||
+        Boolean(meta.isBinary) ||
+        a.type.startsWith("image/") ||
+        a.type === "application/pdf" ||
+        a.type.includes("excel") ||
+        a.type.includes("spreadsheet")
+      );
+    });
 
-    if (!modelConfig) {
+    const geminiKey = process.env.GEMINI_API_KEY?.trim();
+    let effectiveModelConfig: ModelConfig | null = null;
+
+    if (hasImageOrBinary && geminiKey) {
+      effectiveModelConfig = {
+        provider: "gemini",
+        apiKey: geminiKey,
+        model: "gemini-3.1-flash-lite",
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      };
+    } else {
+      effectiveModelConfig = getModelConfig();
+    }
+
+    if (!effectiveModelConfig) {
       const artNotice =
         validatedArtifacts.length > 0
           ? ` (com ${validatedArtifacts.length} arquivo(s) anexado(s))`
           : "";
-      const replyContent = `[${agentName}] Recebi sua mensagem: "${lastUserText}"${artNotice}. O ambiente atual não possui MODEL_API_KEY configurada. Configure a chave de API nas variáveis de ambiente para respostas com o modelo ativo.`;
+      const replyContent = `[${agentName}] Recebi sua mensagem: "${lastUserText}"${artNotice}. O ambiente atual não possui MODEL_API_KEY / GEMINI_API_KEY configurada. Configure a chave de API nas variáveis de ambiente do Vercel.`;
 
       const suggestedConnectors = detectSuggestedConnectors({
         lastUserText,
@@ -250,7 +281,33 @@ ${
       })),
     ];
 
-    const result = await chatCompletion(modelConfig, payloadMessages);
+    // Se o provedor for Gemini/multimodal e houver imagens anexadas, formatar o último mensagem do usuário com partes de imagem
+    if (effectiveModelConfig.provider === "gemini" && validatedArtifacts.length > 0) {
+      const imageParts: MultimodalContentPart[] = [];
+      for (const a of validatedArtifacts) {
+        const meta = a.metadata || {};
+        if (Boolean(meta.isImage) || a.type.startsWith("image/")) {
+          const url = (meta.dataUrl as string) || (meta.blobUrl as string);
+          if (url) {
+            imageParts.push({ type: "image_url", image_url: { url } });
+          }
+        }
+      }
+
+      if (imageParts.length > 0 && payloadMessages.length > 0) {
+        const lastIdx = payloadMessages.length - 1;
+        const existingContent =
+          typeof payloadMessages[lastIdx].content === "string"
+            ? (payloadMessages[lastIdx].content as string)
+            : "";
+        payloadMessages[lastIdx] = {
+          role: payloadMessages[lastIdx].role,
+          content: [{ type: "text", text: existingContent }, ...imageParts],
+        };
+      }
+    }
+
+    const result = await chatCompletion(effectiveModelConfig, payloadMessages);
     const readArtifactIds = validatedArtifacts.map((a) => a.id);
 
     const assistantContent =

@@ -13,6 +13,12 @@ export function detectArtifactType(name?: string, content: string = ""): Artifac
   if (trimmedName.endsWith(".md") || trimmedName.endsWith(".markdown")) {
     return { type: "text/markdown", extension: "md" };
   }
+  if (trimmedName.endsWith(".html") || trimmedName.endsWith(".htm")) {
+    return { type: "text/html", extension: "html" };
+  }
+  if (trimmedName.endsWith(".css")) {
+    return { type: "text/css", extension: "css" };
+  }
   if (trimmedName.endsWith(".json")) {
     return { type: "application/json", extension: "json" };
   }
@@ -22,7 +28,28 @@ export function detectArtifactType(name?: string, content: string = ""): Artifac
   if (trimmedName.endsWith(".log")) {
     return { type: "text/x-log", extension: "log" };
   }
-  if (trimmedName.endsWith(".js") || trimmedName.endsWith(".ts") || trimmedName.endsWith(".py")) {
+  if (trimmedName.endsWith(".pdf")) {
+    return { type: "application/pdf", extension: "pdf" };
+  }
+  if (trimmedName.endsWith(".xlsx")) {
+    return { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", extension: "xlsx" };
+  }
+  if (trimmedName.endsWith(".xls")) {
+    return { type: "application/vnd.ms-excel", extension: "xls" };
+  }
+  if (trimmedName.endsWith(".png")) {
+    return { type: "image/png", extension: "png" };
+  }
+  if (trimmedName.endsWith(".jpg") || trimmedName.endsWith(".jpeg")) {
+    return { type: "image/jpeg", extension: "jpg" };
+  }
+  if (trimmedName.endsWith(".webp")) {
+    return { type: "image/webp", extension: "webp" };
+  }
+  if (trimmedName.endsWith(".gif")) {
+    return { type: "image/gif", extension: "gif" };
+  }
+  if (trimmedName.endsWith(".js") || trimmedName.endsWith(".ts") || trimmedName.endsWith(".py") || trimmedName.endsWith(".jsx") || trimmedName.endsWith(".tsx")) {
     const ext = trimmedName.split(".").pop() || "txt";
     return { type: `text/x-${ext}`, extension: ext };
   }

@@ -7,10 +7,12 @@ import { useEffect, useRef, useState } from "react";
  */
 export function ChatAttachMenu({
   onOpenFiles,
+  onPasteLongText,
   onOpenConnectors,
   disabled,
 }: {
   onOpenFiles: () => void;
+  onPasteLongText?: () => void;
   onOpenConnectors: () => void;
   disabled?: boolean;
 }) {
@@ -39,7 +41,7 @@ export function ChatAttachMenu({
         +
       </button>
       {open ? (
-        <div className="absolute bottom-full left-0 mb-2 min-w-[11.5rem] rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl py-1.5 z-30 overflow-hidden">
+        <div className="absolute bottom-full left-0 mb-2 min-w-[12.5rem] rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl py-1.5 z-30 overflow-hidden">
           <button
             type="button"
             className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--base)]/80"
@@ -49,10 +51,25 @@ export function ChatAttachMenu({
             }}
           >
             <span className="text-[var(--text-muted)] w-5 text-center text-xs" aria-hidden>
-              ▢
+              📁
             </span>
             Arquivos
           </button>
+          {onPasteLongText ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--base)]/80"
+              onClick={() => {
+                setOpen(false);
+                onPasteLongText();
+              }}
+            >
+              <span className="text-[var(--text-muted)] w-5 text-center text-xs" aria-hidden>
+                📝
+              </span>
+              Colar texto longo
+            </button>
+          ) : null}
           <div className="h-px bg-[var(--border)]/80 my-1" />
           <button
             type="button"

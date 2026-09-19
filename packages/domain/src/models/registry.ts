@@ -167,6 +167,21 @@ export const PRESET_MODELS: AIModel[] = [
     speedRating: 4,
     license: "API Provedor",
   },
+  {
+    id: "gemini/gemini-3.1-flash-lite",
+    name: "Gemini 3.1 Flash-Lite",
+    providerType: "cloud",
+    providerName: "Google AI Studio",
+    category: "vision",
+    description: "Modelo multimodal nativo ultra-rápido para imagens, PDFs e grandes contextos.",
+    parameters: "N/A",
+    sizeBytes: 0,
+    sizeLabel: "Nuvem",
+    hardware: "cloud",
+    speedRating: 5,
+    license: "API Provedor",
+    isRecommended: true,
+  },
 ];
 
 /**

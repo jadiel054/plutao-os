@@ -39,6 +39,7 @@ function ChatPageInner() {
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isLongInputModalOpen, setIsLongInputModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -321,6 +322,79 @@ function ChatPageInner() {
     addToast(`Arquivo "${artifact.name}" anexado`, "success");
   }
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of Array.from(files)) {
+      try {
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+        const isPlainText = [
+          "md", "markdown", "txt", "csv", "html", "htm", "css",
+          "json", "js", "ts", "jsx", "tsx", "py", "log", "xml", "yaml", "yml"
+        ].includes(ext) || file.type.startsWith("text/");
+
+        if (isPlainText) {
+          const content = await file.text();
+          if (!content.trim()) {
+            addToast(`O arquivo "${file.name}" está vazio.`, "error");
+            continue;
+          }
+          const res = await fetch("/api/artifacts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              content,
+              name: file.name,
+              type: file.type || undefined,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.artifact) {
+            addToast(data.error ?? `Falha ao enviar "${file.name}"`, "error");
+            continue;
+          }
+          setPendingArtifacts((prev) => [...prev, {
+            id: data.artifact.id,
+            name: data.artifact.name,
+            type: data.artifact.type,
+            size: data.artifact.size,
+          }]);
+          addToast(`Arquivo "${data.artifact.name}" anexado`, "success");
+        } else {
+          // Binary files (PDF, Excel) and Images via FormData
+          const formData = new FormData();
+          formData.append("file", file);
+          if (activeMissionId) formData.append("missionId", activeMissionId);
+
+          const res = await fetch("/api/artifacts", {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.artifact) {
+            addToast(data.error ?? `Falha ao processar "${file.name}"`, "error");
+            continue;
+          }
+          setPendingArtifacts((prev) => [...prev, {
+            id: data.artifact.id,
+            name: data.artifact.name,
+            type: data.artifact.type,
+            size: data.artifact.size,
+          }]);
+          addToast(`Arquivo "${data.artifact.name}" anexado`, "success");
+        }
+      } catch (err) {
+        console.error("Erro ao ler arquivo:", err);
+        addToast(`Erro ao processar "${file.name}"`, "error");
+      }
+    }
+
+    if (e.target) {
+      e.target.value = "";
+    }
+  };
+
   const charCount = inputMessage.length;
   const showLongInputHint = charCount >= 1500;
 
@@ -481,9 +555,18 @@ function ChatPageInner() {
             </div>
           )}
           <div className="p-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] flex items-end gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => void handleFileSelect(e)}
+              multiple
+              accept=".md,.markdown,.txt,.csv,.html,.htm,.css,.json,.js,.ts,.jsx,.tsx,.py,.log,.xml,.yaml,.yml,.pdf,.xlsx,.xls,image/*"
+              className="hidden"
+            />
             <ChatAttachMenu
               disabled={sending}
-              onOpenFiles={() => setIsLongInputModalOpen(true)}
+              onOpenFiles={() => fileInputRef.current?.click()}
+              onPasteLongText={() => setIsLongInputModalOpen(true)}
               onOpenConnectors={() => setIsConnectorsSheetOpen(true)}
             />
             <textarea
@@ -536,6 +619,7 @@ function ChatPageInner() {
         initialText={inputMessage}
         onClose={() => setIsLongInputModalOpen(false)}
         onConfirmTransform={handleConfirmTransform}
+        onOpenFileSelector={() => fileInputRef.current?.click()}
         onError={(msg) => addToast(msg, "error")}
       />
       <ConnectorsSheet

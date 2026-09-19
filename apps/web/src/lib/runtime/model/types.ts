@@ -1,8 +1,12 @@
-export type ModelProviderId = "xai" | "openai" | "local";
+export type ModelProviderId = "xai" | "openai" | "gemini" | "local";
+
+export type MultimodalContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
 
 export type ModelMessage = {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | MultimodalContentPart[];
 };
 
 export type ModelToolProposal = {
