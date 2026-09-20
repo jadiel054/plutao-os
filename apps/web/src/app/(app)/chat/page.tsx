@@ -14,6 +14,7 @@ import { ConnectorsSheet } from "@/components/ConnectorsSheet";
 import { ConnectorActionCard, type SuggestedConnector } from "@/components/ConnectorActionCard";
 import { ImageAnnotatorModal } from "@/components/ImageAnnotatorModal";
 import { StructuredMessage, type StructuredStep } from "@/components/chat/StructuredMessage";
+import { MessageActions } from "@/components/chat/MessageActions";
 import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
 
@@ -481,6 +482,22 @@ function ChatPageInner() {
     }
   }
 
+  async function regenerateLast() {
+    if (sending) return;
+    const lastUser = [...messages].reverse().find((x) => x.role === "user");
+    if (!lastUser) return;
+    setMessages((prev) => {
+      const next = [...prev];
+      while (next.length && next[next.length - 1]?.role === "assistant") next.pop();
+      return next;
+    });
+    setInputMessage(lastUser.content);
+    setTimeout(() => {
+      const ta = textareaRef.current;
+      if (ta) ta.closest("form")?.requestSubmit();
+    }, 40);
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -657,6 +674,13 @@ function ChatPageInner() {
                     trace={m.trace}
                     isStreaming={sending && m.id === messages[messages.length - 1]?.id}
                   />
+                  {m.role === "assistant" && m.content.trim() ? (
+                    <MessageActions
+                      content={m.content}
+                      disabled={sending}
+                      onRegenerate={() => void regenerateLast()}
+                    />
+                  ) : null}
                   {m.artifacts?.map((art) =>
                     art.thumbnailUrl ? (
                       <div key={art.id} className="mt-2 flex items-center gap-2">

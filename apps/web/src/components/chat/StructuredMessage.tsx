@@ -3,6 +3,7 @@
 import { ReasoningBlock, type ReasoningStepItem } from "./ReasoningBlock";
 import { ActionCards, type ToolCallItem } from "./ActionCards";
 import { CodeBlock } from "./CodeBlock";
+import { RichText } from "./RichText";
 
 export type StructuredStep =
   | { type: "reasoning"; reasoning: ReasoningStepItem }
@@ -68,20 +69,16 @@ export function StructuredMessage({
 
   const parts = parseContentParts(content);
 
-  // Reasoning is still streaming only while no tools and no content yet
   const isReasoningStreaming = isStreaming && toolCallSteps.length === 0 && !content;
 
   return (
     <div className="space-y-4">
-      {/* FASE 1 — Raciocínio */}
       {reasoningSteps.length > 0 && (
         <ReasoningBlock steps={reasoningSteps} isStreaming={isReasoningStreaming} />
       )}
 
-      {/* FASE 2 — Ações / Tools */}
       {toolCallSteps.length > 0 && <ActionCards toolCalls={toolCallSteps} />}
 
-      {/* FASE 3 — Resposta final + CodeBlocks */}
       {(parts.length > 0 && (parts.length > 1 || parts[0]?.text?.trim())) && (
         <div className="space-y-3">
           {parts.map((p, idx) => {
@@ -89,16 +86,11 @@ export function StructuredMessage({
               return <CodeBlock key={idx} code={p.text} language={p.language} />;
             }
             if (!p.text.trim()) return null;
-            return (
-              <div key={idx} className="whitespace-pre-wrap leading-relaxed text-[14.5px]">
-                {p.text}
-              </div>
-            );
+            return <RichText key={idx} text={p.text} />;
           })}
         </div>
       )}
 
-      {/* Rodapé de fontes */}
       {toolCallSteps.length > 0 && (
         <div className="pt-1 text-[11px] text-[var(--text-muted)] flex items-center gap-1.5">
           <span className="opacity-60">fontes</span>
