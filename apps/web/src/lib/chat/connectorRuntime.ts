@@ -18,6 +18,10 @@ import {
   detectAndExecuteVercelTool,
   type VercelToolExecutionResult,
 } from "@/lib/chat/vercelToolRunner";
+import {
+  detectAndExecuteGenericTool,
+  type GenericToolExecutionResult,
+} from "@/lib/chat/genericToolRunner";
 
 export type ConnectorRuntimeSnapshot = {
   connectors: ConnectorPublicView[];
@@ -32,6 +36,7 @@ export type ConnectorRuntimeSnapshot = {
 export type ConnectorToolRunResult = {
   github: GitHubToolExecutionResult;
   vercel: VercelToolExecutionResult;
+  generic?: GenericToolExecutionResult;
   contextBlocks: string[];
   suggestedFollowUps: Array<{ id: string; label: string; prompt: string }>;
 };
@@ -133,7 +138,6 @@ export async function loadConnectorRuntime(
 
 /**
  * Executa tools dos conectores CONNECTED conforme a intenção do usuário.
- * Novos provedores: adicionar runner aqui.
  */
 export async function runConnectedConnectorTools(opts: {
   userId: string;
@@ -145,6 +149,7 @@ export async function runConnectedConnectorTools(opts: {
 
   let github: GitHubToolExecutionResult = { executed: false };
   let vercel: VercelToolExecutionResult = { executed: false };
+  let generic: GenericToolExecutionResult = { executed: false };
   const contextBlocks: string[] = [];
 
   if (snapshot.githubConnected) {
@@ -171,6 +176,18 @@ export async function runConnectedConnectorTools(opts: {
     }
   }
 
+  // If github/vercel runner didn't catch or for other providers (neon, stripe, etc.)
+  if (!github.executed && !vercel.executed) {
+    generic = await detectAndExecuteGenericTool({
+      text: userText,
+      userId,
+      missionId: missionId ?? null,
+    });
+    if ((generic.executed || generic.missingArgs) && generic.contextText) {
+      contextBlocks.push(generic.contextText);
+    }
+  }
+
   const suggestedFollowUps: Array<{ id: string; label: string; prompt: string }> = [];
   if (github.suggestedFollowUps) {
     suggestedFollowUps.push(...github.suggestedFollowUps);
@@ -178,6 +195,9 @@ export async function runConnectedConnectorTools(opts: {
   if (vercel.suggestedFollowUps) {
     suggestedFollowUps.push(...vercel.suggestedFollowUps);
   }
+  if (generic.suggestedFollowUps) {
+    suggestedFollowUps.push(...generic.suggestedFollowUps);
+  }
 
-  return { github, vercel, contextBlocks, suggestedFollowUps };
+  return { github, vercel, generic, contextBlocks, suggestedFollowUps };
 }

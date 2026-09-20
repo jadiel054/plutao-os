@@ -7,7 +7,7 @@
  *   * → error → disconnected | authorizing (reconectar)
  */
 
-export type ConnectorProviderId = "github" | "vercel";
+export type ConnectorProviderId = "github" | "vercel" | "neon" | "stripe";
 
 export type ConnectorStatus =
   | "disconnected"
@@ -67,6 +67,22 @@ export const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
       "Projetos, deployments e logs. Integration OAuth oficial ou Access Token de escopo mínimo; token cifrado, nunca no chat.",
     defaultScopes: [],
     defaultServerUrl: "https://api.vercel.com",
+  },
+  {
+    provider: "neon",
+    displayName: "Neon",
+    description:
+      "Postgres serverless: projetos, branches e bancos de dados da sua conta Neon. API Key pessoal cifrada.",
+    defaultScopes: [],
+    defaultServerUrl: "https://console.neon.tech/api/v2",
+  },
+  {
+    provider: "stripe",
+    displayName: "Stripe",
+    description:
+      "Finanças e pagamentos: saldo, produtos, clientes, cobranças e assinaturas. Restricted / Secret API Key cifrada.",
+    defaultScopes: [],
+    defaultServerUrl: "https://api.stripe.com/v1",
   },
 ];
 
