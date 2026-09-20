@@ -8,12 +8,18 @@ const path = require("path");
 function must(file, oldStr, newStr, label) {
   if (!fs.existsSync(file)) throw new Error(`missing ${file}`);
   let t = fs.readFileSync(file, "utf8");
-  if (t.includes(newStr.trim().slice(0, 40))) {
+  if (t.includes("suggestedFollowUps") && label.includes("followUps") && !label.includes("emit") && !label.includes("json") && !label.includes("import") && !label.includes("state") && !label.includes("scroll") && !label.includes("clear") && !label.includes("SSE") && !label.includes("JSON") && !label.includes("UI") && !label.includes("handleSend") && !label.includes("prompt")) {
+    // fall through
+  }
+  // Idempotency: if new unique marker already present, skip
+  const marker = newStr.trim().slice(0, 60);
+  if (marker && t.includes(marker) && !label.includes("handleSend")) {
     console.log(`skip ${label} (already applied)`);
     return false;
   }
   if (!t.includes(oldStr)) {
     console.error(`FAIL ${label}: anchor not found`);
+    console.error("Looking for:", oldStr.slice(0, 120).replace(/\n/g, "\\n"));
     process.exitCode = 1;
     return false;
   }
@@ -35,7 +41,6 @@ must(
   "route import buildFollowUps"
 );
 
-// system prompt engagement tip (once)
 must(
   route,
   "Tom: sênior, profissional e direto.",
@@ -43,8 +48,7 @@ must(
   "route engagement prompt"
 );
 
-const followUpBlock = `
-            const suggestedFollowUps = buildFollowUps({
+const followUpBlockStream = `            const suggestedFollowUps = buildFollowUps({
               lastUserText,
               assistantText: assistantContent,
               tools: [
@@ -73,7 +77,6 @@ const followUpBlock = `
             });
 `;
 
-// Stream path: after suggestedConnectors, before emit done — insert follow-ups
 must(
   route,
   `            const suggestedConnectors = detectSuggestedConnectors({
@@ -90,7 +93,7 @@ must(
               githubConnected: connectorSnap.githubConnected,
               vercelConnected: connectorSnap.vercelConnected,
             });
-${followUpBlock}
+${followUpBlockStream}
             const toolTraces = [];`,
   "route stream followUps"
 );
@@ -113,7 +116,6 @@ must(
   "route stream emit followUps"
 );
 
-// Non-stream path
 must(
   route,
   `    const suggestedConnectors = detectSuggestedConnectors({
@@ -216,6 +218,105 @@ must(
   "    setSuggestedPlan(null);\n    setSuggestedConnectors([]);",
   "    setSuggestedPlan(null);\n    setSuggestedConnectors([]);\n    setSuggestedFollowUps([]);",
   "page clear followUps on send"
+);
+
+must(
+  page,
+  "  async function handleSend(e?: FormEvent) {\n    if (e) e.preventDefault();\n    const textRaw = inputMessage.trim();",
+  "  async function handleSend(e?: FormEvent, overrideText?: string) {\n    if (e) e.preventDefault();\n    const textRaw = (overrideText ?? inputMessage).trim();",
+  "page handleSend override"
+);
+
+must(
+  page,
+  `                if (Array.isArray(parsed.suggestedConnectors) && parsed.suggestedConnectors.length > 0) {
+                  setSuggestedConnectors(
+                    parsed.suggestedConnectors
+                      .filter((c: unknown): c is Record<string, unknown> => typeof c === "object" && c !== null)
+                      .map((c: Record<string, unknown>) => ({
+                        provider: String(c.provider ?? ""),
+                        displayName: String(c.displayName ?? c.provider ?? ""),
+                        status: String(c.status ?? "disconnected"),
+                        reason: c.reason ? String(c.reason) : undefined,
+                      }))
+                      .filter((c: SuggestedConnector) => c.provider.length > 0)
+                  );
+                }
+              } else if (eventName === "error") {`,
+  `                if (Array.isArray(parsed.suggestedConnectors) && parsed.suggestedConnectors.length > 0) {
+                  setSuggestedConnectors(
+                    parsed.suggestedConnectors
+                      .filter((c: unknown): c is Record<string, unknown> => typeof c === "object" && c !== null)
+                      .map((c: Record<string, unknown>) => ({
+                        provider: String(c.provider ?? ""),
+                        displayName: String(c.displayName ?? c.provider ?? ""),
+                        status: String(c.status ?? "disconnected"),
+                        reason: c.reason ? String(c.reason) : undefined,
+                      }))
+                      .filter((c: SuggestedConnector) => c.provider.length > 0)
+                  );
+                }
+                if (Array.isArray(parsed.suggestedFollowUps) && parsed.suggestedFollowUps.length > 0) {
+                  setSuggestedFollowUps(
+                    parsed.suggestedFollowUps
+                      .filter((f: unknown): f is Record<string, unknown> => typeof f === "object" && f !== null)
+                      .map((f: Record<string, unknown>, i: number) => ({
+                        id: String(f.id ?? `fu-${i}`),
+                        label: String(f.label ?? ""),
+                        prompt: String(f.prompt ?? ""),
+                      }))
+                      .filter((f: FollowUpChip) => f.label.length > 0 && f.prompt.length > 0)
+                  );
+                }
+              } else if (eventName === "error") {`,
+  "page SSE parse followUps"
+);
+
+must(
+  page,
+  `            {suggestedConnectors.length > 0 ? (
+              <div className="flex justify-start">
+                <ConnectorActionCard
+                  items={suggestedConnectors}
+                  onDismiss={() => setSuggestedConnectors([])}
+                  onNotify={(msg, type) => addToast(msg, type ?? "info")}
+                  onOpenManage={() => {
+                    setSuggestedConnectors([]);
+                    setIsConnectorsSheetOpen(true);
+                  }}
+                />
+              </div>
+            ) : null}
+
+            <div ref={messagesEndRef} />`,
+  `            {suggestedConnectors.length > 0 ? (
+              <div className="flex justify-start">
+                <ConnectorActionCard
+                  items={suggestedConnectors}
+                  onDismiss={() => setSuggestedConnectors([])}
+                  onNotify={(msg, type) => addToast(msg, type ?? "info")}
+                  onOpenManage={() => {
+                    setSuggestedConnectors([]);
+                    setIsConnectorsSheetOpen(true);
+                  }}
+                />
+              </div>
+            ) : null}
+
+            {suggestedFollowUps.length > 0 ? (
+              <FollowUpChips
+                items={suggestedFollowUps}
+                disabled={sending}
+                onDismiss={() => setSuggestedFollowUps([])}
+                onSelect={(prompt) => {
+                  setSuggestedFollowUps([]);
+                  void handleSend(undefined, prompt);
+                }}
+              />
+            ) : null}
+
+            <div ref={messagesEndRef} />`,
+  "page UI FollowUpChips"
 );
 
 console.log("patch-followups done");
