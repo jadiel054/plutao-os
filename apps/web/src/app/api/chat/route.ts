@@ -8,7 +8,7 @@ import { loadConnectorRuntime, runConnectedConnectorTools } from "@/lib/chat/con
 import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { buildFollowUps } from "@/lib/chat/buildFollowUps";
 import { getModelConfig } from "@/lib/runtime/model/config";
-import { chatCompletion } from "@/lib/runtime/model/client";
+import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
@@ -175,15 +175,28 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
 
+FORMATO DE RESPOSTA OBRIGATÓRIO:
+Você DEVE iniciar TODA resposta gerando o bloco de raciocínio antes da resposta final ao usuário:
+<raciocinio>
+- Leitura: <resumo objetivo do pedido do usuário>
+- Intenção: <o que o usuário deseja alcançar>
+- Contexto: <elementos relevantes: histórico, missão ativa, conectores disponíveis>
+- Suposições: <premissas ou suposições se houver>
+- Caminho: <qual ferramenta ou resposta direta usar e por quê>
+- Decisão: <ação final concreta a tomar>
+</raciocinio>
+<resposta>
+<conteúdo final da resposta ao usuário>
+</resposta>
+
+REGRAS DO RACIOCÍNIO:
+1. Raciocínio sempre em português (pt-BR).
+2. De 3 a 8 linhas de reflexão genuína, fidedigna ao contexto real.
+3. Se faltarem informações essenciais para executar uma ação, a Decisão DEVE ser "perguntar antes de executar".
+
 IDENTIDADE DO SISTEMA:
 Você é o Núcleo do Plutão (sistema de trabalho):
 conversa → descobre intenção → alinha caminho → executa de verdade → entrega artefato + evidência.
-
-INTENÇÃO (classifique mentalmente a cada mensagem):
-- chat: conversa casual, saudação, dúvida rápida — responda naturalmente, sem forçar missão.
-- mission: tarefa pontual com objetivo claro.
-- project: iniciativa maior (app, sistema, auditoria, construção) — descubra objetivo, restrições e perfil.
-- config: ajustes de conta/preferências.
 
 CAPACIDADES DE RUNTIME (reais):
 - Tools locais: note, filesystem (na execução da missão).
@@ -307,20 +320,165 @@ ${
           }
 
           try {
-            // ==========================================
-            // FASE 1 — RACIOCÍNIO (linha por linha)
-            // ==========================================
-            for (const step of reasoningSteps) {
-              emit("reasoning_step", {
-                id: step.id,
-                index: step.index,
-                text: step.text,
-              });
-              await new Promise((resolve) => setTimeout(resolve, 80));
+            // Build base payload for the model
+            const payloadMessages: ModelMessage[] = [
+              { role: "system", content: systemPromptFinal },
+              ...history.slice(-10).map((m) => ({
+                role: m.role,
+                content: m.content,
+              })),
+            ];
+
+            if (
+              VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig!.provider) &&
+              validatedArtifacts.length > 0
+            ) {
+              const imageParts = buildImageParts(validatedArtifacts);
+              if (imageParts.length > 0 && payloadMessages.length > 0) {
+                const lastIdx = payloadMessages.length - 1;
+                const existingContent =
+                  typeof payloadMessages[lastIdx].content === "string"
+                    ? (payloadMessages[lastIdx].content as string)
+                    : "";
+                payloadMessages[lastIdx] = {
+                  role: payloadMessages[lastIdx].role,
+                  content: [{ type: "text", text: existingContent }, ...imageParts],
+                };
+              }
             }
 
             // ==========================================
-            // FASE 2 — EXECUÇÃO (Tools de conectores)
+            // FASE 1 — RACIOCÍNIO (token a token via LLM stream)
+            // ==========================================
+            const dynamicReasoningSteps: Array<{ id: string; index: number; text: string }> = [];
+            let inReasoningBlock = false;
+            let inAnswerBlock = false;
+            let reasoningBuffer = "";
+            let rawFullOutput = "";
+            let streamModelConfig = effectiveModelConfig!;
+            let modelFallback = false;
+
+            try {
+              const generator = streamChatCompletion(streamModelConfig, payloadMessages);
+              for await (const chunk of generator) {
+                rawFullOutput += chunk;
+
+                if (!inReasoningBlock && !inAnswerBlock) {
+                  if (rawFullOutput.includes("<raciocinio>")) {
+                    inReasoningBlock = true;
+                    const idx = rawFullOutput.indexOf("<raciocinio>");
+                    reasoningBuffer = rawFullOutput.slice(idx + "<raciocinio>".length);
+                  } else if (rawFullOutput.includes("<resposta>")) {
+                    inAnswerBlock = true;
+                  }
+                } else if (inReasoningBlock) {
+                  reasoningBuffer += chunk;
+                  if (reasoningBuffer.includes("</raciocinio>")) {
+                    const [reasoningPart] = reasoningBuffer.split("</raciocinio>");
+                    const lines = reasoningPart.split("\n");
+                    for (const rawLine of lines) {
+                      const line = rawLine.trim();
+                      if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                        const stepIndex = dynamicReasoningSteps.length + 1;
+                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                        dynamicReasoningSteps.push(stepItem);
+                        emit("reasoning_step", stepItem);
+                      }
+                    }
+                    inReasoningBlock = false;
+                    inAnswerBlock = true;
+                  } else {
+                    const lines = reasoningBuffer.split("\n");
+                    reasoningBuffer = lines.pop() ?? "";
+                    for (const rawLine of lines) {
+                      const line = rawLine.trim();
+                      if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                        const stepIndex = dynamicReasoningSteps.length + 1;
+                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                        dynamicReasoningSteps.push(stepItem);
+                        emit("reasoning_step", stepItem);
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              const isGemini = streamModelConfig.provider === "gemini";
+              const fallbackConfig = isGemini ? getModelConfig() : null;
+              if (isGemini && fallbackConfig) {
+                streamModelConfig = fallbackConfig;
+                modelFallback = true;
+                rawFullOutput = "";
+                reasoningBuffer = "";
+                const generator = streamChatCompletion(streamModelConfig, payloadMessages);
+                for await (const chunk of generator) {
+                  rawFullOutput += chunk;
+                  if (!inReasoningBlock && !inAnswerBlock) {
+                    if (rawFullOutput.includes("<raciocinio>")) {
+                      inReasoningBlock = true;
+                      const idx = rawFullOutput.indexOf("<raciocinio>");
+                      reasoningBuffer = rawFullOutput.slice(idx + "<raciocinio>".length);
+                    } else if (rawFullOutput.includes("<resposta>")) {
+                      inAnswerBlock = true;
+                    }
+                  } else if (inReasoningBlock) {
+                    reasoningBuffer += chunk;
+                    if (reasoningBuffer.includes("</raciocinio>")) {
+                      const [reasoningPart] = reasoningBuffer.split("</raciocinio>");
+                      const lines = reasoningPart.split("\n");
+                      for (const rawLine of lines) {
+                        const line = rawLine.trim();
+                        if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                          const stepIndex = dynamicReasoningSteps.length + 1;
+                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                          dynamicReasoningSteps.push(stepItem);
+                          emit("reasoning_step", stepItem);
+                        }
+                      }
+                      inReasoningBlock = false;
+                      inAnswerBlock = true;
+                    } else {
+                      const lines = reasoningBuffer.split("\n");
+                      reasoningBuffer = lines.pop() ?? "";
+                      for (const rawLine of lines) {
+                        const line = rawLine.trim();
+                        if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                          const stepIndex = dynamicReasoningSteps.length + 1;
+                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                          dynamicReasoningSteps.push(stepItem);
+                          emit("reasoning_step", stepItem);
+                        }
+                      }
+                    }
+                  }
+                }
+              } else {
+                throw err;
+              }
+            }
+
+            // Flush remaining reasoning lines if present
+            if (reasoningBuffer.trim()) {
+              const lines = reasoningBuffer.replace("</raciocinio>", "").split("\n");
+              for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                  const stepIndex = dynamicReasoningSteps.length + 1;
+                  const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                  dynamicReasoningSteps.push(stepItem);
+                  emit("reasoning_step", stepItem);
+                }
+              }
+            }
+
+            // Fallback reasoning steps if LLM did not generate <raciocinio> tags
+            const finalReasoningSteps =
+              dynamicReasoningSteps.length > 0
+                ? dynamicReasoningSteps
+                : reasoningSteps;
+
+            // ==========================================
+            // FASE 2 — EXECUÇÃO (Tools de conectores - APÓS RACIOCÍNIO)
             // ==========================================
             const toolRunRes = await runConnectedConnectorTools({
               userId: user.id,
@@ -374,67 +532,83 @@ ${
             // ==========================================
             // FASE 3 — RESPOSTA (Content Delta & Done)
             // ==========================================
-            const payloadMessages: ModelMessage[] = [
-              { role: "system", content: systemPromptFinal },
-              ...history.slice(-10).map((m) => ({
-                role: m.role,
-                content: m.content,
-              })),
-            ];
+            let assistantContent = "";
 
-            for (const contextBlock of toolRunRes.contextBlocks) {
-              payloadMessages.push({
-                role: "system",
-                content: contextBlock,
-              });
+            if (toolRunRes.contextBlocks.length > 0) {
+              // Re-run LLM streaming with tool context blocks included so final answer uses real tool results
+              const responsePayloadMessages: ModelMessage[] = [
+                ...payloadMessages,
+                ...toolRunRes.contextBlocks.map((cb) => ({
+                  role: "system" as const,
+                  content: cb,
+                })),
+                {
+                  role: "user" as const,
+                  content: "Gere agora a resposta final para o usuário com base nos resultados obtidos das ferramentas e no raciocínio prévio.",
+                },
+              ];
+
+              let inStreamAnswerBlock = false;
+              let rawStreamOutput = "";
+
+              try {
+                const answerGenerator = streamChatCompletion(streamModelConfig, responsePayloadMessages);
+                for await (const chunk of answerGenerator) {
+                  rawStreamOutput += chunk;
+                  if (!inStreamAnswerBlock) {
+                    if (rawStreamOutput.includes("<resposta>")) {
+                      inStreamAnswerBlock = true;
+                      const idx = rawStreamOutput.indexOf("<resposta>");
+                      const firstText = rawStreamOutput.slice(idx + "<resposta>".length);
+                      if (firstText) {
+                        emit("content_delta", { text: firstText });
+                      }
+                    } else if (!rawStreamOutput.includes("<")) {
+                      // Direct output without tags
+                      emit("content_delta", { text: chunk });
+                    }
+                  } else {
+                    const cleanChunk = chunk.replace("</resposta>", "");
+                    if (cleanChunk) {
+                      emit("content_delta", { text: cleanChunk });
+                    }
+                  }
+                }
+              } catch {
+                /* fallback to prompt completion */
+              }
+
+              let cleaned = rawStreamOutput;
+              if (cleaned.includes("<resposta>")) {
+                cleaned = cleaned.split("<resposta>")[1] || "";
+              }
+              assistantContent = cleaned.replace(/<\/?resposta>/g, "").trim();
             }
 
-            if (
-              VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig!.provider) &&
-              validatedArtifacts.length > 0
-            ) {
-              const imageParts = buildImageParts(validatedArtifacts);
-              if (imageParts.length > 0 && payloadMessages.length > 0) {
-                const lastIdx = payloadMessages.length - 1;
-                const existingContent =
-                  typeof payloadMessages[lastIdx].content === "string"
-                    ? (payloadMessages[lastIdx].content as string)
-                    : "";
-                payloadMessages[lastIdx] = {
-                  role: payloadMessages[lastIdx].role,
-                  content: [{ type: "text", text: existingContent }, ...imageParts],
-                };
+            if (!assistantContent) {
+              let cleanedAnswer = rawFullOutput;
+              if (cleanedAnswer.includes("<resposta>")) {
+                cleanedAnswer = cleanedAnswer.split("<resposta>")[1] || "";
               }
-            }
+              cleanedAnswer = cleanedAnswer
+                .replace(/<\/?raciocinio>/g, "")
+                .replace(/<\/?resposta>/g, "")
+                .trim();
 
-            let result;
-            let modelFallback = false;
-
-            try {
-              result = await chatCompletion(effectiveModelConfig!, payloadMessages);
-            } catch (err) {
-              const isGemini = effectiveModelConfig!.provider === "gemini";
-              const fallbackConfig = isGemini ? getModelConfig() : null;
-              if (isGemini && fallbackConfig) {
-                result = await chatCompletion(fallbackConfig, payloadMessages);
-                modelFallback = true;
-              } else {
-                throw err;
+              if (!cleanedAnswer) {
+                cleanedAnswer = "Não consegui gerar uma resposta agora. Tente novamente.";
               }
-            }
 
-            const assistantContent =
-              (result.content && result.content.trim()) ||
-              "Não consegui gerar uma resposta agora. Tente novamente.";
-
-            const words = assistantContent.split(" ");
-            let chunk = "";
-            for (let i = 0; i < words.length; i++) {
-              chunk += (i === 0 ? "" : " ") + words[i];
-              if (chunk.length >= 20 || i === words.length - 1) {
-                emit("content_delta", { text: chunk });
-                chunk = "";
+              const words = cleanedAnswer.split(" ");
+              let chunk = "";
+              for (let i = 0; i < words.length; i++) {
+                chunk += (i === 0 ? "" : " ") + words[i];
+                if (chunk.length >= 20 || i === words.length - 1) {
+                  emit("content_delta", { text: chunk });
+                  chunk = "";
+                }
               }
+              assistantContent = cleanedAnswer;
             }
 
             const suggestedPlan = extractSuggestedPlan(assistantContent);
@@ -487,7 +661,7 @@ ${
             const steps: Array<
               | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
               | { type: "tool_call"; toolCall: Record<string, unknown> }
-            > = reasoningSteps.map((step) => ({
+            > = finalReasoningSteps.map((step) => ({
               type: "reasoning" as const,
               reasoning: step,
             }));
@@ -534,8 +708,8 @@ ${
 
             emit("done", {
               full: assistantContent,
-              provider: result.provider,
-              model: result.model,
+              provider: streamModelConfig.provider,
+              model: streamModelConfig.model,
               modelFallback,
               suggestedPlan: suggestedPlan
                 ? { stepTitles: suggestedPlan.stepTitles }
@@ -654,8 +828,32 @@ ${
 
     const readArtifactIds = validatedArtifacts.map((a) => a.id);
 
+    const rawOutput = result.content || "";
+    let extractedReasoningSteps: Array<{ id: string; index: number; text: string }> = [];
+
+    if (rawOutput.includes("<raciocinio>")) {
+      const match = rawOutput.match(/<raciocinio>([\s\S]*?)<\/raciocinio>/);
+      if (match && match[1]) {
+        const lines = match[1].split("\n").map((l) => l.trim()).filter(Boolean);
+        extractedReasoningSteps = lines.map((l, idx) => ({
+          id: `step-${idx + 1}`,
+          index: idx + 1,
+          text: l,
+        }));
+      }
+    }
+
+    let cleanedNonStreamAnswer = rawOutput;
+    if (cleanedNonStreamAnswer.includes("<resposta>")) {
+      cleanedNonStreamAnswer = cleanedNonStreamAnswer.split("<resposta>")[1] || "";
+    }
+    cleanedNonStreamAnswer = cleanedNonStreamAnswer
+      .replace(/<\/?raciocinio>/g, "")
+      .replace(/<\/?resposta>/g, "")
+      .trim();
+
     const assistantContent =
-      (result.content && result.content.trim()) ||
+      cleanedNonStreamAnswer ||
       (validatedArtifacts.length > 0
         ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
         : "Não consegui gerar uma resposta agora. Tente novamente.");
@@ -707,10 +905,13 @@ ${
 
     const trace = toolTraces.length > 0 ? { toolCalls: toolTraces } : undefined;
 
+    const activeReasoningSteps =
+      extractedReasoningSteps.length > 0 ? extractedReasoningSteps : reasoningSteps;
+
     const steps: Array<
       | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
       | { type: "tool_call"; toolCall: Record<string, unknown> }
-    > = reasoningSteps.map((step) => ({
+    > = activeReasoningSteps.map((step) => ({
       type: "reasoning" as const,
       reasoning: step,
     }));

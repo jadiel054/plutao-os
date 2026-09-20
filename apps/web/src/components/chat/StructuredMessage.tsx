@@ -16,6 +16,7 @@ type StructuredMessageProps = {
   steps?: StructuredStep[];
   trace?: { toolCalls?: ToolCallItem[] };
   isStreaming?: boolean;
+  isEdited?: boolean;
 };
 
 /** Parses text content to extract ```lang ... ``` code blocks */
@@ -51,9 +52,19 @@ export function StructuredMessage({
   steps,
   trace,
   isStreaming = false,
+  isEdited = false,
 }: StructuredMessageProps) {
   if (role === "user") {
-    return <div className="whitespace-pre-wrap">{content}</div>;
+    return (
+      <div className="whitespace-pre-wrap">
+        {content}
+        {isEdited && (
+          <span className="ml-1.5 text-[10px] opacity-70 font-normal italic">
+            (editada)
+          </span>
+        )}
+      </div>
+    );
   }
 
   const reasoningSteps: ReasoningStepItem[] =
