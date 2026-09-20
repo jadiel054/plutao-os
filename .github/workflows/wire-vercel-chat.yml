@@ -2,11 +2,11 @@ name: wire-vercel-chat
 on:
   push:
     paths:
-      - "tmp/TRIGGER_WIRE_VERCEL"
+      - "tmp/TRIGGER_WIRE_VERCEL_CHAT"
     branches:
       - main
 jobs:
-  apply:
+  wire:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -14,30 +14,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Wire vercel into chat route
+      - name: Patch chat route
         run: |
           set -euo pipefail
           python3 << 'PY'
           from pathlib import Path
           p = Path("apps/web/src/app/api/chat/route.ts")
           t = p.read_text()
+
           if "detectAndExecuteVercelTool" not in t:
               t = t.replace(
                   'import { detectAndExecuteGitHubTool, type GitHubToolExecutionResult } from "@/lib/chat/githubToolRunner";',
                   'import { detectAndExecuteGitHubTool, type GitHubToolExecutionResult } from "@/lib/chat/githubToolRunner";\nimport { detectAndExecuteVercelTool, type VercelToolExecutionResult } from "@/lib/chat/vercelToolRunner";',
                   1,
               )
-          if "let vercelConnected" not in t:
-              t = t.replace(
-                  "let githubConnected = false;\n    let githubLogin: string | null = null;",
-                  "let githubConnected = false;\n    let githubLogin: string | null = null;\n    let vercelConnected = false;\n    let vercelLogin: string | null = null;",
-                  1,
-              )
-              block = '''    try {\n      const token = await getAccessToken(user.id, "github");\n      githubConnected = Boolean(token);\n      if (githubConnected) {\n        const row = await getConnectorRow(user.id, "github");\n        githubLogin = row?.accountLogin ?? null;\n      }\n    } catch {\n      githubConnected = false;\n    }'''
-              # find and extend after github block
-              marker = 'githubConnected = false;\n    }'
-              # simpler append after first getAccessToken github try
-              insert_after = '''    try {
+
+          old_gh = '''    let githubConnected = false;
+    let githubLogin: string | null = null;
+    try {
       const token = await getAccessToken(user.id, "github");
       githubConnected = Boolean(token);
       if (githubConnected) {
@@ -45,98 +39,143 @@ jobs:
         githubLogin = row?.accountLogin ?? null;
       }
     } catch {
-      githubConnected = false;
+      /* connector table may be missing until migration 0004 */
     }'''
-              vercel_block = '''    try {
-      const vToken = await getAccessToken(user.id, "vercel");
-      vercelConnected = Boolean(vToken);
+
+          new_conn = '''    let githubConnected = false;
+    let githubLogin: string | null = null;
+    let vercelConnected = false;
+    let vercelLogin: string | null = null;
+    let vercelToken: string | null = null;
+    try {
+      const token = await getAccessToken(user.id, "github");
+      githubConnected = Boolean(token);
+      if (githubConnected) {
+        const row = await getConnectorRow(user.id, "github");
+        githubLogin = row?.accountLogin ?? null;
+      }
+      vercelToken = await getAccessToken(user.id, "vercel");
+      vercelConnected = Boolean(vercelToken);
       if (vercelConnected) {
-        const vRow = await getConnectorRow(user.id, "vercel");
-        vercelLogin = vRow?.accountLogin ?? null;
+        const vrow = await getConnectorRow(user.id, "vercel");
+        vercelLogin = vrow?.accountLogin ?? null;
       }
     } catch {
-      vercelConnected = false;
-    }
-'''
-              if insert_after in t and 'getAccessToken(user.id, "vercel")' not in t:
-                  t = t.replace(insert_after, insert_after + "\n" + vercel_block, 1)
+      /* connector table may be missing until migration 0004 */
+    }'''
 
-          # system prompt github lines - add vercel status
-          if "Vercel: CONECTADO" not in t and "GitHub: CONECTADO" in t:
-              t = t.replace(
-                  '- GitHub: NÃO CONECTADO.',
-                  '- Vercel: ${vercelConnected ? `CONECTADO${vercelLogin ? ` (@${vercelLogin})` : ""}` : "NÃO CONECTADO"}. Se conectado, pode listar projetos e deployments.\n- GitHub: NÃO CONECTADO.',
-                  1,
+          if old_gh in t and "vercelConnected" not in t:
+              t = t.replace(old_gh, new_conn, 1)
+
+          # system prompt capabilities block — find github-only version
+          if "Vercel: CONECTADO" not in t and "runtimeCapabilities" in t:
+              # replace the githubConnected ternary for capabilities
+              import re
+              # simpler string replace of known snippet
+              marker = "const runtimeCapabilities = githubConnected"
+              if marker in t:
+                  idx = t.find(marker)
+                  # find end of assignment (next const or blank with semicolon end)
+                  # take until "\n\n" after template
+                  end = t.find(";\n", idx)
+                  # might be multi-line template - find matching
+                  chunk = t[idx:idx+800]
+                  # replace whole block heuristically
+                  new_caps = '''const connectedLines: string[] = [];
+    if (githubConnected) {
+      connectedLines.push(`- GitHub: CONECTADO${githubLogin ? ` (@${githubLogin})` : ""}. Tools: repos_list, repo_get, issues_list, issues_get, pulls_list, actions_list.`);
+    } else {
+      connectedLines.push("- GitHub: desconectado.");
+    }
+    if (vercelConnected) {
+      connectedLines.push(`- Vercel: CONECTADO${vercelLogin ? ` (@${vercelLogin})` : ""}. Tools: projects_list, deployments_list, deployment_get. Use quando o usuário pedir projetos/deploys Vercel.`);
+    } else {
+      connectedLines.push("- Vercel: desconectado.");
+    }
+    const runtimeCapabilities = connectedLines.length
+      ? `Conectores no runtime (só use tools dos conectados):\n${connectedLines.join("\n")}`
+      : "Nenhum conector ativo.";'''
+                  # find full old assignment - from marker to next "const " at line start after
+                  rest = t[idx:]
+                  # end at double newline after closing backtick or semicolon
+                  m = re.search(r'const runtimeCapabilities = githubConnected[\s\S]*?;\n', rest)
+                  if m:
+                      t = t[:idx] + new_caps + "\n" + rest[m.end():]
+                      print("replaced runtimeCapabilities")
+                  else:
+                      print("could not regex runtimeCapabilities")
+                      print(repr(rest[:200]))
+
+          # helper to inject vercel tool execution after github tool blocks
+          def inject_vercel_after_github(src: str) -> str:
+              # after github tool exec, add vercel
+              needle = "if (githubConnected) {\n      githubToolExec = await detectAndExecuteGitHubTool"
+              if "vercelToolExec" in src:
+                  return src
+              # stream path and non-stream path both use similar patterns
+              # Pattern 1: let githubToolExec ... if (githubConnected) { githubToolExec = await
+              src2 = src
+              # Add vercelToolExec declaration next to github
+              src2 = src2.replace(
+                  "let githubToolExec: GitHubToolExecutionResult = { executed: false };",
+                  "let githubToolExec: GitHubToolExecutionResult = { executed: false };\n            let vercelToolExec: VercelToolExecutionResult = { executed: false };",
               )
-              # also patch the connected github line area - the template is messy; add near runtimeCapabilities
+              # also non-stream with less indent
+              src2 = src2.replace(
+                  "    let githubToolExec: GitHubToolExecutionResult = { executed: false };\n            let vercelToolExec",
+                  "    let githubToolExec: GitHubToolExecutionResult = { executed: false };\n    let vercelToolExec",
+              )
+              # After each github detectAndExecute block, add vercel
+              insert = '''
+            if (vercelConnected && vercelToken) {
+              vercelToolExec = await detectAndExecuteVercelTool({
+                text: lastUserText,
+                userText: lastUserText,
+                accessToken: vercelToken,
+                accountLogin: vercelLogin,
+              });
+            }
+'''
+              # find all occurrences of detectAndExecuteGitHubTool closing });
+              import re
+              pattern = r'(githubToolExec = await detectAndExecuteGitHubTool\(\{[\s\S]*?\}\);\n)'
+              def repl(m):
+                  return m.group(1) + insert
+              src2 = re.sub(pattern, repl, src2)
+              # inject context from vercel like github
+              if "vercelToolExec.executed && vercelToolExec.contextText" not in src2:
+                  src2 = src2.replace(
+                      "if (githubToolExec.executed && githubToolExec.contextText) {",
+                      "if (vercelToolExec.executed && vercelToolExec.contextText) {\n              payloadMessages.push({\n                role: \"system\",\n                content: vercelToolExec.contextText,\n              });\n            }\n            if (githubToolExec.executed && githubToolExec.contextText) {",
+                  )
+                  # streaming path may use different variable name - modelMessages
+                  src2 = src2.replace(
+                      "if (githubToolExec.executed && githubToolExec.contextText) {\n              modelMessages",
+                      "if (vercelToolExec.executed && vercelToolExec.contextText) {\n              modelMessages.push({\n                role: \"system\",\n                content: vercelToolExec.contextText,\n              });\n            }\n            if (githubToolExec.executed && githubToolExec.contextText) {\n              modelMessages",
+                  )
+              # connectors payload
+              src2 = src2.replace(
+                  "connectors: { github: githubConnected },",
+                  "connectors: { github: githubConnected, vercel: vercelConnected },",
+              )
+              return src2
+
+          t = inject_vercel_after_github(t)
+
+          # fix streaming path - messages array name
+          if "vercelToolExec.executed && vercelToolExec.contextText" in t:
+              # ensure push targets exist
               pass
 
-          # execute vercel tool after github tool
-          if "detectAndExecuteVercelTool" in t and "vercelToolExec" not in t:
-              gh_exec = '''    let githubToolExec: GitHubToolExecutionResult = { executed: false };
-    if (githubConnected) {
-      githubToolExec = await detectAndExecuteGitHubTool('''
-              # find the block end of github tool and append vercel
-              idx = t.find("githubToolExec = await detectAndExecuteGitHubTool")
-              if idx > 0:
-                  # find closing of if githubConnected after this
-                  pass
-              marker2 = "if (githubToolExec.executed && githubToolExec.capability)"
-              # insert before response assembly - after github tool section
-              # Look for connectors: { github:
-              if 'connectors: { github: githubConnected }' in t:
-                  t = t.replace(
-                      'connectors: { github: githubConnected }',
-                      'connectors: { github: githubConnected, vercel: vercelConnected }',
-                  )
-
-              # Add vercel execution after githubToolExec assignment block - search unique string
-              needle = "let githubToolExec: GitHubToolExecutionResult = { executed: false };"
-              if needle in t and "let vercelToolExec" not in t:
-                  # Find end of github if block - crude: after first githubToolExec usage chain
-                  # Insert before "const reasoningSteps" or similar
-                  for end_marker in [
-                      "const reasoningSteps",
-                      "const structured",
-                      "buildReasoningSteps(",
-                  ]:
-                      if end_marker in t:
-                          pos = t.find(end_marker)
-                          inject = '''
-    let vercelToolExec: VercelToolExecutionResult = { executed: false };
-    if (vercelConnected) {
-      try {
-        const vTok = await getAccessToken(user.id, "vercel");
-        if (vTok) {
-          vercelToolExec = await detectAndExecuteVercelTool({
-            userText: lastUserText,
-            accessToken: vTok,
-            accountLogin: vercelLogin,
-          });
-        }
-      } catch (e) {
-        console.error("[chat] vercel tool", e);
-      }
-    }
-    if (vercelToolExec.executed && vercelToolExec.output && !githubToolExec.executed) {
-      // prefer vercel structured output when only vercel tool ran
-    }
-
-'''
-                          t = t[:pos] + inject + t[pos:]
-                          break
-
-          # Prefer vercel output in reply when executed
-          if "vercelToolExec.output" not in t or t.count("vercelToolExec.output") < 2:
-              # if githubToolExec.output is used to override content, add vercel similarly
-              if "githubToolExec.output" in t and "vercelToolExec.output" in t:
-                  pass
-
           p.write_text(t)
-          print("route patched", len(t))
+          print("vercelConnected", t.count("vercelConnected"))
+          print("detectAndExecuteVercel", t.count("detectAndExecuteVercelTool"))
+          print("Vercel: CONECTADO", "Vercel: CONECTADO" in t)
           PY
+          # syntax check
+          node --check "apps/web/src/app/api/chat/route.ts" 2>&1 || true
           git config user.name "plutao-bot"
           git config user.email "bot@plutao.local"
-          git add apps/web/src/app/api/chat/route.ts
-          git commit -m "feat(chat): runtime Vercel projects/deployments quando conectado" || echo "no change"
+          git add "apps/web/src/app/api/chat/route.ts"
+          git commit -m "feat(chat): runtime Vercel tools + snapshot multi-conector"
           git push origin HEAD:main
