@@ -28,6 +28,7 @@ type Message = {
   artifacts?: ArtifactRef[];
   steps?: StructuredStep[];
   trace?: { toolCalls?: ToolCallItem[] };
+  isEdited?: boolean;
 };
 
 type QueuedMessage = {
@@ -69,6 +70,7 @@ function ChatPageInner() {
   const [annotatorArtifact, setAnnotatorArtifact] = useState<ArtifactRef | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const queueRef = useRef<QueuedMessage[]>([]);
   queueRef.current = queue;
@@ -264,7 +266,11 @@ function ChatPageInner() {
     }
   }
 
-  async function executeSend(text: string, activeArtifacts: ArtifactRef[]) {
+  async function executeSend(
+    text: string,
+    activeArtifacts: ArtifactRef[],
+    overrideMessages?: Message[]
+  ) {
     if (abortController) {
       isSendNowAbortRef.current = true;
       abortController.abort();
@@ -282,20 +288,26 @@ function ChatPageInner() {
     setSuggestedConnectors([]);
     setSuggestedFollowUps([]);
 
-    const displayContent =
-      text ||
-      (activeArtifacts.length > 0
-        ? `[Arquivo anexado: ${activeArtifacts.map((a) => a.name).join(", ")}]`
-        : "");
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: displayContent,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      artifacts: activeArtifacts.length ? activeArtifacts : undefined,
-    };
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
+    let newMessages: Message[] = [];
+    if (overrideMessages) {
+      newMessages = overrideMessages;
+    } else {
+      const displayContent =
+        text ||
+        (activeArtifacts.length > 0
+          ? `[Arquivo anexado: ${activeArtifacts.map((a) => a.name).join(", ")}]`
+          : "");
+      const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: displayContent,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        artifacts: activeArtifacts.length ? activeArtifacts : undefined,
+      };
+      newMessages = [...messages, userMsg];
+      setMessages(newMessages);
+    }
+
     setInputMessage("");
     setPendingArtifacts([]);
     setSending(true);
@@ -596,7 +608,12 @@ function ChatPageInner() {
       return;
     }
     const redacted = redactSecrets(textRaw);
-    await executeSend(redacted.text, activeArtifacts);
+
+    if (editingMessageId) {
+      await handleSaveEditedMessage(redacted.text, activeArtifacts);
+    } else {
+      await executeSend(redacted.text, activeArtifacts);
+    }
   }
 
   function handleSendNow(index = 0) {
@@ -608,6 +625,58 @@ function ChatPageInner() {
 
   function handleDiscardQueue(index = 0) {
     setQueue((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handleStartEditMessage(msg: Message) {
+    if (sending || msg.role !== "user") return;
+    setEditingMessageId(msg.id);
+    setInputMessage(msg.content);
+    if (msg.artifacts) {
+      setPendingArtifacts(msg.artifacts);
+    }
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }
+
+  function handleCancelEdit() {
+    setEditingMessageId(null);
+    setInputMessage("");
+    setPendingArtifacts([]);
+  }
+
+  async function handleSaveEditedMessage(editedText: string, activeArtifacts: ArtifactRef[]) {
+    if (!editingMessageId) return;
+
+    const targetIdx = messages.findIndex((m) => m.id === editingMessageId);
+    if (targetIdx === -1) {
+      setEditingMessageId(null);
+      return;
+    }
+
+    const updatedUserMsg: Message = {
+      ...messages[targetIdx],
+      content: editedText,
+      artifacts: activeArtifacts.length > 0 ? activeArtifacts : undefined,
+      isEdited: true,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+
+    // Truncate history after this user message
+    const truncatedHistory = messages.slice(0, targetIdx);
+    setMessages([...truncatedHistory, updatedUserMsg]);
+
+    setEditingMessageId(null);
+    setInputMessage("");
+    setPendingArtifacts([]);
+
+    // Call backend patch endpoint to persist edit
+    fetch(`/api/chat/messages/${editingMessageId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: editedText }),
+    }).catch(() => {/* ignore if table not present */});
+
+    // Trigger regeneration from this truncated point
+    await executeSend(editedText, activeArtifacts, [...truncatedHistory, updatedUserMsg]);
   }
 
   async function regenerateLast() {
@@ -787,20 +856,35 @@ function ChatPageInner() {
               <button type="button" onClick={() => setIsClearModalOpen(true)}>Limpar</button>
             </div>
             {messages.map((m) => (
-              <div key={m.id} className={`flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div key={m.id} className={`group flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
+                  className={`relative max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
                     m.role === "user"
                       ? "bg-[var(--selo)] text-[var(--base)]"
                       : "bg-[var(--surface)] border border-[var(--border)]"
                   }`}
                 >
+                  {m.role === "user" && !sending && (
+                    <button
+                      type="button"
+                      onClick={() => handleStartEditMessage(m)}
+                      title="Editar mensagem"
+                      aria-label="Editar mensagem"
+                      className="absolute -left-7 top-2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                      </svg>
+                    </button>
+                  )}
                   <StructuredMessage
                     role={m.role}
                     content={m.content}
                     steps={m.steps}
                     trace={m.trace}
                     isStreaming={sending && m.id === messages[messages.length - 1]?.id}
+                    isEdited={m.isEdited}
                   />
                   {m.role === "assistant" && m.content.trim() ? (
                     <MessageActions
@@ -962,6 +1046,18 @@ function ChatPageInner() {
           />
         </div>
 
+        {editingMessageId && (
+          <div className="flex items-center justify-between gap-2 p-2 rounded-xl border border-[var(--selo)]/40 bg-[var(--surface)] text-xs font-mono">
+            <span className="text-[var(--selo)] font-semibold">Editando mensagem do usuário</span>
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="px-2 py-0.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+            >
+              Cancelar edição
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSend} className="space-y-2">
           {queue.length > 0 && (
             <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl border border-[var(--selo)]/40 bg-[var(--surface)]/90 text-xs shadow-sm">
@@ -1075,7 +1171,7 @@ function ChatPageInner() {
               disabled={queue.length >= 3 || (!inputMessage.trim() && pendingArtifacts.length === 0)}
               className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold disabled:opacity-40 font-mono cursor-pointer"
             >
-              Enviar
+              {editingMessageId ? "Salvar e Regenerar" : "Enviar"}
             </button>
           </div>
           {showLongInputHint && (
