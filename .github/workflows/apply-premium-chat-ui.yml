@@ -19,7 +19,6 @@ jobs:
           set -euo pipefail
           python3 << 'PY'
           from pathlib import Path
-          import base64
           root = Path("tmp/premium-chat-ui")
           mapping = {
             "ChatHistoryDrawer.tsx": "apps/web/src/components/ChatHistoryDrawer.tsx",
@@ -27,7 +26,10 @@ jobs:
             "Header.tsx": "apps/web/src/components/Header.tsx",
           }
           for name, dest in mapping.items():
-            data = base64.b64decode((root / f"{name}.b64").read_text())
+            src = root / name
+            assert src.exists(), f"missing {src}"
+            data = src.read_bytes()
+            assert len(data) > 500
             Path(dest).write_bytes(data)
             print("wrote", dest, len(data))
           exec((root / "page_patch.py").read_text())
