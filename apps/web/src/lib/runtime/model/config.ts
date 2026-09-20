@@ -35,7 +35,7 @@ export function getModelConfig(): ModelConfig | null {
     (provider === "openai"
       ? "gpt-4o-mini"
       : provider === "gemini"
-        ? "gemini-2.0-flash"
+        ? "gemini-3.1-flash-lite"
         : "grok-4.6");
 
   const baseUrl =
