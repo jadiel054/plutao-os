@@ -1,0 +1,38 @@
+name: apply-message-polish
+on:
+  push:
+    paths:
+      - "tmp/TRIGGER_MESSAGE_POLISH"
+    branches:
+      - main
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply message polish
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          root = Path("tmp/message-polish")
+          for name, dest in [
+            ("MessageActions.tsx", "apps/web/src/components/chat/MessageActions.tsx"),
+            ("RichText.tsx", "apps/web/src/components/chat/RichText.tsx"),
+            ("StructuredMessage.tsx", "apps/web/src/components/chat/StructuredMessage.tsx"),
+          ]:
+            data = (root / name).read_bytes()
+            Path(dest).write_bytes(data)
+            print("wrote", dest, len(data))
+          exec((root / "page_patch2.py").read_text())
+          exec((root / "route_patch2.py").read_text())
+          PY
+          git config user.name "plutao-bot"
+          git config user.email "bot@plutao.local"
+          git add apps/web/src/components/chat/MessageActions.tsx apps/web/src/components/chat/RichText.tsx apps/web/src/components/chat/StructuredMessage.tsx "apps/web/src/app/(app)/chat/page.tsx" apps/web/src/app/api/chat/route.ts
+          git commit -m "feat(chat): MessageActions + RichText listas premium"
+          git push origin HEAD:main
