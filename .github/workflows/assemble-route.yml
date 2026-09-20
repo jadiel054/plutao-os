@@ -1,0 +1,30 @@
+name: assemble-route
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "tmp/route_parts/**"
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble
+        run: |
+          set -euo pipefail
+          if [ -f tmp/route_parts/final.gz.b64 ]; then
+            base64 -d tmp/route_parts/final.gz.b64 | gunzip > apps/web/src/app/api/chat/route.ts
+            wc -c apps/web/src/app/api/chat/route.ts
+            head -c 80 apps/web/src/app/api/chat/route.ts
+            git config user.name plutao-bot
+            git config user.email bot@plutao.local
+            git add apps/web/src/app/api/chat/route.ts
+            git commit -m "feat(chat): multi-connector runtime Vercel + GitHub" || exit 0
+            git push
+          else
+            echo missing payload
+            exit 1
+          fi
