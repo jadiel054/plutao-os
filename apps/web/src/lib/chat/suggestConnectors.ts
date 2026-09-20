@@ -13,10 +13,14 @@ export type SuggestedConnector = {
 const GITHUB_NEED =
   /\b(github|reposit[oó]rio|reposit[oó]rios|repo\b|pull request|\bprs?\b|\bissues?\b|workflow|actions|commit|branch|merge)\b/i;
 
+const VERCEL_NEED =
+  /\b(vercel|deployments?|deploy\b|projetos?\s+na?\s+vercel)\b/i;
+
 export function detectSuggestedConnectors(opts: {
   lastUserText: string;
   assistantText: string;
-  githubConnected: boolean;
+  githubConnected?: boolean;
+  vercelConnected?: boolean;
 }): SuggestedConnector[] {
   const out: SuggestedConnector[] = [];
   const blob = `${opts.lastUserText}\n${opts.assistantText}`;
@@ -28,6 +32,16 @@ export function detectSuggestedConnectors(opts: {
       status: "disconnected",
       reason:
         "O objetivo envolve repositórios, issues, PRs ou actions. Com o GitHub conectado, a execução pode usar a conta autorizada.",
+    });
+  }
+
+  if (!opts.vercelConnected && VERCEL_NEED.test(blob)) {
+    out.push({
+      provider: "vercel",
+      displayName: "Vercel",
+      status: "disconnected",
+      reason:
+        "O objetivo envolve projetos ou deployments na Vercel. Com a Vercel conectada, a execução pode listar e gerenciar projetos.",
     });
   }
 
