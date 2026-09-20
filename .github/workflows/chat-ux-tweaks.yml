@@ -1,0 +1,65 @@
+name: chat-ux-tweaks
+on:
+  workflow_dispatch:
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply three chat UX patches
+        run: |
+          set -e
+          python3 << 'PY'
+          from pathlib import Path
+
+          page_path = Path("apps/web/src/app/(app)/chat/page.tsx")
+          route_path = Path("apps/web/src/app/api/chat/route.ts")
+          page = page_path.read_text()
+          route = route_path.read_text()
+
+          old_focus = """    } finally {
+      setSending(false);
+      setAbortController(null);
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }"""
+          new_focus = """    } finally {
+      setSending(false);
+      setAbortController(null);
+      // Não refocar o textarea após a resposta — no mobile isso abre o teclado sozinho.
+    }"""
+          if old_focus not in page:
+              raise SystemExit("focus block not found")
+          page = page.replace(old_focus, new_focus, 1)
+
+          old_chips = """        <div className=\"space-y-2 mb-2\">
+          {recentMissions.length > 0 ? (
+            <div className=\"flex items-center gap-2 overflow-x-auto pb-1\">
+              <span className=\"text-[10px] font-mono text-[var(--text-muted)] shrink-0\">Missão</span>"""
+          new_chips = """        <div className=\"space-y-2 mb-2\">
+          {messages.length === 0 && recentMissions.length > 0 ? (
+            <div className=\"flex items-center gap-2 overflow-x-auto pb-1\">
+              <span className=\"text-[10px] font-mono text-[var(--text-muted)] shrink-0\">Missão</span>"""
+          if old_chips not in page:
+              raise SystemExit("chips block not found")
+          page = page.replace(old_chips, new_chips, 1)
+
+          old_tom = "Tom: profissional, direto, sem emojis decorativos nem linguagem genérica de assistente."
+          new_tom = """Tom: sênior, profissional e direto. Sem emojis decorativos nem linguagem genérica de assistente.
+Não use rótulos de template como \"**Resumo:**\", \"**Resultado:**\", \"**Próximos passos:**\" ou seções markdown forçadas — escreva em prosa natural e objetiva, como um engenheiro experiente reportando ao colega."""
+          if old_tom not in route:
+              raise SystemExit("tom line not found")
+          route = route.replace(old_tom, new_tom, 1)
+
+          page_path.write_text(page)
+          route_path.write_text(route)
+          print("patched ok", page_path.stat().st_size, route_path.stat().st_size)
+          PY
+          git config user.name "plutao-bot"
+          git config user.email "bot@plutao.local"
+          git add "apps/web/src/app/(app)/chat/page.tsx" "apps/web/src/app/api/chat/route.ts"
+          git commit -m "fix(chat): teclado sem auto-focus, chips só no vazio, tom sênior no prompt"
+          git push origin HEAD:main
