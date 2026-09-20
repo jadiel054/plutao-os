@@ -33,6 +33,7 @@ export type ConnectorToolRunResult = {
   github: GitHubToolExecutionResult;
   vercel: VercelToolExecutionResult;
   contextBlocks: string[];
+  suggestedFollowUps: Array<{ id: string; label: string; prompt: string }>;
 };
 
 /**
@@ -153,7 +154,7 @@ export async function runConnectedConnectorTools(opts: {
       githubLogin: snapshot.githubLogin,
       missionId: missionId ?? null,
     });
-    if (github.executed && github.contextText) {
+    if ((github.executed || github.missingArgs) && github.contextText) {
       contextBlocks.push(github.contextText);
     }
   }
@@ -165,10 +166,18 @@ export async function runConnectedConnectorTools(opts: {
       accessToken: snapshot.vercelToken,
       accountLogin: snapshot.vercelLogin,
     });
-    if (vercel.executed && vercel.contextText) {
+    if ((vercel.executed || vercel.missingArgs) && vercel.contextText) {
       contextBlocks.push(vercel.contextText);
     }
   }
 
-  return { github, vercel, contextBlocks };
+  const suggestedFollowUps: Array<{ id: string; label: string; prompt: string }> = [];
+  if (github.suggestedFollowUps) {
+    suggestedFollowUps.push(...github.suggestedFollowUps);
+  }
+  if (vercel.suggestedFollowUps) {
+    suggestedFollowUps.push(...vercel.suggestedFollowUps);
+  }
+
+  return { github, vercel, contextBlocks, suggestedFollowUps };
 }

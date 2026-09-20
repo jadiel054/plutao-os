@@ -15,6 +15,8 @@ Este documento registra o estado observado no repositório. Capacidade só é **
 | Tool github (M4) | **IMPLEMENTED** | No dispatcher; precisa OAuth + 0004. |
 | GET `/api/executions/:id/tools` | **IMPLEMENTED** | Inventário + disponibilidade GitHub. |
 | Chat Núcleo + awareness conector | **IMPLEMENTED** | System prompt reflete GitHub. |
+| Chat — Fila de Mensagens | **IMPLEMENTED** | Fila de até 3 msgs durante streaming, card compacto, "↑ Enviar agora" / "🗑 Descartar" e disparo sequencial. |
+| Chat — Esclarecimento Pré-Tool | **IMPLEMENTED** | Validação pré-execução por capability, consulta silenciosa de repositórios recentes e FollowUpChips para esclarecimento sem card de erro. |
 | Card inline Conectar/Pular | **IMPLEMENTED** | `suggestedConnectors` + `ConnectorActionCard`. |
 | M1–M3 Conectores UI + OAuth rotas | **IMPLEMENTED** | Sheet, Settings, authorize/callback/disconnect. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo original. |
@@ -30,6 +32,8 @@ Este documento registra o estado observado no repositório. Capacidade só é **
 - Capacidades listadas após OAuth (`repos_list`, `issues_list`, …)
 - Executor recusa tool `github` se não houver token válido
 - Card no chat só com confirmação do usuário
+- Fila de até 3 mensagens no chat enquanto o modelo processa (composer permanece editável)
+- Validação prévia de argumentos por capability (ex.: `owner` e `repo` em `issues_list`), oferecendo sugestões via `FollowUpChips` clicáveis que preenchem o input em caso de ambiguidade
 
 ## Bloqueio atual (operador)
 
