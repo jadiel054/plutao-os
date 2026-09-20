@@ -1,0 +1,36 @@
+name: fix-route-backtick
+on:
+  push:
+    paths:
+      - "tmp/TRIGGER_FIX_ROUTE_BACKTICK"
+    branches:
+      - main
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fix unescaped backticks in template string
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("apps/web/src/app/api/chat/route.ts")
+          t = p.read_text()
+          bad = "branch `main`"
+          good = "branch main"
+          if bad not in t:
+              raise SystemExit("pattern not found")
+          t = t.replace(bad, good, 1)
+          p.write_text(t)
+          print("fixed")
+          PY
+          git config user.name "plutao-bot"
+          git config user.email "bot@plutao.local"
+          git add apps/web/src/app/api/chat/route.ts
+          git commit -m "fix(chat): remove backticks que quebravam template string no system prompt"
+          git push origin HEAD:main
