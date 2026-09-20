@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { founderWaitlist } from "@plutao/db";
 import { eq, sql } from "drizzle-orm";
+import { getFounderTierForPosition } from "@plutao/domain";
 
 export const runtime = "nodejs";
 
@@ -24,11 +25,15 @@ export async function POST(req: NextRequest) {
       .limit(1);
 
     if (existing.length > 0) {
+      const pos = existing[0].position;
+      const tier = getFounderTierForPosition(pos);
       return NextResponse.json({
         success: true,
         alreadyRegistered: true,
-        position: existing[0].position,
-        message: `Você já está na lista de espera de fundador na posição #${existing[0].position}!`,
+        position: pos,
+        priceMonthly: tier.priceMonthly,
+        tierLabel: tier.label,
+        message: `Você já está na lista de espera de fundador na posição #${pos}! Seu preço garantido é R$ ${tier.priceMonthly}/mês.`,
       });
     }
 
@@ -47,12 +52,16 @@ export async function POST(req: NextRequest) {
       })
       .returning();
 
+    const tier = getFounderTierForPosition(inserted.position);
+
     return NextResponse.json(
       {
         success: true,
         position: inserted.position,
         email: inserted.email,
-        message: `Assento de fundador reservado com sucesso! Sua posição é #${inserted.position}.`,
+        priceMonthly: tier.priceMonthly,
+        tierLabel: tier.label,
+        message: `Assento de fundador reservado com sucesso! Sua posição é #${inserted.position} — Preço garantido: R$ ${tier.priceMonthly}/mês travado por 12 meses.`,
       },
       { status: 201 }
     );

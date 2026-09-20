@@ -104,6 +104,7 @@ export function ChatHistoryDrawer({
         <nav className="px-2 space-y-0.5">
           {[
             { href: "/cockpit", label: "Missões", hint: "Planos e evidência" },
+            { href: "/planos", label: "Planos", hint: "Órbita e cota de uso" },
             { href: "/configuracoes?tab=conectores", label: "Conectores", hint: "Integrações oficiais" },
             { href: "/ajuda", label: "Ajuda", hint: "Central Plutão" },
           ].map((item) => (
