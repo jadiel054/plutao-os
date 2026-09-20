@@ -1,0 +1,42 @@
+name: apply-chat-payload
+
+on:
+  push:
+    paths:
+      - "tmp/chat-payload/**"
+    branches:
+      - main
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Decode and write page.tsx + route.ts
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          import base64
+          root = Path("tmp/chat-payload")
+          page_parts = sorted(root.glob("page_*.b64"))
+          assert page_parts, "missing page parts"
+          page = b"".join(base64.b64decode(p.read_text()) for p in page_parts)
+          route = base64.b64decode((root / "route.b64").read_text())
+          assert len(page) > 5000 and len(route) > 5000
+          assert b"PLACEHOLDER" not in page and b"USE_FILE" not in page
+          out_page = Path("apps/web/src/app/(app)/chat/page.tsx")
+          out_route = Path("apps/web/src/app/api/chat/route.ts")
+          out_page.write_bytes(page)
+          out_route.write_bytes(route)
+          print("wrote", out_page, len(page), out_route, len(route))
+          PY
+          git config user.name "plutao-bot"
+          git config user.email "bot@plutao.local"
+          git add "apps/web/src/app/(app)/chat/page.tsx" "apps/web/src/app/api/chat/route.ts"
+          git commit -m "fix(chat): teclado sem auto-focus, chips só no vazio, tom sênior no prompt" || exit 0
+          git push origin HEAD:main
