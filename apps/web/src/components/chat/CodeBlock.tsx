@@ -15,7 +15,7 @@ export function CodeBlock({ code, language = "code", fileName }: CodeBlockProps)
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), 1800);
     } catch {
       /* fallback */
     }
@@ -24,19 +24,33 @@ export function CodeBlock({ code, language = "code", fileName }: CodeBlockProps)
   const headerTitle = fileName || language || "código";
 
   return (
-    <div className="my-3 rounded-xl border border-[var(--border)] bg-[#0d1117] text-white overflow-hidden text-xs font-mono">
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#161b22] border-b border-[var(--border)]/40 text-[11px]">
-        <span className="text-[var(--text-muted)] font-semibold">{headerTitle}</span>
+    <div className="my-3 rounded-2xl border border-[var(--border)]/70 bg-[#0d1117] overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#161b22] border-b border-[var(--border)]/30">
+        <span className="text-[12px] font-medium text-[var(--text-muted)] tracking-tight">
+          {headerTitle}
+        </span>
         <button
           type="button"
           onClick={() => void handleCopy()}
-          className="px-2 py-0.5 rounded border border-[var(--border)]/60 hover:bg-[#21262d] text-[10px] text-[var(--text-secondary)] transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[#21262d] transition-colors cursor-pointer"
         >
-          {copied ? "✓ Copiado!" : "Copiar"}
+          {copied ? (
+            <span className="text-[var(--selo)]">✓ Copiado</span>
+          ) : (
+            <>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              Copiar
+            </>
+          )}
         </button>
       </div>
-      <div className="p-3 overflow-x-auto max-h-[400px] leading-relaxed text-[12px] text-[#e6edf3]">
-        <pre className="m-0 whitespace-pre font-mono">{code}</pre>
+      <div className="p-4 overflow-x-auto max-h-[420px]">
+        <pre className="m-0 whitespace-pre font-mono text-[12.5px] leading-relaxed text-[#e6edf3]">
+          {code}
+        </pre>
       </div>
     </div>
   );
