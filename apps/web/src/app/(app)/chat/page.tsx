@@ -30,6 +30,12 @@ type Message = {
   trace?: { toolCalls?: ToolCallItem[] };
 };
 
+type QueuedMessage = {
+  id: string;
+  text: string;
+  artifacts?: ArtifactRef[];
+};
+
 type MissionListItem = { id: string; objective: string; status: string };
 
 type SuggestedPlan = { stepTitles: string[] };
@@ -63,6 +69,13 @@ function ChatPageInner() {
   const [annotatorArtifact, setAnnotatorArtifact] = useState<ArtifactRef | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
+  const queueRef = useRef<QueuedMessage[]>([]);
+  queueRef.current = queue;
+  const isSendNowAbortRef = useRef(false);
+  const isManualCancelRef = useRef(false);
+  const prevSendingRef = useRef(false);
+  const activeControllerRef = useRef<AbortController | null>(null);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -153,6 +166,29 @@ function ChatPageInner() {
     }
   }, [messages, userEmail]);
 
+  useEffect(() => {
+    const wasSending = prevSendingRef.current;
+    prevSendingRef.current = sending;
+
+    if (wasSending && !sending) {
+      if (isSendNowAbortRef.current) {
+        isSendNowAbortRef.current = false;
+        return;
+      }
+      if (isManualCancelRef.current) {
+        isManualCancelRef.current = false;
+        return;
+      }
+      if (queueRef.current.length > 0) {
+        const nextMsg = queueRef.current[0];
+        setQueue((prev) => prev.slice(1));
+        setTimeout(() => {
+          void executeSend(nextMsg.text, nextMsg.artifacts ?? []);
+        }, 50);
+      }
+    }
+  }, [sending]);
+
   function selectMission(id: string | null) {
     setActiveMissionId(id);
     if (userEmail) {
@@ -228,28 +264,24 @@ function ChatPageInner() {
     }
   }
 
-  async function handleSend(e?: FormEvent, overrideText?: string) {
-    if (e) e.preventDefault();
-    const textRaw = (overrideText ?? inputMessage).trim();
-    if ((!textRaw && pendingArtifacts.length === 0) || sending) return;
-    if (textRaw.length > 4000) {
-      addToast("Mensagem excede 4.000 caracteres.", "error");
-      return;
+  async function executeSend(text: string, activeArtifacts: ArtifactRef[]) {
+    if (abortController) {
+      isSendNowAbortRef.current = true;
+      abortController.abort();
+      setMessages((prev) => {
+        const copy = [...prev];
+        if (copy.length > 0 && copy[copy.length - 1].role === "assistant") {
+          copy.pop();
+        }
+        return copy;
+      });
     }
-    const redacted = redactSecrets(textRaw);
-    const text = redacted.text;
-    if (redacted.hadSecrets) {
-      addToast(
-        "Credencial detectada e mascarada. Use Conectores para ligar APIs. Revogue a chave se vazou em texto claro.",
-        "warning",
-        "Seguranca"
-      );
-    }
+
     setError(null);
     setSuggestedPlan(null);
     setSuggestedConnectors([]);
     setSuggestedFollowUps([]);
-    const activeArtifacts = [...pendingArtifacts];
+
     const displayContent =
       text ||
       (activeArtifacts.length > 0
@@ -267,7 +299,9 @@ function ChatPageInner() {
     setInputMessage("");
     setPendingArtifacts([]);
     setSending(true);
+
     const controller = new AbortController();
+    activeControllerRef.current = controller;
     setAbortController(controller);
 
     try {
@@ -509,10 +543,71 @@ function ChatPageInner() {
         addToast(errMsg, "error");
       }
     } finally {
-      setSending(false);
-      setAbortController(null);
+      if (activeControllerRef.current === controller) {
+        setSending(false);
+        setAbortController(null);
+        activeControllerRef.current = null;
+      }
       // no auto-focus after send (mobile keyboard)
     }
+  }
+
+  async function handleSend(
+    e?: FormEvent,
+    overrideText?: string,
+    overrideArtifacts?: ArtifactRef[]
+  ) {
+    if (e) e.preventDefault();
+    const textRaw = (overrideText ?? inputMessage).trim();
+    const activeArtifacts = overrideArtifacts ?? [...pendingArtifacts];
+
+    if (!textRaw && activeArtifacts.length === 0) return;
+
+    if (sending) {
+      if (queue.length >= 3) {
+        addToast("Aguarde o Plutão responder", "warning");
+        return;
+      }
+      if (textRaw.length > 4000) {
+        addToast("Mensagem excede 4.000 caracteres.", "error");
+        return;
+      }
+      const redacted = redactSecrets(textRaw);
+      if (redacted.hadSecrets) {
+        addToast(
+          "Credencial detectada e mascarada. Use Conectores para ligar APIs. Revogue a chave se vazou em texto claro.",
+          "warning",
+          "Seguranca"
+        );
+      }
+      const newQueued: QueuedMessage = {
+        id: crypto.randomUUID(),
+        text: redacted.text,
+        artifacts: activeArtifacts.length > 0 ? activeArtifacts : undefined,
+      };
+      setQueue((prev) => [...prev, newQueued]);
+      setInputMessage("");
+      setPendingArtifacts([]);
+      return;
+    }
+
+    if (textRaw.length > 4000) {
+      addToast("Mensagem excede 4.000 caracteres.", "error");
+      return;
+    }
+    const redacted = redactSecrets(textRaw);
+    await executeSend(redacted.text, activeArtifacts);
+  }
+
+  function handleSendNow(index = 0) {
+    if (queueRef.current.length === 0) return;
+    const targetItem = queueRef.current[index] ?? queueRef.current[0];
+    setQueue((prev) => prev.filter((_, i) => i !== index));
+    void executeSend(targetItem.text, targetItem.artifacts ?? []);
+  }
+
+  function handleDiscardQueue(index = 0) {
+    setQueue((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function regenerateLast() {
@@ -745,7 +840,10 @@ function ChatPageInner() {
                 {abortController && (
                   <button
                     type="button"
-                    onClick={() => abortController.abort()}
+                    onClick={() => {
+                      isManualCancelRef.current = true;
+                      abortController.abort();
+                    }}
                     className="ml-2 px-2 py-0.5 rounded border border-rose-500/40 text-rose-400 text-[10px] hover:bg-rose-500/10 cursor-pointer font-mono"
                   >
                     Cancelar
@@ -809,7 +907,8 @@ function ChatPageInner() {
                 onDismiss={() => setSuggestedFollowUps([])}
                 onSelect={(prompt) => {
                   setSuggestedFollowUps([]);
-                  void handleSend(undefined, prompt);
+                  setInputMessage(prompt);
+                  setTimeout(() => textareaRef.current?.focus(), 50);
                 }}
               />
             ) : null}
@@ -864,6 +963,45 @@ function ChatPageInner() {
         </div>
 
         <form onSubmit={handleSend} className="space-y-2">
+          {queue.length > 0 && (
+            <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl border border-[var(--selo)]/40 bg-[var(--surface)]/90 text-xs shadow-sm">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-[var(--selo)]/15 text-[var(--selo)]">
+                  Fila
+                </span>
+                {queue.length > 1 && (
+                  <span className="shrink-0 text-[10px] font-mono text-[var(--text-muted)] border border-[var(--border)] px-1.5 py-0.5 rounded">
+                    {queue.length} na fila
+                  </span>
+                )}
+                <span className="truncate text-[var(--text-primary)] font-medium">
+                  {queue[0].text || (queue[0].artifacts?.length ? "Anexo(s)" : "")}
+                </span>
+                {queue[0].artifacts && queue[0].artifacts.length > 0 && (
+                  <span className="shrink-0 text-[10px] text-[var(--text-muted)] font-mono">
+                    (+{queue[0].artifacts.length} {queue[0].artifacts.length === 1 ? "anexo" : "anexos"})
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => handleSendNow(0)}
+                  className="px-2.5 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] font-semibold hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-1"
+                >
+                  ↑ Enviar agora
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDiscardQueue(0)}
+                  className="px-2 py-1 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--danger)] hover:border-[var(--danger)]/50 transition-colors cursor-pointer"
+                  title="Descartar mensagem enfileirada"
+                >
+                  🗑 Descartar
+                </button>
+              </div>
+            </div>
+          )}
           {pendingArtifacts.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {pendingArtifacts.map((art) =>
@@ -922,13 +1060,19 @@ function ChatPageInner() {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={pendingArtifacts.length ? "Instrução sobre o arquivo…" : `Mensagem para ${agentName}…`}
-              disabled={sending}
+              placeholder={
+                queue.length >= 3
+                  ? "Aguarde o Plutão responder…"
+                  : pendingArtifacts.length
+                    ? "Instrução sobre o arquivo…"
+                    : `Mensagem para ${agentName}…`
+              }
+              disabled={queue.length >= 3}
               className="flex-1 bg-transparent px-2 py-1 text-base focus:outline-none min-h-[36px] max-h-[320px]"
             />
             <button
               type="submit"
-              disabled={sending || (!inputMessage.trim() && pendingArtifacts.length === 0)}
+              disabled={queue.length >= 3 || (!inputMessage.trim() && pendingArtifacts.length === 0)}
               className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold disabled:opacity-40 font-mono cursor-pointer"
             >
               Enviar

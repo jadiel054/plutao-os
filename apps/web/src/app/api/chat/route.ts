@@ -445,7 +445,7 @@ ${
               vercelConnected: connectorSnap.vercelConnected,
             });
 
-            const suggestedFollowUps = buildFollowUps({
+            const baseFollowUps = buildFollowUps({
               lastUserText,
               assistantText: assistantContent,
               tools: [
@@ -472,6 +472,11 @@ ${
                 outputSnippet?: string;
               }>,
             });
+
+            const suggestedFollowUps = [
+              ...(toolRunRes.suggestedFollowUps || []),
+              ...baseFollowUps,
+            ].filter((f, idx, self) => idx === self.findIndex((x) => x.prompt === f.prompt));
 
             const toolTraces = [];
             if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);
@@ -663,7 +668,7 @@ ${
       vercelConnected: connectorSnap.vercelConnected,
     });
 
-    const suggestedFollowUps = buildFollowUps({
+    const baseFollowUps = buildFollowUps({
       lastUserText,
       assistantText: assistantContent,
       tools: [
@@ -690,6 +695,11 @@ ${
         outputSnippet?: string;
       }>,
     });
+
+    const suggestedFollowUps = [
+      ...(toolRunRes.suggestedFollowUps || []),
+      ...baseFollowUps,
+    ].filter((f, idx, self) => idx === self.findIndex((x) => x.prompt === f.prompt));
 
     const toolTraces = [];
     if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);

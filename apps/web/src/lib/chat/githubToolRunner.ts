@@ -17,9 +17,20 @@ export type ToolCallTrace = {
 
 export type GitHubToolExecutionResult = {
   executed: boolean;
+  missingArgs?: boolean;
   capability?: string;
   trace?: ToolCallTrace;
   contextText?: string;
+  suggestedFollowUps?: Array<{ id: string; label: string; prompt: string }>;
+};
+
+export const GITHUB_REQUIRED_ARGS: Record<string, string[]> = {
+  repos_list: [],
+  repo_get: ["owner", "repo"],
+  issues_list: ["owner", "repo"],
+  issues_get: ["owner", "repo", "number"],
+  pulls_list: ["owner", "repo"],
+  actions_list: ["owner", "repo"],
 };
 
 export type GitHubToolPlan = {
@@ -97,6 +108,22 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
 /**
  * Detects GitHub query intent from user text and executes the tool via Executor (runGithub).
  */
+function extractRepoNamesFromSummary(summary: string): string[] {
+  const names: string[] = [];
+  const lines = summary.split("\n");
+  for (const line of lines) {
+    const match = line.match(/\s*-\s*(?:[a-zA-Z0-9_.-]+\/)?([a-zA-Z0-9_.-]+)/);
+    if (match && match[1]) {
+      const name = match[1].trim();
+      if (name && !names.includes(name) && name !== "showing") {
+        names.push(name);
+      }
+    }
+    if (names.length >= 3) break;
+  }
+  return names;
+}
+
 export async function detectAndExecuteGitHubTool(opts: {
   text: string;
   userId: string;
@@ -109,6 +136,56 @@ export async function detectAndExecuteGitHubTool(opts: {
   }
 
   const { action, owner, repo, issueNumber } = plan;
+
+  const requiredArgs = GITHUB_REQUIRED_ARGS[action] ?? [];
+  const missingParams: string[] = [];
+  if (requiredArgs.includes("owner") && !owner) missingParams.push("owner");
+  if (requiredArgs.includes("repo") && !repo) missingParams.push("repo");
+  if (requiredArgs.includes("number") && issueNumber === undefined) missingParams.push("number");
+
+  if (missingParams.length > 0) {
+    let recentRepos: string[] = [];
+    try {
+      const silentRes = await runGithub(
+        JSON.stringify({ action: "repos_list", per_page: 3 }),
+        opts.userId
+      );
+      if (silentRes.ok && silentRes.output) {
+        recentRepos = extractRepoNamesFromSummary(silentRes.output);
+      }
+    } catch {
+      /* ignore silent fetch error */
+    }
+
+    const followUps = recentRepos.map((r, i) => {
+      let prompt = `ver detalhes do repositório ${r}`;
+      if (action.includes("issue")) {
+        prompt = `liste as issues abertas de ${r}`;
+      } else if (action.includes("pull") || action.includes("pr")) {
+        prompt = `liste os pull requests de ${r}`;
+      } else if (action.includes("action") || action.includes("workflow")) {
+        prompt = `liste as actions de ${r}`;
+      }
+      return {
+        id: `fu-missing-repo-${i + 1}`,
+        label: r,
+        prompt,
+      };
+    });
+
+    const contextText = `[ESCLARECIMENTO DE PARÂMETROS - GITHUB]
+O usuário quer executar '${action}', mas não especificou o repositório.
+Repositórios recentes do usuário: ${recentRepos.length > 0 ? recentRepos.join(", ") : "nenhum encontrado"}.
+Pergunte ao usuário qual repositório ele deseja consultar, oferecendo essas opções de forma objetiva e direta. NÃÔ tente adivinhar ou executar sem o usuário confirmar.`;
+
+    return {
+      executed: false,
+      missingArgs: true,
+      capability: action,
+      contextText,
+      suggestedFollowUps: followUps,
+    };
+  }
 
   const payload: Record<string, unknown> = { action };
   if (owner) payload.owner = owner;

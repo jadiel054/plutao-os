@@ -16,12 +16,19 @@ export type VercelToolCallTrace = {
 
 export type VercelToolExecutionResult = {
   executed: boolean;
+  missingArgs?: boolean;
   capability?: string;
   trace?: VercelToolCallTrace;
   contextText?: string;
+  suggestedFollowUps?: Array<{ id: string; label: string; prompt: string }>;
   /** @deprecated use contextText */
   output?: string;
   error?: string;
+};
+
+export const VERCEL_REQUIRED_ARGS: Record<string, string[]> = {
+  projects_list: [],
+  deployments_list: ["projectId"],
 };
 
 function wantsListProjects(text: string): boolean {
@@ -48,6 +55,24 @@ function wantsListDeployments(text: string): boolean {
     (t.includes("deploy") || t.includes("deployment") || t.includes("publica")) &&
     (t.includes("vercel") || t.includes("listar") || t.includes("liste") || t.includes("último") || t.includes("ultimo"))
   );
+}
+
+function wantsSpecificProjectDeployment(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    wantsListDeployments(text) &&
+    (t.includes("projeto") || t.includes("project") || t.includes("do meu app") || t.includes("do app"))
+  );
+}
+
+function extractProjectNamesFromData(data: unknown): string[] {
+  const projects = Array.isArray((data as { projects?: unknown[] }).projects)
+    ? (data as { projects: Array<Record<string, unknown>> }).projects
+    : [];
+  return projects
+    .map((p) => String(p.name || p.id || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
 }
 
 async function vercelGet(
@@ -132,6 +157,36 @@ export async function detectAndExecuteVercelTool(opts: {
       error: res.ok ? undefined : output,
     };
   };
+
+  if (wantsSpecificProjectDeployment(userText)) {
+    // Check if project name is specified in user text
+    const projRes = await vercelGet("/v9/projects?limit=10", accessToken);
+    const recentProjects = projRes.ok ? extractProjectNamesFromData(projRes.data) : [];
+    const matchedProject = recentProjects.find((p) => userText.toLowerCase().includes(p.toLowerCase()));
+
+    if (!matchedProject) {
+      const followUps = recentProjects.map((p, i) => ({
+        id: `fu-vercel-missing-proj-${i + 1}`,
+        label: p,
+        prompt: `mostre os deployments do projeto ${p} na Vercel`,
+      }));
+
+      const contextText = `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]
+O usuário quer ver os deployments de um projeto na Vercel, mas não especificou qual projeto.
+Projetos recentes do usuário: ${recentProjects.length > 0 ? recentProjects.join(", ") : "nenhum encontrado"}.
+Pergunte ao usuário qual projeto ele deseja consultar, oferecendo essas opções de forma objetiva e direta. Não tente adivinhar.`;
+
+      return {
+        executed: false,
+        missingArgs: true,
+        capability: "deployments_list",
+        contextText,
+        suggestedFollowUps: followUps,
+      };
+    }
+
+    return run("deployments_list", `/v6/deployments?projectId=${encodeURIComponent(matchedProject)}&limit=15`, formatDeployments);
+  }
 
   if (wantsListDeployments(userText)) {
     return run("deployments_list", "/v6/deployments?limit=15", formatDeployments);
