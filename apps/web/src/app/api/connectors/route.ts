@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { listConnectorsForUser } from "@/lib/connectors/service";
 import { githubOAuthConfigured } from "@/lib/connectors/githubOAuth";
+import { vercelIntegrationConfigured } from "@/lib/connectors/vercelOAuth";
 import { canEncryptTokens } from "@/lib/connectors/crypto";
 import { CONNECTOR_CATALOG } from "@plutao/domain";
 
@@ -20,13 +21,13 @@ export async function GET() {
       catalog: CONNECTOR_CATALOG,
       oauth: {
         githubConfigured: githubOAuthConfigured(),
+        vercelConfigured: vercelIntegrationConfigured(),
         tokenEncryptionReady: canEncryptTokens(),
       },
     });
   } catch (e) {
     console.error("[connectors GET]", e);
     const msg = e instanceof Error ? e.message : "Falha ao listar conectores";
-    // Tabela ainda não migrada
     if (msg.includes("connectors") || msg.includes("relation")) {
       return NextResponse.json(
         {
