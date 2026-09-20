@@ -16,8 +16,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${baseUrl}/login?error=OAuthStateInvalid`);
   }
 
-  const clientId = process.env.GITHUB_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  const clientId = process.env.AUTH_GITHUB_CLIENT_ID;
+  const clientSecret = process.env.AUTH_GITHUB_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
     return NextResponse.redirect(`${baseUrl}/login?error=GitHubOAuthNotConfigured`);

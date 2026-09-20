@@ -16,8 +16,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${baseUrl}/login?error=OAuthStateInvalid`);
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = process.env.AUTH_GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.AUTH_GOOGLE_CLIENT_SECRET;
   const redirectUri = `${baseUrl}/api/auth/google/callback`;
 
   if (!clientId || !clientSecret) {

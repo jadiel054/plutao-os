@@ -4,12 +4,12 @@ import { randomBytes } from "node:crypto";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientId = process.env.AUTH_GITHUB_CLIENT_ID;
   const baseUrl = process.env.APP_URL || req.nextUrl.origin;
 
   if (!clientId) {
     return NextResponse.json(
-      { error: "GitHub OAuth não configurado. Defina GITHUB_CLIENT_ID e GITHUB_CLIENT_SECRET nas env vars." },
+      { error: "GitHub OAuth não configurado. Defina AUTH_GITHUB_CLIENT_ID e AUTH_GITHUB_CLIENT_SECRET nas env vars." },
       { status: 500 }
     );
   }
