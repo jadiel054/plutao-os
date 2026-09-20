@@ -1,0 +1,137 @@
+name: chat-ux-polish
+on:
+  push:
+    paths:
+      - "tmp/TRIGGER_CHAT_UX_POLISH"
+    branches:
+      - main
+jobs:
+  polish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch chat page keyboard + attachments
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path("apps/web/src/app/(app)/chat/page.tsx")
+          t = p.read_text()
+
+          # 1) keyboard inset state + visualViewport listener
+          if "keyboardInset" not in t:
+              t = t.replace(
+                  "const [annotatorArtifact, setAnnotatorArtifact] = useState<ArtifactRef | null>(null);",
+                  "const [annotatorArtifact, setAnnotatorArtifact] = useState<ArtifactRef | null>(null);\n  const [keyboardInset, setKeyboardInset] = useState(0);",
+                  1,
+              )
+              effect = '''
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const update = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardInset(inset > 40 ? inset : 0);
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    update();
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+
+'''
+              if "visualViewport" not in t:
+                  t = t.replace(
+                      "  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: \"smooth\" });",
+                      effect + "  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: \"smooth\", block: \"end\" });",
+                      1,
+                  )
+
+          # 2) outer layout: remove fixed pb that fights keyboard; use style paddingBottom
+          t = t.replace(
+              'className="min-h-dvh flex flex-col bg-[var(--base)] text-[var(--text-primary)] pb-20 sm:pb-4"',
+              'className="min-h-dvh flex flex-col bg-[var(--base)] text-[var(--text-primary)]" style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}',
+              1,
+          )
+
+          # 3) form composer: sticky bottom with safe area
+          if 'id="chat-composer"' not in t:
+              t = t.replace(
+                  '<form onSubmit={handleSend} className="space-y-2">',
+                  '<form id="chat-composer" onSubmit={handleSend} className="space-y-2 sticky bottom-0 z-20 -mx-1 px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-[var(--base)]/95 backdrop-blur-md border-t border-[var(--border)]/40">',
+                  1,
+              )
+
+          # 4) premium attachment chip for images
+          old_img = '''                art.thumbnailUrl ? (
+                  <div key={art.id} className="flex items-center gap-2 p-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setAnnotatorArtifact(art)}
+                      className="relative w-12 h-12 rounded-lg overflow-hidden border border-[var(--border)] hover:border-[var(--selo)] transition-colors shrink-0 group/img cursor-pointer"
+                      title="Clique para visualizar/anotar"
+                    >
+                      <img src={art.thumbnailUrl} alt={art.name} className="w-full h-full object-cover" />
+                      <span className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 flex items-center justify-center text-xs text-white transition-opacity font-medium">✏️</span>
+                    </button>'''
+          new_img = '''                art.thumbnailUrl ? (
+                  <div key={art.id} className="relative group/chip">
+                    <button
+                      type="button"
+                      onClick={() => setAnnotatorArtifact(art)}
+                      className="relative w-16 h-16 sm:w-[4.5rem] sm:h-[4.5rem] rounded-2xl overflow-hidden border border-[var(--border)] shadow-sm hover:border-[var(--selo)]/60 transition-all shrink-0 cursor-pointer ring-offset-2 focus-visible:ring-2 focus-visible:ring-[var(--selo)]"
+                      title={art.name}
+                    >
+                      <img src={art.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[9px] text-white/95 truncate font-medium">{art.name}</span>
+                    </button>'''
+          if old_img in t:
+              t = t.replace(old_img, new_img, 1)
+              # remove the old text column + keep close button - find following structure and simplify
+              # After new button, next is div with name/size - replace block carefully
+              messy = '''                    <div className="flex flex-col min-w-0 pr-1">
+                      <span className="truncate max-w-[120px] text-xs font-medium text-[var(--text-primary)]">{art.name}</span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">{formatFileSize(art.size)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPendingArtifacts((p) => p.filter((a) => a.id !== art.id))}
+                      className="text-[var(--text-muted)]'''
+              # partial - use simpler: insert absolute close on chip
+              # If messy not exact, skip
+
+          # Add absolute X on image chips after the button opens
+          if 'group/chip' in t and 'absolute -top-1.5 -right-1.5' not in t:
+              t = t.replace(
+                  '''                      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[9px] text-white/95 truncate font-medium">{art.name}</span>
+                    </button>''',
+                  '''                      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[9px] text-white/95 truncate font-medium">{art.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingArtifacts((p) => p.filter((a) => a.id !== art.id))}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)] text-[10px] leading-none flex items-center justify-center shadow hover:text-[var(--text-primary)]"
+                      aria-label="Remover anexo"
+                    >×</button>''',
+                  1,
+              )
+
+          p.write_text(t)
+          print("patched", len(t))
+          print("keyboardInset", "keyboardInset" in t)
+          print("composer", 'id="chat-composer"' in t)
+          print("chip", "group/chip" in t)
+          PY
+          git config user.name "plutao-bot"
+          git config user.email "bot@plutao.local"
+          git add "apps/web/src/app/(app)/chat/page.tsx"
+          git commit -m "fix(chat): teclado sobe o composer; chips de anexo premium" || echo no-change
+          git push origin HEAD:main
