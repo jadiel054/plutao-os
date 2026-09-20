@@ -685,8 +685,8 @@ ${
                     }
                   }
                 }
-              } catch {
-                /* fallback to prompt completion */
+              } catch (err) {
+                console.error("[chat] Erro na geração pós-tools (streaming):", err);
               }
 
               let cleaned = rawStreamOutput;
@@ -705,6 +705,18 @@ ${
                 .replace(/<\/?raciocinio>/g, "")
                 .replace(/<\/?resposta>/g, "")
                 .trim();
+
+              if (!cleanedAnswer && toolRunRes.contextBlocks.length > 0) {
+                const summaries = [
+                  toolRunRes.github.trace?.output,
+                  toolRunRes.vercel.trace?.output,
+                ]
+                  .filter(Boolean)
+                  .join("\n\n");
+                if (summaries.trim()) {
+                  cleanedAnswer = `A ferramenta do conector foi executada com sucesso e retornou os seguintes dados:\n\n${summaries.slice(0, 1500)}`;
+                }
+              }
 
               if (!cleanedAnswer) {
                 cleanedAnswer = "Não consegui gerar uma resposta agora. Tente novamente.";
@@ -901,6 +913,7 @@ ${
     try {
       result = await chatCompletion(effectiveModelConfig, payloadMessages);
     } catch (err) {
+      console.error("[chat] Erro na chamada chatCompletion:", err);
       const isGemini = effectiveModelConfig.provider === "gemini";
       const fallbackConfig = isGemini ? getModelConfig() : null;
 
@@ -965,11 +978,25 @@ ${
       .replace(/<\/?resposta>/g, "")
       .trim();
 
-    const assistantContent =
-      cleanedNonStreamAnswer ||
-      (validatedArtifacts.length > 0
-        ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
-        : "Não consegui gerar uma resposta agora. Tente novamente.");
+    let assistantContent = cleanedNonStreamAnswer;
+    if (!assistantContent && toolRunRes.contextBlocks.length > 0) {
+      const summaries = [
+        toolRunRes.github.trace?.output,
+        toolRunRes.vercel.trace?.output,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      if (summaries.trim()) {
+        assistantContent = `A ferramenta do conector foi executada com sucesso e retornou os seguintes dados:\n\n${summaries.slice(0, 1500)}`;
+      }
+    }
+
+    if (!assistantContent) {
+      assistantContent =
+        validatedArtifacts.length > 0
+          ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
+          : "Não consegui gerar uma resposta agora. Tente novamente.";
+    }
 
     const suggestedPlan = extractSuggestedPlan(assistantContent);
     const suggestedConnectors = detectSuggestedConnectors({

@@ -230,7 +230,18 @@ export class LocalProvider {
   }
 
   /**
-   * Carrega o modelo de geração de texto
+   * Resolve o tipo de tarefa do pipeline com base no modelId e no catálogo
+   */
+  private resolvePipelineTask(): string {
+    const lower = this.modelId.toLowerCase();
+    if (lower.includes("minilm") || lower.includes("embedding") || lower.includes("embed")) {
+      return "feature-extraction";
+    }
+    return "text-generation";
+  }
+
+  /**
+   * Carrega o modelo
    */
   private async loadPipeline(): Promise<void> {
     // Já carregado
@@ -261,8 +272,10 @@ export class LocalProvider {
           throw new Error("Transformers.js pipeline not available");
         }
 
-        // Carrega o pipeline de geração de texto
-        this.pipeline = await pipeline("text-generation", this.modelId, {
+        const task = this.resolvePipelineTask();
+
+        // Carrega o pipeline com a tarefa adequada ao modelo
+        this.pipeline = await pipeline(task, this.modelId, {
           device: resolvedDevice,
           cache: this.useCache ? "indexeddb" : undefined,
         });
@@ -272,16 +285,6 @@ export class LocalProvider {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         this.loadError = `Failed to load model ${this.modelId}: ${errorMessage}`;
         this.status = "error";
-        
-        // Tenta fallback para modelo alternativo
-        if (this.modelId !== FALLBACK_LOCAL_MODEL_ID) {
-          console.warn(`Model ${this.modelId} failed, trying fallback...`);
-          this.modelId = FALLBACK_LOCAL_MODEL_ID;
-          // Tenta novamente com fallback
-          this.pipeline = null;
-          return this.loadPipeline();
-        }
-        
         throw new Error(this.loadError);
       }
     })();
@@ -471,28 +474,31 @@ export function createLocalProvider(config?: Partial<LocalModelConfig>): LocalPr
 }
 
 // ============================================================
-// Singleton para uso global
+// Cache de instâncias do LocalProvider por modelId
 // ============================================================
 
-/** Instância singleton do LocalProvider */
-let localProviderInstance: LocalProvider | null = null;
+/** Cache de instâncias por modelId */
+const localProviderInstances = new Map<string, LocalProvider>();
 
 /**
- * Obtém ou cria a instância singleton do LocalProvider
+ * Obtém ou cria a instância do LocalProvider indexada por modelId
  */
 export function getLocalProvider(config?: Partial<LocalModelConfig>): LocalProvider {
-  if (!localProviderInstance) {
-    localProviderInstance = createLocalProvider(config);
+  const modelId = config?.modelId || DEFAULT_LOCAL_CONFIG.modelId;
+  let instance = localProviderInstances.get(modelId);
+  if (!instance) {
+    instance = createLocalProvider(config);
+    localProviderInstances.set(modelId, instance);
   }
-  return localProviderInstance;
+  return instance;
 }
 
 /**
- * Reseta a instância singleton
+ * Reseta e libera todas as instâncias em cache
  */
 export function resetLocalProvider(): void {
-  if (localProviderInstance) {
-    localProviderInstance.dispose();
-    localProviderInstance = null;
+  for (const instance of localProviderInstances.values()) {
+    instance.dispose();
   }
+  localProviderInstances.clear();
 }
