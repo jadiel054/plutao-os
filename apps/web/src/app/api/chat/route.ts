@@ -6,6 +6,7 @@ import { formatFileSize } from "@/lib/artifacts";
 import { getSessionUser } from "@/lib/auth/session";
 import { loadConnectorRuntime, runConnectedConnectorTools } from "@/lib/chat/connectorRuntime";
 import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
+import { buildFollowUps } from "@/lib/chat/buildFollowUps";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
@@ -444,6 +445,34 @@ ${
               vercelConnected: connectorSnap.vercelConnected,
             });
 
+            const suggestedFollowUps = buildFollowUps({
+              lastUserText,
+              assistantText: assistantContent,
+              tools: [
+                toolRunRes.github.executed && toolRunRes.github.trace
+                  ? {
+                      provider: "github",
+                      capability: toolRunRes.github.capability,
+                      status: toolRunRes.github.trace.status,
+                      outputSnippet: toolRunRes.github.trace.output,
+                    }
+                  : null,
+                toolRunRes.vercel.executed && toolRunRes.vercel.trace
+                  ? {
+                      provider: "vercel",
+                      capability: toolRunRes.vercel.capability,
+                      status: toolRunRes.vercel.trace.status,
+                      outputSnippet: toolRunRes.vercel.trace.output,
+                    }
+                  : null,
+              ].filter(Boolean) as Array<{
+                provider: string;
+                capability?: string;
+                status?: string;
+                outputSnippet?: string;
+              }>,
+            });
+
             const toolTraces = [];
             if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);
             if (toolRunRes.vercel.trace) toolTraces.push(toolRunRes.vercel.trace);
@@ -632,6 +661,34 @@ ${
       assistantText: assistantContent,
       githubConnected: connectorSnap.githubConnected,
       vercelConnected: connectorSnap.vercelConnected,
+    });
+
+    const suggestedFollowUps = buildFollowUps({
+      lastUserText,
+      assistantText: assistantContent,
+      tools: [
+        toolRunRes.github.executed && toolRunRes.github.trace
+          ? {
+              provider: "github",
+              capability: toolRunRes.github.capability,
+              status: toolRunRes.github.trace.status,
+              outputSnippet: toolRunRes.github.trace.output,
+            }
+          : null,
+        toolRunRes.vercel.executed && toolRunRes.vercel.trace
+          ? {
+              provider: "vercel",
+              capability: toolRunRes.vercel.capability,
+              status: toolRunRes.vercel.trace.status,
+              outputSnippet: toolRunRes.vercel.trace.output,
+            }
+          : null,
+      ].filter(Boolean) as Array<{
+        provider: string;
+        capability?: string;
+        status?: string;
+        outputSnippet?: string;
+      }>,
     });
 
     const toolTraces = [];

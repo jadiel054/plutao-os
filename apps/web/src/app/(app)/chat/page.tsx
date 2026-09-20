@@ -15,6 +15,7 @@ import { ConnectorActionCard, type SuggestedConnector } from "@/components/Conne
 import { ImageAnnotatorModal } from "@/components/ImageAnnotatorModal";
 import { StructuredMessage, type StructuredStep } from "@/components/chat/StructuredMessage";
 import { MessageActions } from "@/components/chat/MessageActions";
+import { FollowUpChips, type FollowUpChip } from "@/components/chat/FollowUpChips";
 import { redactSecrets } from "@/lib/security/credentials";
 import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
@@ -54,7 +55,8 @@ function ChatPageInner() {
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [recentMissions, setRecentMissions] = useState<MissionListItem[]>([]);
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPlan | null>(null);
-  const [suggestedConnectors, setSuggestedConnectors] = useState<SuggestedConnector[]>([]);
+  const [suggestedConnectors, setSuggestedConnectors] = useState<SuggestedConnector[]>([])
+  const [suggestedFollowUps, setSuggestedFollowUps] = useState<FollowUpChip[]>([]);
   const [applyingPlan, setApplyingPlan] = useState(false);
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [isConnectorsSheetOpen, setIsConnectorsSheetOpen] = useState(false);
@@ -68,7 +70,7 @@ function ChatPageInner() {
   const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
-  useEffect(() => { scrollToBottom(); }, [messages, sending, suggestedPlan, suggestedConnectors]);
+  useEffect(() => { scrollToBottom(); }, [messages, sending, suggestedPlan, suggestedConnectors, suggestedFollowUps]);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -246,6 +248,7 @@ function ChatPageInner() {
     setError(null);
     setSuggestedPlan(null);
     setSuggestedConnectors([]);
+    setSuggestedFollowUps([]);
     const activeArtifacts = [...pendingArtifacts];
     const displayContent =
       text ||
@@ -419,6 +422,18 @@ function ChatPageInner() {
                         reason: c.reason ? String(c.reason) : undefined,
                       }))
                       .filter((c: SuggestedConnector) => c.provider.length > 0)
+                  );
+                }
+                if (Array.isArray(parsed.suggestedFollowUps) && parsed.suggestedFollowUps.length > 0) {
+                  setSuggestedFollowUps(
+                    parsed.suggestedFollowUps
+                      .filter((f: unknown): f is Record<string, unknown> => typeof f === "object" && f !== null)
+                      .map((f: Record<string, unknown>, i: number) => ({
+                        id: String(f.id ?? ("fu-" + i)),
+                        label: String(f.label ?? ""),
+                        prompt: String(f.prompt ?? ""),
+                      }))
+                      .filter((f: FollowUpChip) => f.label.length > 0 && f.prompt.length > 0)
                   );
                 }
               } else if (eventName === "error") {
@@ -785,6 +800,18 @@ function ChatPageInner() {
                   }}
                 />
               </div>
+            ) : null}
+
+            {suggestedFollowUps.length > 0 ? (
+              <FollowUpChips
+                items={suggestedFollowUps}
+                disabled={sending}
+                onDismiss={() => setSuggestedFollowUps([])}
+                onSelect={(prompt) => {
+                  setSuggestedFollowUps([]);
+                  void handleSend(undefined, prompt);
+                }}
+              />
             ) : null}
 
             <div ref={messagesEndRef} />
