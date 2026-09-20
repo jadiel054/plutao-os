@@ -21,6 +21,8 @@ export type ConnectorCapability = {
   description?: string;
   /** Origem: mcp_tool | rest_api */
   kind: "mcp_tool" | "rest_api";
+  /** Modo de operação: read (padrão) ou write (exige gate de aprovação) */
+  mode?: "read" | "write";
 };
 
 export type ConnectorPublicView = {

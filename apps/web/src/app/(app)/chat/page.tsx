@@ -12,6 +12,8 @@ import { ChatAttachMenu } from "@/components/ChatAttachMenu";
 import { ConnectorsSheet } from "@/components/ConnectorsSheet";
 import { ConnectorActionCard, type SuggestedConnector } from "@/components/ConnectorActionCard";
 import { ImageAnnotatorModal } from "@/components/ImageAnnotatorModal";
+import { StructuredMessage, type StructuredStep } from "@/components/chat/StructuredMessage";
+import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
 
 type Message = {
@@ -20,6 +22,8 @@ type Message = {
   content: string;
   timestamp: string;
   artifacts?: ArtifactRef[];
+  steps?: StructuredStep[];
+  trace?: { toolCalls?: ToolCallItem[] };
 };
 
 type MissionListItem = { id: string; objective: string; status: string };
@@ -52,6 +56,7 @@ function ChatPageInner() {
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [isConnectorsSheetOpen, setIsConnectorsSheetOpen] = useState(false);
   const [annotatorArtifact, setAnnotatorArtifact] = useState<ArtifactRef | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -238,74 +243,238 @@ function ChatPageInner() {
     setInputMessage("");
     setPendingArtifacts([]);
     setSending(true);
+    const controller = new AbortController();
+    setAbortController(controller);
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream, application/json",
+        },
         body: JSON.stringify({
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           artifactIds: activeArtifacts.map((a) => a.id),
           missionId: activeMissionId,
+          stream: true,
         }),
+        signal: controller.signal,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const errMsg =
-          typeof data.error === "string" && data.error.trim()
-            ? data.error
-            : `Falha ao enviar (${res.status})`;
-        setError(errMsg);
-        addToast(errMsg, "error");
-        return;
-      }
-      const reply =
-        typeof data.message?.content === "string" ? data.message.content.trim() : "";
-      if (reply) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "assistant" as const,
-            content: reply,
-            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          },
-        ]);
-      } else {
-        const errMsg = "Resposta vazia do servidor. Tente novamente.";
-        setError(errMsg);
-        addToast(errMsg, "error");
-      }
 
-      if (
-        data.suggestedPlan &&
-        Array.isArray(data.suggestedPlan.stepTitles) &&
-        data.suggestedPlan.stepTitles.length >= 3
-      ) {
-        setSuggestedPlan({
-          stepTitles: data.suggestedPlan.stepTitles.map((t: unknown) => String(t)),
-        });
-      }
-      if (Array.isArray(data.suggestedConnectors) && data.suggestedConnectors.length > 0) {
-        setSuggestedConnectors(
-          data.suggestedConnectors
-            .filter((c: unknown): c is Record<string, unknown> => typeof c === "object" && c !== null)
-            .map((c: Record<string, unknown>) => ({
-              provider: String(c.provider ?? ""),
-              displayName: String(c.displayName ?? c.provider ?? ""),
-              status: String(c.status ?? "disconnected"),
-              reason: c.reason ? String(c.reason) : undefined,
-            }))
-            .filter((c: SuggestedConnector) => c.provider.length > 0)
-        );
+      const isSSE = res.headers.get("content-type")?.includes("text/event-stream");
+
+      if (isSSE && res.body) {
+        const assistantId = crypto.randomUUID();
+        const initialAssistantMsg: Message = {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          steps: [],
+        };
+        setMessages((prev) => [...prev, initialAssistantMsg]);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+
+          for (const part of parts) {
+            if (!part.trim()) continue;
+            let eventName = "message";
+            let dataStr = "";
+
+            const lines = part.split("\n");
+            for (const line of lines) {
+              if (line.startsWith("event: ")) eventName = line.slice(7).trim();
+              else if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
+            }
+
+            if (!dataStr) continue;
+            try {
+              const parsed = JSON.parse(dataStr);
+
+              if (eventName === "reasoning_step") {
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    const prevSteps = m.steps ?? [];
+                    const stepItem: StructuredStep = {
+                      type: "reasoning",
+                      reasoning: { id: parsed.id, index: parsed.index, text: parsed.text },
+                    };
+                    return { ...m, steps: [...prevSteps, stepItem] };
+                  })
+                );
+              } else if (eventName === "tool_start") {
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    const prevSteps = m.steps ?? [];
+                    const toolItem: StructuredStep = {
+                      type: "tool_call",
+                      toolCall: {
+                        id: parsed.id,
+                        provider: parsed.provider,
+                        capability: parsed.capability,
+                        status: "executing",
+                        summaryInput:
+                          typeof parsed.summaryInput === "string"
+                            ? parsed.summaryInput
+                            : JSON.stringify(parsed.summaryInput ?? {}),
+                      },
+                    };
+                    return { ...m, steps: [...prevSteps, toolItem] };
+                  })
+                );
+              } else if (eventName === "tool_result") {
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    const prevSteps = (m.steps ?? []).map((s) => {
+                      if (s.type === "tool_call" && s.toolCall.id === parsed.id) {
+                        return {
+                          ...s,
+                          toolCall: {
+                            ...s.toolCall,
+                            status: parsed.status,
+                            summaryOutput: parsed.summaryOutput,
+                            fullInput: parsed.fullInput,
+                            fullOutput: parsed.fullOutput,
+                            durationMs: parsed.durationMs,
+                          },
+                        };
+                      }
+                      return s;
+                    });
+                    return { ...m, steps: prevSteps };
+                  })
+                );
+              } else if (eventName === "content_delta") {
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    return { ...m, content: (m.content ? m.content + " " : "") + parsed.text };
+                  })
+                );
+              } else if (eventName === "done") {
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    return {
+                      ...m,
+                      content: parsed.full || m.content,
+                      steps: parsed.steps ?? m.steps,
+                      trace: parsed.trace ?? m.trace,
+                    };
+                  })
+                );
+
+                if (
+                  parsed.suggestedPlan &&
+                  Array.isArray(parsed.suggestedPlan.stepTitles) &&
+                  parsed.suggestedPlan.stepTitles.length >= 3
+                ) {
+                  setSuggestedPlan({
+                    stepTitles: parsed.suggestedPlan.stepTitles.map((t: unknown) => String(t)),
+                  });
+                }
+                if (Array.isArray(parsed.suggestedConnectors) && parsed.suggestedConnectors.length > 0) {
+                  setSuggestedConnectors(
+                    parsed.suggestedConnectors
+                      .filter((c: unknown): c is Record<string, unknown> => typeof c === "object" && c !== null)
+                      .map((c: Record<string, unknown>) => ({
+                        provider: String(c.provider ?? ""),
+                        displayName: String(c.displayName ?? c.provider ?? ""),
+                        status: String(c.status ?? "disconnected"),
+                        reason: c.reason ? String(c.reason) : undefined,
+                      }))
+                      .filter((c: SuggestedConnector) => c.provider.length > 0)
+                  );
+                }
+              } else if (eventName === "error") {
+                addToast(parsed.error || "Erro durante transmissão", "error");
+              }
+            } catch {
+              /* ignore JSON parse errors */
+            }
+          }
+        }
       } else {
-        setSuggestedConnectors([]);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const errMsg =
+            typeof data.error === "string" && data.error.trim()
+              ? data.error
+              : `Falha ao enviar (${res.status})`;
+          setError(errMsg);
+          addToast(errMsg, "error");
+          return;
+        }
+        const reply =
+          typeof data.message?.content === "string" ? data.message.content.trim() : "";
+        if (reply) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant" as const,
+              content: reply,
+              timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              steps: Array.isArray(data.steps) ? data.steps : undefined,
+              trace: data.trace ?? undefined,
+            },
+          ]);
+        } else {
+          const errMsg = "Resposta vazia do servidor. Tente novamente.";
+          setError(errMsg);
+          addToast(errMsg, "error");
+        }
+
+        if (
+          data.suggestedPlan &&
+          Array.isArray(data.suggestedPlan.stepTitles) &&
+          data.suggestedPlan.stepTitles.length >= 3
+        ) {
+          setSuggestedPlan({
+            stepTitles: data.suggestedPlan.stepTitles.map((t: unknown) => String(t)),
+          });
+        }
+        if (Array.isArray(data.suggestedConnectors) && data.suggestedConnectors.length > 0) {
+          setSuggestedConnectors(
+            data.suggestedConnectors
+              .filter((c: unknown): c is Record<string, unknown> => typeof c === "object" && c !== null)
+              .map((c: Record<string, unknown>) => ({
+                provider: String(c.provider ?? ""),
+                displayName: String(c.displayName ?? c.provider ?? ""),
+                status: String(c.status ?? "disconnected"),
+                reason: c.reason ? String(c.reason) : undefined,
+              }))
+              .filter((c: SuggestedConnector) => c.provider.length > 0)
+          );
+        } else {
+          setSuggestedConnectors([]);
+        }
       }
-    } catch {
-      const errMsg = "Erro de rede ao enviar";
-      setError(errMsg);
-      addToast(errMsg, "error");
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") {
+        addToast("Transmissão cancelada pelo usuário.", "info");
+      } else {
+        const errMsg = "Erro de rede ao enviar";
+        setError(errMsg);
+        addToast(errMsg, "error");
+      }
     } finally {
       setSending(false);
+      setAbortController(null);
       setTimeout(() => textareaRef.current?.focus(), 50);
     }
   }
@@ -446,7 +615,12 @@ function ChatPageInner() {
                       : "bg-[var(--surface)] border border-[var(--border)]"
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{m.content}</div>
+                  <StructuredMessage
+                    role={m.role}
+                    content={m.content}
+                    steps={m.steps}
+                    trace={m.trace}
+                  />
                   {m.artifacts?.map((art) =>
                     art.thumbnailUrl ? (
                       <div key={art.id} className="mt-2 flex items-center gap-2">
@@ -472,7 +646,20 @@ function ChatPageInner() {
                 </div>
               </div>
             ))}
-            {sending && <div className="text-xs text-[var(--text-muted)]">{agentName} processando…</div>}
+            {sending && (
+              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                <span>{agentName} processando…</span>
+                {abortController && (
+                  <button
+                    type="button"
+                    onClick={() => abortController.abort()}
+                    className="ml-2 px-2 py-0.5 rounded border border-rose-500/40 text-rose-400 text-[10px] hover:bg-rose-500/10 cursor-pointer font-mono"
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            )}
 
             {suggestedPlan && suggestedPlan.stepTitles.length >= 3 ? (
               <div className="rounded-2xl border border-[var(--selo)]/40 bg-[var(--surface)] p-3 space-y-2">
@@ -637,7 +824,7 @@ function ChatPageInner() {
             <button
               type="submit"
               disabled={sending || (!inputMessage.trim() && pendingArtifacts.length === 0)}
-              className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold disabled:opacity-40"
+              className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold disabled:opacity-40 font-mono cursor-pointer"
             >
               Enviar
             </button>

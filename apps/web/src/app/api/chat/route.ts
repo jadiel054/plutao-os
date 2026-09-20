@@ -11,6 +11,7 @@ import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
+import { detectAndExecuteGitHubTool, type GitHubToolExecutionResult } from "@/lib/chat/githubToolRunner";
 
 export const runtime = "nodejs";
 
@@ -221,9 +222,6 @@ ${
     const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
     const lastUserText = lastUserMsg?.content || "";
 
-    // Roteamento inteligente de modelo:
-    // Se a mensagem contiver imagem ou documento binário (PDF, Excel) anexado e GEMINI_API_KEY estiver configurada,
-    // roteamos especificamente para o Gemini 3.1 Flash-Lite (gemini-3.1-flash-lite) via endpoint compatível com OpenAI.
     const hasImageOrBinary = validatedArtifacts.some((a) => {
       const meta = a.metadata || {};
       return (
@@ -274,6 +272,210 @@ ${
       });
     }
 
+    const isStreamRequested =
+      Boolean(body.stream) ||
+      req.headers.get("accept")?.includes("text/event-stream");
+
+    if (isStreamRequested) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          function emit(event: string, data: Record<string, unknown>) {
+            try {
+              controller.enqueue(
+                encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+              );
+            } catch {
+              /* ignore controller closed */
+            }
+          }
+
+          try {
+            emit("reasoning_step", {
+              id: crypto.randomUUID(),
+              index: 1,
+              text: "Analisando intenção e capacidades do Núcleo...",
+            });
+
+            let githubToolExec: GitHubToolExecutionResult = { executed: false };
+            if (githubConnected) {
+              const toolId = crypto.randomUUID();
+              githubToolExec = await detectAndExecuteGitHubTool({
+                text: lastUserText,
+                userId: user.id,
+                githubLogin,
+                missionId,
+              });
+
+              if (githubToolExec.executed && githubToolExec.capability) {
+                emit("tool_start", {
+                  id: toolId,
+                  provider: "github",
+                  capability: githubToolExec.capability,
+                  summaryInput: githubToolExec.trace?.input,
+                });
+
+                if (githubToolExec.trace) {
+                  emit("tool_result", {
+                    id: toolId,
+                    status: githubToolExec.trace.status,
+                    summaryOutput: githubToolExec.trace.output.slice(0, 300),
+                    fullInput: githubToolExec.trace.input,
+                    fullOutput: githubToolExec.trace.output,
+                    durationMs: githubToolExec.trace.durationMs,
+                  });
+                }
+              }
+            }
+
+            const payloadMessages: ModelMessage[] = [
+              { role: "system", content: systemPrompt },
+              ...history.slice(-10).map((m) => ({
+                role: m.role,
+                content: m.content,
+              })),
+            ];
+
+            if (githubToolExec.executed && githubToolExec.contextText) {
+              payloadMessages.push({
+                role: "system",
+                content: githubToolExec.contextText,
+              });
+            }
+
+            if (
+              VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig!.provider) &&
+              validatedArtifacts.length > 0
+            ) {
+              const imageParts = buildImageParts(validatedArtifacts);
+              if (imageParts.length > 0 && payloadMessages.length > 0) {
+                const lastIdx = payloadMessages.length - 1;
+                const existingContent =
+                  typeof payloadMessages[lastIdx].content === "string"
+                    ? (payloadMessages[lastIdx].content as string)
+                    : "";
+                payloadMessages[lastIdx] = {
+                  role: payloadMessages[lastIdx].role,
+                  content: [{ type: "text", text: existingContent }, ...imageParts],
+                };
+              }
+            }
+
+            let result;
+            let modelFallback = false;
+
+            try {
+              result = await chatCompletion(effectiveModelConfig!, payloadMessages);
+            } catch (err) {
+              const isGemini = effectiveModelConfig!.provider === "gemini";
+              const fallbackConfig = isGemini ? getModelConfig() : null;
+              if (isGemini && fallbackConfig) {
+                result = await chatCompletion(fallbackConfig, payloadMessages);
+                modelFallback = true;
+              } else {
+                throw err;
+              }
+            }
+
+            const assistantContent =
+              (result.content && result.content.trim()) ||
+              "Não consegui gerar uma resposta agora. Tente novamente.";
+
+            const words = assistantContent.split(" ");
+            let chunk = "";
+            for (let i = 0; i < words.length; i++) {
+              chunk += (i === 0 ? "" : " ") + words[i];
+              if (chunk.length >= 20 || i === words.length - 1) {
+                emit("content_delta", { text: chunk });
+                chunk = "";
+              }
+            }
+
+            const suggestedPlan = extractSuggestedPlan(assistantContent);
+            const suggestedConnectors = detectSuggestedConnectors({
+              lastUserText,
+              assistantText: assistantContent,
+              githubConnected,
+            });
+
+            const trace = githubToolExec.trace
+              ? { toolCalls: [githubToolExec.trace] }
+              : undefined;
+
+            const steps = [];
+            if (githubToolExec.executed) {
+              steps.push({
+                type: "reasoning" as const,
+                reasoning: {
+                  id: crypto.randomUUID(),
+                  index: 1,
+                  text: `Consultando conector GitHub para ${githubToolExec.capability ?? "dados"}...`,
+                },
+              });
+              if (githubToolExec.trace) {
+                steps.push({
+                  type: "tool_call" as const,
+                  toolCall: {
+                    id: githubToolExec.trace.id,
+                    provider: "github",
+                    capability: githubToolExec.trace.capability,
+                    status: githubToolExec.trace.status,
+                    summaryInput:
+                      typeof githubToolExec.trace.input === "string"
+                        ? githubToolExec.trace.input
+                        : JSON.stringify(githubToolExec.trace.input),
+                    summaryOutput: githubToolExec.trace.output.slice(0, 300),
+                    fullInput: githubToolExec.trace.input,
+                    fullOutput: githubToolExec.trace.output,
+                    durationMs: githubToolExec.trace.durationMs,
+                  },
+                });
+              }
+            }
+
+            emit("done", {
+              full: assistantContent,
+              provider: result.provider,
+              model: result.model,
+              modelFallback,
+              suggestedPlan: suggestedPlan
+                ? { stepTitles: suggestedPlan.stepTitles }
+                : null,
+              suggestedConnectors,
+              missionId,
+              connectors: { github: githubConnected },
+              steps: steps.length > 0 ? steps : undefined,
+              trace,
+            });
+          } catch (err) {
+            emit("error", {
+              error: err instanceof Error ? err.message : "Erro no streaming de resposta",
+            });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    let githubToolExec: GitHubToolExecutionResult = { executed: false };
+    if (githubConnected) {
+      githubToolExec = await detectAndExecuteGitHubTool({
+        text: lastUserText,
+        userId: user.id,
+        githubLogin,
+        missionId,
+      });
+    }
+
     const payloadMessages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
       ...history.slice(-10).map((m) => ({
@@ -281,6 +483,13 @@ ${
         content: m.content,
       })),
     ];
+
+    if (githubToolExec.executed && githubToolExec.contextText) {
+      payloadMessages.push({
+        role: "system",
+        content: githubToolExec.contextText,
+      });
+    }
 
     // Montar imageParts para QUALQUER provider com capacidade de visão (ex.: gemini, openai)
     if (VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig.provider) && validatedArtifacts.length > 0) {
@@ -314,7 +523,6 @@ ${
       if (isGemini && fallbackConfig && !isClient4xx) {
         console.warn("[chat] Gemini indisponível, fallback para", fallbackConfig.model, "-", errMsg);
 
-        // Se o fallbackConfig também for de visão (ex.: openai), garantir que imageParts estejam presentes se necessário
         if (VISION_CAPABLE_PROVIDERS.includes(fallbackConfig.provider) && validatedArtifacts.length > 0) {
           const imageParts = buildImageParts(validatedArtifacts);
           if (imageParts.length > 0 && payloadMessages.length > 0) {
@@ -359,6 +567,41 @@ ${
       githubConnected,
     });
 
+    const trace = githubToolExec.trace
+      ? { toolCalls: [githubToolExec.trace] }
+      : undefined;
+
+    const steps = [];
+    if (githubToolExec.executed) {
+      steps.push({
+        type: "reasoning" as const,
+        reasoning: {
+          id: crypto.randomUUID(),
+          index: 1,
+          text: `Consultando conector GitHub para ${githubToolExec.capability ?? "dados"}...`,
+        },
+      });
+      if (githubToolExec.trace) {
+        steps.push({
+          type: "tool_call" as const,
+          toolCall: {
+            id: githubToolExec.trace.id,
+            provider: "github",
+            capability: githubToolExec.trace.capability,
+            status: githubToolExec.trace.status,
+            summaryInput:
+              typeof githubToolExec.trace.input === "string"
+                ? githubToolExec.trace.input
+                : JSON.stringify(githubToolExec.trace.input),
+            summaryOutput: githubToolExec.trace.output.slice(0, 300),
+            fullInput: githubToolExec.trace.input,
+            fullOutput: githubToolExec.trace.output,
+            durationMs: githubToolExec.trace.durationMs,
+          },
+        });
+      }
+    }
+
     return NextResponse.json({
       message: { role: "assistant", content: assistantContent },
       readArtifacts: readArtifactIds,
@@ -372,6 +615,8 @@ ${
       suggestedConnectors,
       missionId,
       connectors: { github: githubConnected },
+      steps: steps.length > 0 ? steps : undefined,
+      trace,
     });
   } catch (e) {
     console.error("[chat POST]", e);

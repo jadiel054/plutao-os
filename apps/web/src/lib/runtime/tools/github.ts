@@ -3,8 +3,23 @@
  * Não roda sem status connected + access token válido.
  */
 
-import { getAccessToken } from "@/lib/connectors/service";
+import { getConnectorRow } from "@/lib/connectors/service";
+import { decryptToken } from "@/lib/connectors/crypto";
+import type { ConnectorCapability } from "@plutao/domain";
 import type { ToolResult } from "./types";
+
+function parseCapabilities(raw: unknown): ConnectorCapability[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((c): c is Record<string, unknown> => typeof c === "object" && c !== null)
+    .map((c) => ({
+      name: String(c.name ?? ""),
+      description: c.description ? String(c.description) : undefined,
+      kind: c.kind === "mcp_tool" ? ("mcp_tool" as const) : ("rest_api" as const),
+      mode: c.mode === "write" ? ("write" as const) : ("read" as const),
+    }))
+    .filter((c) => c.name.length > 0);
+}
 
 type GhAction =
   | "repos_list"
@@ -157,14 +172,53 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
     };
   }
 
-  const token = await getAccessToken(userId, "github");
-  if (!token) {
+  const row = await getConnectorRow(userId, "github");
+  if (!row || row.status !== "connected" || !row.accessTokenEnc) {
     return {
       ok: false,
       tool: "github",
       input,
       error:
         "GitHub não conectado ou token indisponível. Conecte em Configurações → Conectores.",
+      durationMs: Date.now() - started,
+    };
+  }
+
+  const caps = parseCapabilities(row.capabilities);
+  const cap = caps.find((c) => c.name === parsed.action);
+  if (!cap) {
+    return {
+      ok: false,
+      tool: "github",
+      input,
+      error: `Capability '${parsed.action}' não está autorizada no conector GitHub do usuário.`,
+      durationMs: Date.now() - started,
+    };
+  }
+
+  if (cap.mode === "write") {
+    return {
+      ok: false,
+      tool: "github",
+      input,
+      error: `Ação de escrita '${parsed.action}' recusada: requer portão de confirmação humana (Princípio 1) ainda não implementado.`,
+      durationMs: Date.now() - started,
+    };
+  }
+
+  let token: string | null = null;
+  try {
+    token = decryptToken(row.accessTokenEnc);
+  } catch {
+    token = null;
+  }
+
+  if (!token) {
+    return {
+      ok: false,
+      tool: "github",
+      input,
+      error: "Falha ao descriptografar token do conector GitHub.",
       durationMs: Date.now() - started,
     };
   }
