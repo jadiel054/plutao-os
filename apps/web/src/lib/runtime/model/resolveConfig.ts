@@ -63,13 +63,13 @@ const CLOUD_ROUTES: Record<string, CloudRoute> = {
   // Google Gemini (endpoint OpenAI-compatible)
   "gemini/gemini-3.1-flash-lite": {
     provider: "gemini",
-    apiModel: "gemini-2.0-flash",
+    apiModel: "gemini-3.1-flash-lite",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     envKeys: ["GEMINI_API_KEY"],
   },
   "gemini/gemini-3.1-pro": {
     provider: "gemini",
-    apiModel: "gemini-2.0-flash",
+    apiModel: "gemini-3.1-pro",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     envKeys: ["GEMINI_API_KEY"],
   },
