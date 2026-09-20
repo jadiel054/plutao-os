@@ -21,12 +21,15 @@ export async function GET() {
         status: missions.status,
         currentState: missions.currentState,
         definitionOfDone: missions.definitionOfDone,
+        projectId: missions.projectId,
+        isPinned: missions.isPinned,
+        shareToken: missions.shareToken,
         createdAt: missions.createdAt,
         updatedAt: missions.updatedAt,
       })
       .from(missions)
       .where(eq(missions.userId, user.id))
-      .orderBy(desc(missions.createdAt))
+      .orderBy(desc(missions.isPinned), desc(missions.createdAt))
       .limit(50);
 
     return NextResponse.json({ missions: rows });

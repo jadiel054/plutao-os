@@ -37,7 +37,16 @@ type QueuedMessage = {
   artifacts?: ArtifactRef[];
 };
 
-type MissionListItem = { id: string; objective: string; status: string };
+type MissionListItem = {
+  id: string;
+  objective: string;
+  status: string;
+  isPinned?: boolean;
+  projectId?: string | null;
+  shareToken?: string | null;
+};
+
+type ProjectItem = { id: string; name: string };
 
 type SuggestedPlan = { stepTitles: string[] };
 
@@ -61,6 +70,7 @@ function ChatPageInner() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [recentMissions, setRecentMissions] = useState<MissionListItem[]>([]);
+  const [projectsList, setProjectsList] = useState<ProjectItem[]>([]);
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPlan | null>(null);
   const [suggestedConnectors, setSuggestedConnectors] = useState<SuggestedConnector[]>([])
   const [suggestedFollowUps, setSuggestedFollowUps] = useState<FollowUpChip[]>([]);
@@ -99,15 +109,27 @@ function ChatPageInner() {
 
   const refreshMissions = useCallback(async () => {
     try {
-      const mRes = await fetch("/api/missions?limit=8", { cache: "no-store" });
+      const mRes = await fetch("/api/missions", { cache: "no-store" });
       if (mRes.ok) {
         const mData = await mRes.json();
         const list = Array.isArray(mData.missions)
-          ? mData.missions.map((m: { id: string; objective: string; status: string }) => ({
-              id: m.id,
-              objective: m.objective,
-              status: m.status,
-            }))
+          ? mData.missions.map(
+              (m: {
+                id: string;
+                objective: string;
+                status: string;
+                isPinned?: boolean;
+                projectId?: string | null;
+                shareToken?: string | null;
+              }) => ({
+                id: m.id,
+                objective: m.objective,
+                status: m.status,
+                isPinned: Boolean(m.isPinned),
+                projectId: m.projectId ?? null,
+                shareToken: m.shareToken ?? null,
+              })
+            )
           : [];
         setRecentMissions(list);
       }
@@ -128,6 +150,21 @@ function ChatPageInner() {
         if (d.agent?.name) setAgentName(d.agent.name);
         if (d.agent?.identity) setAgentIdentity(d.agent.identity);
       }
+      try {
+        const pRes = await fetch("/api/projects", { cache: "no-store" });
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          if (Array.isArray(pData.projects)) {
+            setProjectsList(
+              pData.projects.map((p: { id: string; name: string }) => ({
+                id: p.id,
+                name: p.name,
+              }))
+            );
+          }
+        }
+      } catch { /* ignore */ }
+
       if (email) {
         const saved = localStorage.getItem(`plutao_chat_${email}`);
         if (saved) {
@@ -190,6 +227,59 @@ function ChatPageInner() {
       }
     }
   }, [sending]);
+
+  const handleRenameMission = async (id: string, newTitle: string) => {
+    const res = await fetch(`/api/missions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "rename", title: newTitle }),
+    });
+    if (!res.ok) throw new Error("Falha ao renomear conversa");
+    await refreshMissions();
+  };
+
+  const handlePinMission = async (id: string, isPinned: boolean) => {
+    const res = await fetch(`/api/missions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "pin", isPinned }),
+    });
+    if (!res.ok) throw new Error("Falha ao alterar fixação da conversa");
+    await refreshMissions();
+  };
+
+  const handleMoveProject = async (id: string, projectId: string | null) => {
+    const res = await fetch(`/api/missions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "move_project", projectId }),
+    });
+    if (!res.ok) throw new Error("Falha ao mover para projeto");
+    await refreshMissions();
+  };
+
+  const handleShareMission = async (id: string, enable: boolean): Promise<string | null> => {
+    const res = await fetch(`/api/missions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "share", enable }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error("Falha ao atualizar compartilhamento");
+    await refreshMissions();
+    return data.shareToken ?? null;
+  };
+
+  const handleDeleteMission = async (id: string) => {
+    const res = await fetch(`/api/missions/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Falha ao excluir conversa");
+    if (activeMissionId === id) {
+      selectMission(null);
+    }
+    await refreshMissions();
+  };
 
   function selectMission(id: string | null) {
     setActiveMissionId(id);
@@ -814,11 +904,18 @@ function ChatPageInner() {
         onClose={() => setIsChatMenuOpen(false)}
         userEmail={userEmail}
         userInitial={(userEmail?.[0] || "P").toUpperCase()}
-        history={recentMissions.map((m) => ({
-          id: m.id,
-          title: m.objective.slice(0, 48) || "Missão",
-          subtitle: m.status,
-        }))}
+        history={recentMissions.map((m) => {
+          const proj = projectsList.find((p) => p.id === m.projectId);
+          return {
+            id: m.id,
+            title: m.objective || "Missão",
+            subtitle: m.status,
+            isPinned: m.isPinned,
+            projectId: m.projectId,
+            projectName: proj?.name,
+            shareToken: m.shareToken,
+          };
+        })}
         onNewChat={() => {
           setMessages([]);
           setSuggestedPlan(null);
@@ -827,6 +924,13 @@ function ChatPageInner() {
           if (userEmail) localStorage.removeItem(`plutao_chat_${userEmail}`);
         }}
         onSelectHistory={(id) => selectMission(id)}
+        onRename={handleRenameMission}
+        onPin={handlePinMission}
+        onMoveProject={handleMoveProject}
+        onShare={handleShareMission}
+        onDelete={handleDeleteMission}
+        projectsList={projectsList}
+        onNotify={(msg, type) => addToast(msg, type ?? "info")}
       />
       <Header
         userEmail={userEmail}
