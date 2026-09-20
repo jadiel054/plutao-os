@@ -226,9 +226,9 @@ function ChatPageInner() {
     }
   }
 
-  async function handleSend(e?: FormEvent) {
+  async function handleSend(e?: FormEvent, overrideText?: string) {
     if (e) e.preventDefault();
-    const textRaw = inputMessage.trim();
+    const textRaw = (overrideText ?? inputMessage).trim();
     if ((!textRaw && pendingArtifacts.length === 0) || sending) return;
     if (textRaw.length > 4000) {
       addToast("Mensagem excede 4.000 caracteres.", "error");

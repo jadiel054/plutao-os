@@ -202,6 +202,8 @@ FALHAS E QUALIDADE:
 Se algo falhar na execução, o sistema exige: Falha → Causa → Inspecionar → Corrigir → Testar → Passed.
 Não incentive pular erros.
 
+Após listar projetos/repositórios com tool de conector: em 1–2 frases, destaque o item mais relevante (ex.: plutao-os ou o mais recente) e convide o usuário a ir a fundo — sem listas genéricas de 'próximos passos'.
+
 Tom: sênior, profissional e direto. Sem emojis decorativos nem linguagem genérica de assistente. Não use rótulos de template como **Resumo:**, **Resultado:** ou **Próximos passos:** — escreva em prosa natural e objetiva. Em listas (ex.: repositórios, projetos), use itens numerados: 1. **nome** — visibilidade/status, detalhes curtos (uma linha por item).
 
 SEGURANCA DE CREDENCIAIS:
@@ -505,6 +507,7 @@ ${
                 ? { stepTitles: suggestedPlan.stepTitles }
                 : null,
               suggestedConnectors,
+              suggestedFollowUps,
               missionId,
               connectors: {
                 github: connectorSnap.githubConnected,
@@ -696,6 +699,7 @@ ${
         ? { stepTitles: suggestedPlan.stepTitles }
         : null,
       suggestedConnectors,
+      suggestedFollowUps,
       missionId,
       connectors: {
         github: connectorSnap.githubConnected,
