@@ -7,7 +7,7 @@
  *   * → error → disconnected | authorizing (reconectar)
  */
 
-export type ConnectorProviderId = "github";
+export type ConnectorProviderId = "github" | "vercel";
 
 export type ConnectorStatus =
   | "disconnected"
@@ -50,7 +50,7 @@ export type ConnectorCatalogEntry = {
   defaultServerUrl: string | null;
 };
 
-/** Catálogo V1 — só GitHub. Outros providers entram sem genérico. */
+/** Catálogo V1 — GitHub + Vercel (Wave A). */
 export const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
   {
     provider: "github",
@@ -59,6 +59,14 @@ export const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
       "Repositórios, issues, pull requests e actions da sua conta. OAuth real; o Executor só usa o que estiver conectado.",
     defaultScopes: ["repo", "read:user", "workflow"],
     defaultServerUrl: "https://api.github.com",
+  },
+  {
+    provider: "vercel",
+    displayName: "Vercel",
+    description:
+      "Projetos, deployments e logs. Integration OAuth oficial ou Access Token de escopo mínimo; token cifrado, nunca no chat.",
+    defaultScopes: [],
+    defaultServerUrl: "https://api.vercel.com",
   },
 ];
 
