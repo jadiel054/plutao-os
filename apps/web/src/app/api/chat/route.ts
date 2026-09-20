@@ -13,6 +13,7 @@ import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/i
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
 import { detectAndExecuteGitHubTool, type GitHubToolExecutionResult } from "@/lib/chat/githubToolRunner";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
+import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
 
 export const runtime = "nodejs";
 
@@ -62,6 +63,13 @@ export async function POST(req: NextRequest) {
     if (history.length === 0) {
       return NextResponse.json({ error: "Mensagem inválida ou vazia" }, { status: 400 });
     }
+
+    let secretsExposed = false;
+    history = history.map((msg) => {
+      const r = redactSecrets(msg.content);
+      if (r.hadSecrets) secretsExposed = true;
+      return { ...msg, content: r.text };
+    });
 
     for (const msg of history) {
       if (msg.content.length > MAX_MESSAGE_LENGTH) {
@@ -214,11 +222,23 @@ Se algo falhar na execução, o sistema exige: Falha → Causa → Inspecionar �
 Não incentive pular erros.
 
 Tom: sênior, profissional e direto. Sem emojis decorativos nem linguagem genérica de assistente. Não use rótulos de template como **Resumo:**, **Resultado:** ou **Próximos passos:** — escreva em prosa natural e objetiva. Em listas (ex.: repositórios), use itens numerados: 1. **nome** — visibilidade, branch main (uma linha por item, metadados curtos).
+
+SEGURANCA DE CREDENCIAIS:
+- Tokens e API keys de conectores (GitHub, Vercel, Neon, Render, Stripe, Exa) sao dados sensiveis. Nunca peca para colar secret no chat; oriente a usar Configuracoes > Conectores.
+- Se o usuario colar uma chave no chat, o sistema ja mascara (ex.: sk_live_****abcd). Nao repita o valor completo, nao grave em artefatos, nao ecoe na resposta.
+- Ao concluir tarefa em que credencial pode ter vazado no historico, lembre em uma frase: revogue a chave no painel do provedor se foi exposta em texto claro.
+- Prefira o token ja conectado no runtime em vez de qualquer string colada pelo usuario.
 ${
   artifactBlocks
     ? `O usuário pode anexar arquivos. Texto e planilhas chegam como conteúdo textual no contexto; imagens chegam como partes visuais quando processadas por um modelo multimodal. Se um anexo estiver visível no contexto, analise-o normalmente. Se por alguma falha técnica o conteúdo de um anexo não tiver chegado, seja honesto, diga que não recebeu o conteúdo e peça para tentar novamente — não finja ter visto.\n\nConteúdo dos anexos em texto:\n${artifactBlocks}`
     : ""
 }`;
+
+    const systemPromptFinal = secretsExposed
+      ? systemPrompt +
+        "\n\nAVISO RUNTIME: " +
+        secretExposureNotice([{ kind: "exposta_no_chat", masked: "****", start: 0, end: 0 }])
+      : systemPrompt;
 
     const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
     const lastUserText = lastUserMsg?.content || "";
@@ -351,7 +371,7 @@ ${
             // FASE 3 — RESPOSTA (Content Delta & Done)
             // ==========================================
             const payloadMessages: ModelMessage[] = [
-              { role: "system", content: systemPrompt },
+              { role: "system", content: systemPromptFinal },
               ...history.slice(-10).map((m) => ({
                 role: m.role,
                 content: m.content,
@@ -497,7 +517,7 @@ ${
     }
 
     const payloadMessages: ModelMessage[] = [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: systemPromptFinal },
       ...history.slice(-10).map((m) => ({
         role: m.role,
         content: m.content,

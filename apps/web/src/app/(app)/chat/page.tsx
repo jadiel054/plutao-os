@@ -15,6 +15,7 @@ import { ConnectorActionCard, type SuggestedConnector } from "@/components/Conne
 import { ImageAnnotatorModal } from "@/components/ImageAnnotatorModal";
 import { StructuredMessage, type StructuredStep } from "@/components/chat/StructuredMessage";
 import { MessageActions } from "@/components/chat/MessageActions";
+import { redactSecrets } from "@/lib/security/credentials";
 import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
 
@@ -115,7 +116,15 @@ function ChatPageInner() {
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) setMessages(parsed);
+            if (Array.isArray(parsed)) {
+              setMessages(
+                parsed.map((m: Message) =>
+                  m.role === "user" && typeof m.content === "string"
+                    ? { ...m, content: redactSecrets(m.content).text }
+                    : m
+                )
+              );
+            }
           } catch { /* ignore */ }
         }
         const savedMission = localStorage.getItem(`plutao_chat_mission_${email}`);
@@ -219,11 +228,20 @@ function ChatPageInner() {
 
   async function handleSend(e?: FormEvent) {
     if (e) e.preventDefault();
-    const text = inputMessage.trim();
-    if ((!text && pendingArtifacts.length === 0) || sending) return;
-    if (text.length > 4000) {
+    const textRaw = inputMessage.trim();
+    if ((!textRaw && pendingArtifacts.length === 0) || sending) return;
+    if (textRaw.length > 4000) {
       addToast("Mensagem excede 4.000 caracteres.", "error");
       return;
+    }
+    const redacted = redactSecrets(textRaw);
+    const text = redacted.text;
+    if (redacted.hadSecrets) {
+      addToast(
+        "Credencial detectada e mascarada. Use Conectores para ligar APIs. Revogue a chave se vazou em texto claro.",
+        "warning",
+        "Seguranca"
+      );
     }
     setError(null);
     setSuggestedPlan(null);
