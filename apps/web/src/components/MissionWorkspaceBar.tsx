@@ -28,13 +28,13 @@ export function MissionWorkspaceBar({
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isSilent = false) => {
     if (!missionId) {
       setPlan(null);
       setObjective("");
       return;
     }
-    setLoading(true);
+    if (!isSilent) setLoading(true);
     try {
       const res = await fetch(`/api/missions/${missionId}/plan`, {
         cache: "no-store",
@@ -49,18 +49,18 @@ export function MissionWorkspaceBar({
     } catch {
       setPlan(null);
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   }, [missionId]);
 
   useEffect(() => {
-    void load();
+    void load(false);
   }, [load]);
 
   useEffect(() => {
     if (!missionId) return;
     const id = window.setInterval(() => {
-      void load();
+      void load(true);
     }, 2500);
     return () => window.clearInterval(id);
   }, [missionId, load]);

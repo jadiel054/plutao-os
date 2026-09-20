@@ -56,7 +56,7 @@ export function StructuredMessage({
 }: StructuredMessageProps) {
   if (role === "user") {
     return (
-      <div className="whitespace-pre-wrap">
+      <div className="whitespace-pre-wrap [overflow-wrap:anywhere] break-words">
         {content}
         {isEdited && (
           <span className="ml-1.5 text-[10px] opacity-70 font-normal italic">
@@ -83,7 +83,7 @@ export function StructuredMessage({
   const isReasoningStreaming = isStreaming && toolCallSteps.length === 0 && !content;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 [overflow-wrap:anywhere] break-words">
       {reasoningSteps.length > 0 && (
         <ReasoningBlock steps={reasoningSteps} isStreaming={isReasoningStreaming} />
       )}

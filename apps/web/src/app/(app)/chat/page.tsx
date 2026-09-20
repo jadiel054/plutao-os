@@ -432,7 +432,7 @@ function ChatPageInner() {
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== assistantId) return m;
-                    return { ...m, content: (m.content ? m.content + " " : "") + parsed.text };
+                    return { ...m, content: (m.content || "") + parsed.text };
                   })
                 );
               } else if (eventName === "done") {
@@ -469,6 +469,9 @@ function ChatPageInner() {
                       }))
                       .filter((c: SuggestedConnector) => c.provider.length > 0)
                   );
+                }
+                if (parsed.modelFallback) {
+                  addToast("Provedor principal indisponível, respondendo com modelo de contingência.", "warning");
                 }
                 if (Array.isArray(parsed.suggestedFollowUps) && parsed.suggestedFollowUps.length > 0) {
                   setSuggestedFollowUps(
@@ -991,8 +994,7 @@ function ChatPageInner() {
                 onDismiss={() => setSuggestedFollowUps([])}
                 onSelect={(prompt) => {
                   setSuggestedFollowUps([]);
-                  setInputMessage(prompt);
-                  setTimeout(() => textareaRef.current?.focus(), 50);
+                  void handleSend(undefined, prompt);
                 }}
               />
             ) : null}
@@ -1002,8 +1004,15 @@ function ChatPageInner() {
         )}
 
         {error && (
-          <div className="mb-2 p-2 rounded-xl border border-[var(--danger)]/50 text-[var(--danger)] text-xs">
-            {error}
+          <div className="mb-2 p-3 rounded-xl border border-[var(--danger)]/50 text-[var(--danger)] text-xs flex items-center justify-between gap-2 bg-[var(--surface)] font-mono">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => void regenerateLast()}
+              className="px-2.5 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] font-bold text-[11px] shrink-0 cursor-pointer font-sans"
+            >
+              Tentar com outro modelo
+            </button>
           </div>
         )}
 
