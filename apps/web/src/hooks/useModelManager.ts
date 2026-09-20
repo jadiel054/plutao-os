@@ -205,15 +205,31 @@ export function useModelManager() {
           });
         }
       } else {
-        // Cloud Provider execution simulation/api call
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        const response = await fetch("/api/model/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            modelId: model.id,
+            prompt: prompt || "Explique o sistema Plutão em 2 frases curtas.",
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
         const latency = Math.round(performance.now() - startTime);
 
-        setTestResult({
-          output: `[${model.name} - API Nuvem]: Olá! Recebi sua mensagem: "${prompt}". O modelo ${model.name} está operacional e respondendo com baixa latência via provedor ${model.providerName}.`,
-          latencyMs: latency,
-          tokensGenerated: 42,
-        });
+        if (response.ok && data.output) {
+          setTestResult({
+            output: data.output,
+            latencyMs: data.latencyMs || latency,
+            tokensGenerated: data.tokensGenerated || Math.round((data.output || "").length / 4),
+          });
+        } else {
+          setTestResult({
+            output: "",
+            latencyMs: data.latencyMs || latency,
+            error: data.error || `Falha no teste de inferência real do modelo ${model.name}`,
+          });
+        }
       }
     } catch (err) {
       const latency = Math.round(performance.now() - startTime);

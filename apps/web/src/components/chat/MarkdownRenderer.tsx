@@ -135,7 +135,7 @@ function parseInlineMarkdown(text: string): React.ReactNode {
             href={match.url} 
             target="_blank" 
             rel="noopener noreferrer"
-            className="text-[var(--selo)] underline hover:text-[var(--nucleo)] transition-colors"
+            className="text-[var(--selo)] underline hover:text-[var(--nucleo)] transition-colors [overflow-wrap:anywhere] break-words"
           >
             {match.text}
           </a>
@@ -259,7 +259,7 @@ function parseBlock(text: string, key: string): React.ReactNode {
   
   // Parágrafo comum
   return (
-    <p key={key} className="whitespace-pre-wrap text-[var(--text-primary)] leading-relaxed">
+    <p key={key} className="whitespace-pre-wrap text-[var(--text-primary)] leading-relaxed [overflow-wrap:anywhere] break-words">
       {parseInlineMarkdown(text)}
     </p>
   );
@@ -278,7 +278,7 @@ export function MarkdownRenderer({ text }: MarkdownRendererProps) {
   const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
   
   return (
-    <div className="space-y-2 text-[14.5px] leading-relaxed">
+    <div className="space-y-2 text-[14.5px] leading-relaxed [overflow-wrap:anywhere] break-words">
       {blocks.map((block, index) => {
         // Verificar se é uma lista (múltiplas linhas começando com - ou 1.)
         const lines = block.split('\n');

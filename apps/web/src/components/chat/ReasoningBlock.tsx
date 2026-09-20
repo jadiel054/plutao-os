@@ -29,7 +29,7 @@ export function ReasoningBlock({ steps, isStreaming = false }: ReasoningBlockPro
   if (!steps || steps.length === 0) return null;
 
   return (
-    <div className="my-3 rounded-2xl border border-[var(--border)]/70 bg-[var(--surface)] overflow-hidden shadow-sm">
+    <div className="my-3 rounded-2xl border border-[var(--border)]/70 bg-[var(--surface)] overflow-hidden shadow-sm relative z-0 min-w-0 max-w-full">
       {/* Header */}
       <button
         type="button"

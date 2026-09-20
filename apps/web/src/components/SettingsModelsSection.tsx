@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useModelMode } from "@/hooks/useModelMode";
 import { useModelManager } from "@/hooks/useModelManager";
 import { ModelFilterMenu } from "@/components/models/ModelFilterMenu";
@@ -12,9 +12,35 @@ type Props = {
   onNotify: (message: string, type?: "success" | "info" | "warning" | "error", title?: string) => void;
 };
 
+type ModelFailureLog = {
+  modelId: string;
+  modelName: string;
+  error: string;
+  timestamp: string;
+  count: number;
+};
+
 export function SettingsModelsSection({ onNotify }: Props) {
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const [selectedTestModel, setSelectedTestModel] = useState<AIModel | null>(null);
+  const [autoFallbackEnabled, setAutoFallbackEnabled] = useState<boolean>(true);
+  const [failureLogs, setFailureLogs] = useState<ModelFailureLog[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const savedToggle = localStorage.getItem("plutao_auto_model_fallback");
+      if (savedToggle !== null) {
+        setAutoFallbackEnabled(savedToggle === "true");
+      }
+      const savedLogs = localStorage.getItem("plutao_model_failures");
+      if (savedLogs) {
+        setFailureLogs(JSON.parse(savedLogs));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const {
     mode,
@@ -88,6 +114,80 @@ export function SettingsModelsSection({ onNotify }: Props) {
             })
           }
         />
+      </div>
+
+      {/* Auto Fallback Toggle */}
+      <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-[var(--text-primary)]">Substituição automática de modelo</h3>
+            <p className="text-xs text-[var(--text-muted)]">
+              Troca automaticamente de modelo na lista de preferência caso ocorra falha (timeout, 5xx ou resposta vazia).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !autoFallbackEnabled;
+              setAutoFallbackEnabled(next);
+              localStorage.setItem("plutao_auto_model_fallback", String(next));
+              onNotify(`Substituição automática ${next ? "ativada" : "desativada"}`, "info");
+            }}
+            className={`px-3 py-1.5 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+              autoFallbackEnabled
+                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                : "bg-[var(--base)] text-[var(--text-muted)] border-[var(--border)]"
+            }`}
+          >
+            {autoFallbackEnabled ? "ON (Ativo)" : "OFF (Desativado)"}
+          </button>
+        </div>
+      </div>
+
+      {/* Local Failure Log */}
+      <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-[var(--text-primary)]">Log local de falhas por modelo</h3>
+            <p className="text-xs text-[var(--text-muted)]">
+              Registro de instabilidades ou timeouts registrados neste dispositivo.
+            </p>
+          </div>
+          {failureLogs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.removeItem("plutao_model_failures");
+                setFailureLogs([]);
+                onNotify("Log de falhas limpo", "info");
+              }}
+              className="px-2.5 py-1 rounded-lg border border-[var(--border)] text-[10px] font-mono text-[var(--text-muted)] hover:text-red-400 hover:border-red-500/30 cursor-pointer shrink-0"
+            >
+              Limpar histórico
+            </button>
+          )}
+        </div>
+
+        {failureLogs.length === 0 ? (
+          <p className="text-xs text-[var(--text-muted)] font-mono py-2">Nenhuma falha registrada recentemente.</p>
+        ) : (
+          <div className="space-y-2 max-h-48 overflow-y-auto pt-1">
+            {failureLogs.map((log, i) => (
+              <div key={i} className="flex items-center justify-between text-xs font-mono p-2 rounded-lg bg-[var(--base)] border border-[var(--border)] gap-2">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <span className="font-bold text-[var(--text-primary)] block truncate">{log.modelName || log.modelId}</span>
+                  <span className="block text-[10px] text-red-400 truncate max-w-sm">{log.error}</span>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="inline-block px-1.5 py-0.5 rounded bg-red-950/40 border border-red-500/30 text-red-300 font-bold text-[10px]">
+                    {log.count} {log.count === 1 ? "falha" : "falhas"}
+                  </span>
+                  <span className="block text-[10px] text-[var(--text-muted)]">{log.timestamp}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] space-y-3">

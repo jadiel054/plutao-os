@@ -20,6 +20,7 @@ Este documento registra o estado observado no repositório. Capacidade só é **
 | Card inline Conectar/Pular | **IMPLEMENTED** | `suggestedConnectors` + `ConnectorActionCard`. |
 | Navigation `/planos` + Founder Pricing | **VERIFICADO** | Rota `/planos` acessível via MobileNav, Header, UserMenu e ChatHistoryDrawer; preço fundador escalonado (R$19/29/39) por posição. |
 | Migration 0006 plans_billing.sql | **IMPLEMENTED** | `packages/db/drizzle/0006_plans_billing.sql` sincronizado com schema e journal. |
+| Correções P2 UX & Modelos | **VERIFICADO** | FollowUpChips com envio direto, overflow-wrap em links, deduplicação de stream, polling silencioso em MissionWorkspaceBar, teste real de inferência e fallback/log local de falhas. |
 | M1–M3 Conectores UI + OAuth rotas | **IMPLEMENTED** | Sheet, Settings, authorize/callback/disconnect. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo original. |
 | Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml`. |
