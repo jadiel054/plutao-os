@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, KeyboardEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/components/Header";
+import { ChatHistoryDrawer } from "@/components/ChatHistoryDrawer";
 import { MobileNav } from "@/components/MobileNav";
 import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -57,6 +58,7 @@ function ChatPageInner() {
   const [isConnectorsSheetOpen, setIsConnectorsSheetOpen] = useState(false);
   const [annotatorArtifact, setAnnotatorArtifact] = useState<ArtifactRef | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -589,7 +591,40 @@ function ChatPageInner() {
 
   return (
     <div className="min-h-dvh flex flex-col bg-[var(--base)] text-[var(--text-primary)] pb-20 sm:pb-4">
-      <Header userEmail={userEmail} onNotify={(msg, type) => addToast(msg, type)} />
+      <>
+      <ChatHistoryDrawer
+        open={isChatMenuOpen}
+        onClose={() => setIsChatMenuOpen(false)}
+        userEmail={userEmail}
+        userInitial={(userEmail?.[0] || "P").toUpperCase()}
+        history={recentMissions.map((m) => ({
+          id: m.id,
+          title: m.objective.slice(0, 48) || "Missão",
+          subtitle: m.status,
+        }))}
+        onNewChat={() => {
+          setMessages([]);
+          setSuggestedPlan(null);
+          setSuggestedConnectors([]);
+          setError(null);
+          if (userEmail) localStorage.removeItem(`plutao_chat_${userEmail}`);
+        }}
+        onSelectHistory={(id) => selectMission(id)}
+      />
+      <Header
+        userEmail={userEmail}
+        onNotify={(msg, type) => addToast(msg, type)}
+        variant="chat"
+        onOpenMenu={() => setIsChatMenuOpen(true)}
+        onNewChat={() => {
+          setMessages([]);
+          setSuggestedPlan(null);
+          setSuggestedConnectors([]);
+          setError(null);
+          if (userEmail) localStorage.removeItem(`plutao_chat_${userEmail}`);
+        }}
+      />
+    </>
       <main className="flex-1 mx-auto max-w-4xl w-full flex flex-col p-4 overflow-hidden">
         {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center py-12 text-center space-y-4">
