@@ -1,0 +1,39 @@
+name: apply-premium-chat-ui
+on:
+  push:
+    paths:
+      - "tmp/TRIGGER_PREMIUM_CHAT_UI"
+    branches:
+      - main
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Write components and patch page
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          from pathlib import Path
+          import base64
+          root = Path("tmp/premium-chat-ui")
+          mapping = {
+            "ChatHistoryDrawer.tsx": "apps/web/src/components/ChatHistoryDrawer.tsx",
+            "ChatAttachMenu.tsx": "apps/web/src/components/ChatAttachMenu.tsx",
+            "Header.tsx": "apps/web/src/components/Header.tsx",
+          }
+          for name, dest in mapping.items():
+            data = base64.b64decode((root / f"{name}.b64").read_text())
+            Path(dest).write_bytes(data)
+            print("wrote", dest, len(data))
+          exec((root / "page_patch.py").read_text())
+          PY
+          git config user.name "plutao-bot"
+          git config user.email "bot@plutao.local"
+          git add apps/web/src/components/ChatHistoryDrawer.tsx apps/web/src/components/ChatAttachMenu.tsx apps/web/src/components/Header.tsx "apps/web/src/app/(app)/chat/page.tsx"
+          git commit -m "feat(chat): UI premium — drawer histórico, header limpo, menu + profissional"
+          git push origin HEAD:main
