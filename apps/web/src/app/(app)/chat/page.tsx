@@ -475,7 +475,7 @@ function ChatPageInner() {
     } finally {
       setSending(false);
       setAbortController(null);
-      setTimeout(() => textareaRef.current?.focus(), 50);
+      // no auto-focus after send (mobile keyboard)
     }
   }
 
@@ -721,7 +721,7 @@ function ChatPageInner() {
         )}
 
         <div className="space-y-2 mb-2">
-          {recentMissions.length > 0 ? (
+          {messages.length === 0 && recentMissions.length > 0 ? (
             <div className="flex items-center gap-2 overflow-x-auto pb-1">
               <span className="text-[10px] font-mono text-[var(--text-muted)] shrink-0">Missão</span>
               <button
