@@ -5,6 +5,8 @@
 
 import { getConnectorRow } from "@/lib/connectors/service";
 import { decryptToken } from "@/lib/connectors/crypto";
+import { runRestCapability } from "@/lib/connectors/runRestCapability";
+import { githubManifest } from "@/lib/connectors/manifests/github";
 import type { ConnectorCapability } from "@plutao/domain";
 import type { ToolResult } from "./types";
 
@@ -73,92 +75,6 @@ function parseInput(raw: string): GhPayload | { error: string } {
   }
 }
 
-async function ghFetch(
-  token: string,
-  path: string
-): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-  const res = await fetch(`https://api.github.com${path}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "Plutao-OS",
-    },
-  });
-  const text = await res.text();
-  let data: unknown = text;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    /* plain */
-  }
-  if (!res.ok) {
-    const msg =
-      typeof data === "object" &&
-      data &&
-      "message" in data &&
-      typeof (data as { message: unknown }).message === "string"
-        ? (data as { message: string }).message
-        : `GitHub HTTP ${res.status}`;
-    return { ok: false, error: msg };
-  }
-  return { ok: true, data };
-}
-
-function summarize(data: unknown, action: GhAction): string {
-  if (Array.isArray(data)) {
-    if (action === "repos_list") {
-      const lines = data.slice(0, 15).map((r) => {
-        const o = r as Record<string, unknown>;
-        return `- ${o.full_name} (${o.private ? "private" : "public"}) · ${o.default_branch ?? ""}`;
-      });
-      return `repos (${data.length}${data.length > 15 ? ", showing 15" : ""}):\n${lines.join("\n")}`;
-    }
-    if (action === "issues_list" || action === "pulls_list") {
-      const lines = data.slice(0, 15).map((r) => {
-        const o = r as Record<string, unknown>;
-        return `- #${o.number} [${o.state}] ${o.title}`;
-      });
-      return `${action} (${data.length}):\n${lines.join("\n") || "(vazio)"}`;
-    }
-    if (action === "actions_list") {
-      const runs =
-        typeof data === "object" && data && "workflow_runs" in data
-          ? (data as { workflow_runs: unknown[] }).workflow_runs
-          : data;
-      if (!Array.isArray(runs)) return JSON.stringify(data).slice(0, 2000);
-      const lines = runs.slice(0, 10).map((r) => {
-        const o = r as Record<string, unknown>;
-        return `- ${o.name} · ${o.status}/${o.conclusion ?? "—"} · ${o.html_url ?? ""}`;
-      });
-      return `workflow runs (${runs.length}):\n${lines.join("\n") || "(vazio)"}`;
-    }
-  }
-  if (typeof data === "object" && data) {
-    const o = data as Record<string, unknown>;
-    if (action === "repo_get") {
-      return [
-        `repo: ${o.full_name}`,
-        `default_branch: ${o.default_branch}`,
-        `private: ${o.private}`,
-        `description: ${o.description ?? "—"}`,
-        `html_url: ${o.html_url}`,
-      ].join("\n");
-    }
-    if (action === "issues_get") {
-      return [
-        `#${o.number} [${o.state}] ${o.title}`,
-        `user: ${(o.user as { login?: string })?.login ?? "—"}`,
-        String(o.body ?? "").slice(0, 800),
-      ].join("\n");
-    }
-    if (action === "actions_list" && "workflow_runs" in o) {
-      return summarize(o.workflow_runs, "actions_list");
-    }
-  }
-  return JSON.stringify(data).slice(0, 2500);
-}
-
 export async function runGithub(input: string, userId: string): Promise<ToolResult> {
   const started = Date.now();
   const parsed = parseInput(input);
@@ -223,84 +139,16 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
     };
   }
 
-  const per = parsed.per_page ?? 10;
-  let path = "";
+  const args: Record<string, unknown> = {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    number: parsed.number,
+    state: parsed.state,
+    per_page: parsed.per_page ?? 10,
+  };
 
-  switch (parsed.action) {
-    case "repos_list":
-      path = `/user/repos?per_page=${per}&sort=updated`;
-      break;
-    case "repo_get":
-      if (!parsed.owner || !parsed.repo) {
-        return {
-          ok: false,
-          tool: "github",
-          input,
-          error: "repo_get exige owner e repo",
-          durationMs: Date.now() - started,
-        };
-      }
-      path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}`;
-      break;
-    case "issues_list":
-      if (!parsed.owner || !parsed.repo) {
-        return {
-          ok: false,
-          tool: "github",
-          input,
-          error: "issues_list exige owner e repo",
-          durationMs: Date.now() - started,
-        };
-      }
-      path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/issues?state=${encodeURIComponent(parsed.state ?? "open")}&per_page=${per}`;
-      break;
-    case "issues_get":
-      if (!parsed.owner || !parsed.repo || parsed.number == null) {
-        return {
-          ok: false,
-          tool: "github",
-          input,
-          error: "issues_get exige owner, repo e number",
-          durationMs: Date.now() - started,
-        };
-      }
-      path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/issues/${parsed.number}`;
-      break;
-    case "pulls_list":
-      if (!parsed.owner || !parsed.repo) {
-        return {
-          ok: false,
-          tool: "github",
-          input,
-          error: "pulls_list exige owner e repo",
-          durationMs: Date.now() - started,
-        };
-      }
-      path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/pulls?state=${encodeURIComponent(parsed.state ?? "open")}&per_page=${per}`;
-      break;
-    case "actions_list":
-      if (!parsed.owner || !parsed.repo) {
-        return {
-          ok: false,
-          tool: "github",
-          input,
-          error: "actions_list exige owner e repo",
-          durationMs: Date.now() - started,
-        };
-      }
-      path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/actions/runs?per_page=${per}`;
-      break;
-    default:
-      return {
-        ok: false,
-        tool: "github",
-        input,
-        error: "action não suportada",
-        durationMs: Date.now() - started,
-      };
-  }
+  const res = await runRestCapability(githubManifest, parsed.action, args, token);
 
-  const res = await ghFetch(token, path);
   if (!res.ok) {
     return {
       ok: false,
@@ -315,7 +163,7 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
     ok: true,
     tool: "github",
     input,
-    output: summarize(res.data, parsed.action),
+    output: res.output,
     durationMs: Date.now() - started,
   };
 }
