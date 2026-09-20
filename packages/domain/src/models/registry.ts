@@ -20,6 +20,7 @@ export interface AIModel {
   hardware: HardwareRequirement;
   speedRating: number; // 1 to 5
   license: string;
+  tier?: "economy" | "premium";
   isRecommended?: boolean;
   hfRepo?: string;
   quantization?: string;
@@ -180,7 +181,54 @@ export const PRESET_MODELS: AIModel[] = [
     hardware: "cloud",
     speedRating: 5,
     license: "API Provedor",
+    tier: "economy",
     isRecommended: true,
+  },
+  {
+    id: "openai/gpt-4o",
+    name: "GPT-4o (Omni Premium)",
+    providerType: "cloud",
+    providerName: "OpenAI",
+    category: "vision",
+    description: "Modelo inteligente flagship da OpenAI com altíssimo raciocínio, visão e compreensão de contexto complexo.",
+    parameters: "High-Tier",
+    sizeBytes: 0,
+    sizeLabel: "Nuvem",
+    hardware: "cloud",
+    speedRating: 5,
+    license: "API Provedor",
+    tier: "premium",
+    isRecommended: true,
+  },
+  {
+    id: "anthropic/claude-sonnet-4.5",
+    name: "Claude 3.5 / 4.5 Sonnet",
+    providerType: "cloud",
+    providerName: "Anthropic",
+    category: "code",
+    description: "Modelo referência em codificação avançada, arquitetura de software e raciocínio analítico profundo.",
+    parameters: "High-Tier",
+    sizeBytes: 0,
+    sizeLabel: "Nuvem",
+    hardware: "cloud",
+    speedRating: 5,
+    license: "API Provedor",
+    tier: "premium",
+  },
+  {
+    id: "gemini/gemini-3.1-pro",
+    name: "Gemini 3.1 Pro",
+    providerType: "cloud",
+    providerName: "Google AI Studio",
+    category: "vision",
+    description: "Raciocínio multimodal de alta capacidade do Google para análise avançada e grandes extensões de contexto.",
+    parameters: "High-Tier",
+    sizeBytes: 0,
+    sizeLabel: "Nuvem",
+    hardware: "cloud",
+    speedRating: 5,
+    license: "API Provedor",
+    tier: "premium",
   },
 ];
 

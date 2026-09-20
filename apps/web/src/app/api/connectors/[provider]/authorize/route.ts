@@ -8,6 +8,10 @@ import {
 } from "@/lib/connectors/connectorOAuth";
 import { getConnectorManifest } from "@/lib/connectors/manifests";
 import type { ConnectorProviderId } from "@plutao/domain";
+import { getPlanDefinition } from "@plutao/domain";
+import { getDb } from "@/lib/db";
+import { users, connectors } from "@plutao/db";
+import { eq, and } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
@@ -20,8 +24,33 @@ export async function POST(
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
+  const db = getDb();
+  const userRows = await db
+    .select({ plan: users.plan })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+
+  const planDef = getPlanDefinition(userRows[0]?.plan);
+
+  const connectedRows = await db
+    .select({ provider: connectors.provider })
+    .from(connectors)
+    .where(and(eq(connectors.userId, user.id), eq(connectors.status, "connected")));
+
   const resolvedParams = await context.params;
   const provider = resolvedParams.provider as ConnectorProviderId;
+
+  const isAlreadyConnected = connectedRows.some((c) => c.provider === provider);
+  if (!isAlreadyConnected && connectedRows.length >= planDef.connectorsMax) {
+    return NextResponse.json(
+      {
+        error: `Seu plano ${planDef.label} permite no máximo ${planDef.connectorsMax} conector(es) ativo(s). Faça upgrade para o plano Caronte para conectar mais.`,
+      },
+      { status: 403 }
+    );
+  }
+
   const manifest = getConnectorManifest(provider);
 
   if (!manifest) {

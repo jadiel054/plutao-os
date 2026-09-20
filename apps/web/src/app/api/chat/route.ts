@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, inArray, and } from "drizzle-orm";
-import { agents, artifacts as artifactsTable } from "@plutao/db";
+import { agents, artifacts as artifactsTable, users, usageCounters } from "@plutao/db";
 import { getDb } from "@/lib/db";
+import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";
 import { getSessionUser } from "@/lib/auth/session";
 import { loadConnectorRuntime, runConnectedConnectorTools } from "@/lib/chat/connectorRuntime";
@@ -33,6 +34,36 @@ type AttachedArtifactMeta = {
 
 const MAX_MESSAGE_LENGTH = 4000;
 const MAX_TOTAL_HISTORY_LENGTH = 16000;
+
+async function incrementUsageCounter(db: ReturnType<typeof getDb>, userId: string, isPremium: boolean) {
+  const todayStr = new Date().toISOString().split("T")[0];
+  try {
+    const existing = await db
+      .select()
+      .from(usageCounters)
+      .where(and(eq(usageCounters.userId, userId), eq(usageCounters.day, todayStr)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db
+        .update(usageCounters)
+        .set({
+          messages: existing[0].messages + 1,
+          premiumMessages: isPremium ? existing[0].premiumMessages + 1 : existing[0].premiumMessages,
+        })
+        .where(and(eq(usageCounters.userId, userId), eq(usageCounters.day, todayStr)));
+    } else {
+      await db.insert(usageCounters).values({
+        userId,
+        day: todayStr,
+        messages: 1,
+        premiumMessages: isPremium ? 1 : 0,
+      });
+    }
+  } catch (err) {
+    console.error("[incrementUsageCounter error]", err);
+  }
+}
 
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
@@ -96,6 +127,89 @@ export async function POST(req: NextRequest) {
         : null;
 
     const db = getDb();
+
+    // 1. Fetch user record for plan & preferred_model
+    const userRows = await db
+      .select({
+        id: users.id,
+        plan: users.plan,
+        preferredModel: users.preferredModel,
+      })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+
+    const userRecord = userRows[0];
+    const planDef = getPlanDefinition(userRecord?.plan);
+
+    // 2. Query today's usage_counters
+    const todayStr = new Date().toISOString().split("T")[0];
+    const usageRows = await db
+      .select()
+      .from(usageCounters)
+      .where(and(eq(usageCounters.userId, user.id), eq(usageCounters.day, todayStr)))
+      .limit(1);
+
+    const currentUsage = usageRows[0] ?? { messages: 0, premiumMessages: 0 };
+
+    // 3. Resolve preferred model & tier
+    let isTargetModelPremium = false;
+    let customModelConfig: ModelConfig | null = null;
+
+    if (userRecord?.preferredModel) {
+      const preferred = PRESET_MODELS.find((m) => m.id === userRecord.preferredModel);
+      if (preferred) {
+        const isPremium = preferred.tier === "premium";
+        const isAllowedByPlan = planDef.models.includes(isPremium ? "premium" : "economy");
+        if (isAllowedByPlan) {
+          isTargetModelPremium = isPremium;
+          const apiKey = process.env.MODEL_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || "";
+          const baseUrl = process.env.MODEL_BASE_URL?.trim() || "https://api.openai.com/v1";
+          if (apiKey) {
+            customModelConfig = {
+              provider: "openai",
+              apiKey,
+              baseUrl,
+              model: preferred.id,
+            };
+          }
+        }
+      }
+    }
+
+    // 4. Rate limits check
+    if (planDef.cloudMessagesPerDay !== null && currentUsage.messages >= planDef.cloudMessagesPerDay) {
+      const limitMsg = `Sua sonda atingiu o limite da ${planDef.label} (${planDef.cloudMessagesPerDay} mensagens em nuvem hoje). As transmissões renovam amanhã — ou conheça Caronte para ir além.`;
+      return NextResponse.json(
+        {
+          limit: true,
+          plan: planDef.id,
+          used: currentUsage.messages,
+          max: planDef.cloudMessagesPerDay,
+          renews: "amanhã",
+          error: limitMsg,
+          message: limitMsg,
+        },
+        { status: 429 }
+      );
+    }
+
+    if (isTargetModelPremium && planDef.premiumPerDay !== null && currentUsage.premiumMessages >= planDef.premiumPerDay) {
+      const limitMsg = `Sua cota diária de modelos premium para o plano ${planDef.label} foi atingida (${planDef.premiumPerDay} mensagens). As transmissões renovam amanhã.`;
+      return NextResponse.json(
+        {
+          limit: true,
+          plan: planDef.id,
+          used: currentUsage.premiumMessages,
+          max: planDef.premiumPerDay,
+          renews: "amanhã",
+          error: limitMsg,
+          message: limitMsg,
+        },
+        { status: 429 }
+      );
+    }
+
     let rawArtifactIds: string[] = [];
     if (Array.isArray(body.artifactIds)) {
       rawArtifactIds = body.artifactIds.filter(
@@ -263,7 +377,7 @@ ${
         baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
       };
     } else {
-      effectiveModelConfig = getModelConfig();
+      effectiveModelConfig = customModelConfig || getModelConfig();
     }
 
     if (!effectiveModelConfig) {
@@ -706,6 +820,8 @@ ${
               });
             }
 
+            await incrementUsageCounter(db, user.id, isTargetModelPremium);
+
             emit("done", {
               full: assistantContent,
               provider: streamModelConfig.provider,
@@ -955,6 +1071,8 @@ ${
         },
       });
     }
+
+    await incrementUsageCounter(db, user.id, isTargetModelPremium);
 
     return NextResponse.json({
       message: { role: "assistant", content: assistantContent },

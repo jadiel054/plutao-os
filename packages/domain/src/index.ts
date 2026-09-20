@@ -16,6 +16,8 @@ export interface User {
   email: string;
   name: string | null;
   passwordHash: string;
+  plan?: string;
+  preferredModel?: string | null;
   emailVerifiedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -249,3 +251,13 @@ export {
   canTransitionConnector,
   getCatalogEntry,
 } from "./connectors";
+
+export type {
+  PlanId,
+  PlanDefinition,
+} from "./plans/plans";
+export {
+  PLANS,
+  normalizePlanId,
+  getPlanDefinition,
+} from "./plans/plans";

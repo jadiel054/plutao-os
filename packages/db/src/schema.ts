@@ -21,9 +21,34 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name"),
   passwordHash: text("password_hash").notNull(),
+  plan: text("plan").notNull().default("free"),
+  preferredModel: text("preferred_model"),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const usageCounters = pgTable(
+  "usage_counters",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    day: text("day").notNull(), // 'YYYY-MM-DD'
+    messages: integer("messages").notNull().default(0),
+    premiumMessages: integer("premium_messages").notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex("usage_counters_user_day_uidx").on(t.userId, t.day),
+    index("usage_counters_user_id_idx").on(t.userId),
+  ]
+);
+
+export const founderWaitlist = pgTable("founder_waitlist", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  position: integer("position").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const sessions = pgTable(
