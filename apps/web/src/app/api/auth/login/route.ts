@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const db = getDb();
     const rows = await db.select().from(users).where(eq(users.email, email)).limit(1);
     const user = rows[0];
-    if (!user || !verifyPassword(password, user.passwordHash)) {
+    if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
       return NextResponse.json({ error: "E-mail ou senha inválidos" }, { status: 401 });
     }
 
