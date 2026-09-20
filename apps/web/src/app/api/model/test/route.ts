@@ -5,6 +5,7 @@ import { users, usageCounters } from "@plutao/db";
 import { eq, and } from "drizzle-orm";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { getModelConfig } from "@/lib/runtime/model/config";
+import { resolveCloudModelConfig, isLocalCatalogModel } from "@/lib/runtime/model/resolveConfig";
 import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig } from "@/lib/runtime/model/types";
 
@@ -109,28 +110,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Resolve model config for test call
+    // Resolve model config for test call (id de catálogo ≠ nome na API)
     let config: ModelConfig | null = null;
-    const apiKey = process.env.MODEL_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || "";
-    const baseUrl = process.env.MODEL_BASE_URL?.trim() || "https://api.openai.com/v1";
 
-    if (apiKey) {
-      config = {
-        provider: "openai",
-        apiKey,
-        baseUrl,
-        model: modelId,
-      };
-    } else {
-      config = getModelConfig();
+    if (isLocalCatalogModel(modelId)) {
+      return NextResponse.json({
+        output: `[${matchedModel?.name || modelId}] Modelo local (WebGPU/navegador). Teste de nuvem não se aplica.`,
+        latencyMs: 0,
+        tokensGenerated: 0,
+        error: "LOCAL_MODEL",
+      });
     }
 
-    if (!config) {
-      return NextResponse.json({
-        output: `[${matchedModel?.name || modelId}] Teste executado. Nota: Chave de API de nuvem não configurada no servidor.`,
-        latencyMs: 120,
-        tokensGenerated: 15,
-      });
+    const resolved = resolveCloudModelConfig(modelId);
+    if (resolved.ok) {
+      config = resolved.config;
+    } else {
+      // Fallback: config global do servidor (MODEL_*)
+      config = getModelConfig();
+      if (!config) {
+        return NextResponse.json({
+          output: `[${matchedModel?.name || modelId}] ${resolved.error}`,
+          latencyMs: 0,
+          tokensGenerated: 0,
+          error: resolved.error,
+          missingEnv: resolved.missingEnv,
+        });
+      }
+      console.warn("[model/test] rota específica falhou, usando getModelConfig:", resolved.error);
     }
 
     const startTime = performance.now();

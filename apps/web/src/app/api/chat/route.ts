@@ -9,6 +9,7 @@ import { loadConnectorRuntime, runConnectedConnectorTools } from "@/lib/chat/con
 import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { buildFollowUps } from "@/lib/chat/buildFollowUps";
 import { getModelConfig } from "@/lib/runtime/model/config";
+import { resolveCloudModelConfig } from "@/lib/runtime/model/resolveConfig";
 import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
@@ -163,15 +164,11 @@ export async function POST(req: NextRequest) {
         const isAllowedByPlan = planDef.models.includes(isPremium ? "premium" : "economy");
         if (isAllowedByPlan) {
           isTargetModelPremium = isPremium;
-          const apiKey = process.env.MODEL_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || "";
-          const baseUrl = process.env.MODEL_BASE_URL?.trim() || "https://api.openai.com/v1";
-          if (apiKey) {
-            customModelConfig = {
-              provider: "openai",
-              apiKey,
-              baseUrl,
-              model: preferred.id,
-            };
+          const resolved = resolveCloudModelConfig(preferred.id);
+          if (resolved.ok) {
+            customModelConfig = resolved.config;
+          } else {
+            console.warn("[chat] preferredModel sem rota/chave:", preferred.id, resolved.error);
           }
         }
       }
