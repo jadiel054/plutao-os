@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConnectorPublicView } from "@plutao/domain";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -16,9 +16,15 @@ export function SettingsConnectorsSection({
 }: {
   onNotify?: (msg: string, type?: "info" | "success" | "error") => void;
 }) {
+  const onNotifyRef = useRef(onNotify);
+  useEffect(() => {
+    onNotifyRef.current = onNotify;
+  });
+
   const [connectors, setConnectors] = useState<ConnectorPublicView[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
   const [oauthReady, setOauthReady] = useState<{ github: boolean; crypto: boolean }>({
     github: false,
     crypto: false,
@@ -30,41 +36,66 @@ export function SettingsConnectorsSection({
       const res = await fetch("/api/connectors", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        onNotify?.(
+        if (res.status === 503 || String(data.error).includes("Tabela de conectores")) {
+          setInlineError(
+            typeof data.error === "string"
+              ? data.error
+              : "Tabela de conectores ainda não aplicada. Rode a migration 0004."
+          );
+          return;
+        }
+        setInlineError(null);
+        onNotifyRef.current?.(
           typeof data.error === "string" ? data.error : "Falha ao carregar conectores",
           "error"
         );
         return;
       }
+      setInlineError(null);
       setConnectors(Array.isArray(data.connectors) ? data.connectors : []);
       setOauthReady({
         github: Boolean(data.oauth?.githubConfigured),
         crypto: Boolean(data.oauth?.tokenEncryptionReady),
       });
     } catch {
-      onNotify?.("Erro de rede ao carregar conectores", "error");
+      onNotifyRef.current?.("Erro de rede ao carregar conectores", "error");
     } finally {
       setLoading(false);
     }
-  }, [onNotify]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const handledParamsRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const ok = params.get("connector_ok");
-    const err = params.get("connector_error");
+    const url = new URL(window.location.href);
+    const ok = url.searchParams.get("connector_ok");
+    const err = url.searchParams.get("connector_error");
+
+    if (!ok && !err) return;
+
+    const paramKey = `${ok || ""}_${err || ""}`;
+    if (handledParamsRef.current === paramKey) return;
+    handledParamsRef.current = paramKey;
+
+    url.searchParams.delete("connector_ok");
+    url.searchParams.delete("connector_error");
+    const newRelativePath =
+      url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : "") + url.hash;
+    window.history.replaceState(null, "", newRelativePath);
+
     if (ok) {
-      onNotify?.(`Conector ${ok} conectado`, "success");
+      onNotifyRef.current?.(`Conector ${ok} conectado`, "success");
       void load();
     }
     if (err) {
-      onNotify?.(decodeURIComponent(err), "error");
+      onNotifyRef.current?.(decodeURIComponent(err), "error");
     }
-  }, [load, onNotify]);
+  }, [load]);
 
   async function connectGitHub() {
     setBusy("github");
@@ -72,7 +103,7 @@ export function SettingsConnectorsSection({
       const res = await fetch("/api/connectors/github/authorize", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        onNotify?.(
+        onNotifyRef.current?.(
           typeof data.error === "string" ? data.error : "Não foi possível iniciar OAuth",
           "error"
         );
@@ -82,9 +113,9 @@ export function SettingsConnectorsSection({
         window.location.href = data.authorizeUrl;
         return;
       }
-      onNotify?.("URL de autorização ausente", "error");
+      onNotifyRef.current?.("URL de autorização ausente", "error");
     } catch {
-      onNotify?.("Erro de rede ao autorizar", "error");
+      onNotifyRef.current?.("Erro de rede ao autorizar", "error");
     } finally {
       setBusy(null);
     }
@@ -96,16 +127,16 @@ export function SettingsConnectorsSection({
       const res = await fetch("/api/connectors/github/disconnect", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        onNotify?.(
+        onNotifyRef.current?.(
           typeof data.error === "string" ? data.error : "Falha ao desconectar",
           "error"
         );
         return;
       }
-      onNotify?.("GitHub desconectado", "success");
+      onNotifyRef.current?.("GitHub desconectado", "success");
       await load();
     } catch {
-      onNotify?.("Erro de rede ao desconectar", "error");
+      onNotifyRef.current?.("Erro de rede ao desconectar", "error");
     } finally {
       setBusy(null);
     }
@@ -126,6 +157,13 @@ export function SettingsConnectorsSection({
           conectados. Estados: desconectado → autorizando → conectado → reconectar → erro.
         </p>
       </div>
+
+      {inlineError ? (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300 space-y-1">
+          <p className="font-semibold">Erro do Sistema</p>
+          <p>{inlineError}</p>
+        </div>
+      ) : null}
 
       {!oauthReady.github || !oauthReady.crypto ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100/90 space-y-1">

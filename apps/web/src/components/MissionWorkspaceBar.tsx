@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MissionPlanV1, MissionStep } from "@plutao/domain";
 import { parseMissionPlan } from "@plutao/domain";
 import { MissionPlanner } from "@/components/MissionPlanner";
@@ -18,6 +18,11 @@ export function MissionWorkspaceBar({
   missionId: string | null;
   onNotify?: (msg: string, type?: "info" | "success" | "error") => void;
 }) {
+  const onNotifyRef = useRef(onNotify);
+  useEffect(() => {
+    onNotifyRef.current = onNotify;
+  });
+
   const [plan, setPlan] = useState<MissionPlanV1 | null>(null);
   const [objective, setObjective] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -71,7 +76,7 @@ export function MissionWorkspaceBar({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        onNotify?.(
+        onNotifyRef.current?.(
           typeof data.error === "string" ? data.error : "Falha na ação do plano",
           "error"
         );
@@ -79,9 +84,9 @@ export function MissionWorkspaceBar({
       }
       const next = parseMissionPlan(data.plan);
       if (next) setPlan(next);
-      onNotify?.("Plano atualizado", "success");
+      onNotifyRef.current?.("Plano atualizado", "success");
     } catch {
-      onNotify?.("Erro de rede ao atualizar plano", "error");
+      onNotifyRef.current?.("Erro de rede ao atualizar plano", "error");
     } finally {
       setBusy(false);
     }
@@ -98,7 +103,7 @@ export function MissionWorkspaceBar({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        onNotify?.(
+        onNotifyRef.current?.(
           typeof data.error === "string" ? data.error : "Falha ao parar missão",
           "error"
         );
@@ -109,14 +114,14 @@ export function MissionWorkspaceBar({
       else await load();
 
       if (data.stoppedExecution) {
-        onNotify?.("Execução cancelada. Loop para na próxima iteração.", "success");
+        onNotifyRef.current?.("Execução cancelada. Loop para na próxima iteração.", "success");
       } else if (data.noActiveRun) {
-        onNotify?.("Sem execução ativa — plano marcado como parado.", "info");
+        onNotifyRef.current?.("Sem execução ativa — plano marcado como parado.", "info");
       } else {
-        onNotify?.("Missão parada", "success");
+        onNotifyRef.current?.("Missão parada", "success");
       }
     } catch {
-      onNotify?.("Erro de rede ao parar missão", "error");
+      onNotifyRef.current?.("Erro de rede ao parar missão", "error");
     } finally {
       setBusy(false);
     }
