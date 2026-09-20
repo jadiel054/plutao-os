@@ -50,6 +50,13 @@
       "when": 1726800000000,
       "tag": "0006_plans_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1726900000000,
+      "tag": "0007_social_auth_magic_links",
+      "breakpoints": true
     }
   ]
 }
