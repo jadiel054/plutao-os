@@ -21,6 +21,7 @@ Este documento registra o estado observado no repositório. Capacidade só é **
 | Navigation `/planos` + Founder Pricing | **VERIFICADO** | Rota `/planos` acessível via MobileNav, Header, UserMenu e ChatHistoryDrawer; preço fundador escalonado (R$19/29/39) por posição. |
 | Migration 0006 plans_billing.sql | **IMPLEMENTED** | `packages/db/drizzle/0006_plans_billing.sql` sincronizado com schema e journal. |
 | B1. Login Social & Magic Link | **VERIFICADO** | Google/GitHub OAuth2, Magic Link (Resend), account linking por e-mail, inserção automática na founder waitlist e migration 0007. |
+| B2. Ações por Conversa | **VERIFICADO** | Menu de opções no histórico lateral (renomear, fixar no topo, mover para projeto, link público de compartilhamento só-leitura e exclusão com confirmação), página `/share/[token]` e migration 0008. |
 | Correções P2 UX & Modelos | **VERIFICADO** | FollowUpChips com envio direto, overflow-wrap em links, deduplicação de stream, polling silencioso em MissionWorkspaceBar, teste real de inferência e fallback/log local de falhas. |
 | M1–M3 Conectores UI + OAuth rotas | **IMPLEMENTED** | Sheet, Settings, authorize/callback/disconnect. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo original. |
