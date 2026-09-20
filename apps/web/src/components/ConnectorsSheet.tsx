@@ -31,6 +31,7 @@ export function ConnectorsSheet({
   const [busy, setBusy] = useState<string | null>(null);
   const [oauthReady, setOauthReady] = useState({ github: false, crypto: false });
   const [menuOpen, setMenuOpen] = useState(false);
+  const [exploreOpen, setExploreOpen] = useState(false);
   const [vercelPanel, setVercelPanel] = useState(false);
   const [vercelToken, setVercelToken] = useState("");
 
@@ -120,6 +121,12 @@ export function ConnectorsSheet({
     }
   }
 
+  function startConnect(c: ConnectorPublicView) {
+    setExploreOpen(false);
+    if (c.provider === "github") void connectGitHub();
+    else if (c.provider === "vercel") setVercelPanel(true);
+  }
+
   if (!open) return null;
 
   return (
@@ -132,21 +139,64 @@ export function ConnectorsSheet({
           <button type="button" className="absolute right-0 text-[var(--selo)] text-xl w-8 h-8" onClick={() => setMenuOpen((v) => !v)} aria-label="Adicionar">+</button>
           {menuOpen ? (
             <div className="absolute right-0 top-9 z-20 w-56 rounded-2xl border border-[var(--border)] bg-[var(--base)] shadow-xl py-1 text-sm">
-              <button type="button" className="w-full text-left px-4 py-2.5" onClick={() => { setMenuOpen(false); setVercelPanel(true); }}>Explorar / Vercel</button>
-              <button type="button" className="w-full text-left px-4 py-2.5" onClick={() => { setMenuOpen(false); void connectGitHub(); }}>Adicionar de GitHub</button>
-              <Link href="/configuracoes?tab=conectores" onClick={onClose} className="block px-4 py-2.5">Personalizado (MCP)</Link>
+              <button type="button" className="w-full text-left px-4 py-2.5 text-[var(--text-primary)]" onClick={() => { setMenuOpen(false); setExploreOpen(true); setVercelPanel(false); }}>
+                Explorar
+              </button>
+              <button type="button" className="w-full text-left px-4 py-2.5 text-[var(--text-primary)]" onClick={() => { setMenuOpen(false); void connectGitHub(); }}>
+                Adicionar de GitHub
+              </button>
+              <Link href="/configuracoes?tab=conectores" onClick={onClose} className="block px-4 py-2.5 text-[var(--text-primary)]">
+                Personalizado (MCP)
+              </Link>
             </div>
           ) : null}
         </div>
 
         <div className="space-y-2 mb-4">
-          <Link href="/configuracoes?tab=conectores" onClick={onClose} className="flex items-center gap-3 w-full rounded-2xl bg-[var(--base)]/80 border border-[var(--border)] px-4 py-3.5 text-sm">
+          <Link href="/configuracoes?tab=conectores" onClick={onClose} className="flex items-center gap-3 w-full rounded-2xl bg-[var(--base)]/80 border border-[var(--border)] px-4 py-3.5 text-sm text-[var(--text-primary)]">
             <span aria-hidden>⇄</span> Gerenciar Conectores
           </Link>
-          <button type="button" onClick={() => setMenuOpen(true)} className="flex items-center gap-3 w-full rounded-2xl bg-[var(--base)]/80 border border-[var(--border)] px-4 py-3.5 text-sm">
+          <button type="button" onClick={() => setMenuOpen(true)} className="flex items-center gap-3 w-full rounded-2xl bg-[var(--base)]/80 border border-[var(--border)] px-4 py-3.5 text-sm text-[var(--text-primary)]">
             <span className="text-[var(--selo)]" aria-hidden>+</span> Adicionar conector
           </button>
         </div>
+
+        {exploreOpen ? (
+          <div className="mb-4 rounded-2xl border border-[var(--border)] p-3 space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-sm font-medium text-[var(--text-primary)]">Catálogo nativo</p>
+              <button type="button" className="text-[11px] text-[var(--text-muted)]" onClick={() => setExploreOpen(false)}>Fechar</button>
+            </div>
+            <p className="text-[11px] text-[var(--text-muted)] px-1 leading-relaxed">
+              Integrações de primeira classe do Plutão. Toque para conectar.
+            </p>
+            <ul className="space-y-1.5">
+              {connectors.map((c) => (
+                <li key={`explore-${c.id}`}>
+                  <button
+                    type="button"
+                    disabled={c.status === "connected" || busy !== null}
+                    onClick={() => startConnect(c)}
+                    className="w-full flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--base)]/50 px-3 py-2.5 text-left disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="w-8 h-8 rounded-xl border border-[var(--border)] flex items-center justify-center text-xs font-bold shrink-0">
+                        {c.provider === "github" ? "GH" : c.provider === "vercel" ? "VE" : String(c.provider).slice(0, 2).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{c.displayName}</p>
+                        <p className="text-[10px] font-mono text-[var(--text-muted)]">{STATUS_LABEL[c.status] ?? c.status}</p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-[var(--selo)] shrink-0">
+                      {c.status === "connected" ? "Ativo" : "Conectar"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {vercelPanel ? (
           <div className="mb-4 rounded-2xl border border-[var(--border)] p-4 space-y-3">
