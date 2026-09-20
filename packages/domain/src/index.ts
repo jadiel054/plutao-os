@@ -255,9 +255,11 @@ export {
 export type {
   PlanId,
   PlanDefinition,
+  FounderTier,
 } from "./plans/plans";
 export {
   PLANS,
   normalizePlanId,
   getPlanDefinition,
+  getFounderTierForPosition,
 } from "./plans/plans";

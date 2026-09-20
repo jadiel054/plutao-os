@@ -104,3 +104,31 @@ export function getPlanDefinition(planStr: string | null | undefined): PlanDefin
   const id = normalizePlanId(planStr);
   return PLANS[id];
 }
+
+export interface FounderTier {
+  positionRange: string;
+  priceMonthly: number;
+  label: string;
+}
+
+export function getFounderTierForPosition(position: number): FounderTier {
+  if (position <= 100) {
+    return {
+      positionRange: "1–100",
+      priceMonthly: 19,
+      label: "Primeira Leva (1–100) — R$ 19/mês",
+    };
+  }
+  if (position <= 500) {
+    return {
+      positionRange: "101–500",
+      priceMonthly: 29,
+      label: "Segunda Leva (101–500) — R$ 29/mês",
+    };
+  }
+  return {
+    positionRange: "501+",
+    priceMonthly: 39,
+    label: "Terceira Leva (501+) — R$ 39/mês",
+  };
+}

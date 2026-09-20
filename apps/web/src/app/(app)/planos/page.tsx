@@ -12,6 +12,8 @@ export default function PlanosPage() {
   const [waitlistResult, setWaitlistResult] = useState<{
     success?: boolean;
     position?: number;
+    priceMonthly?: number;
+    tierLabel?: string;
     message?: string;
     error?: string;
   } | null>(null);
@@ -44,6 +46,8 @@ export default function PlanosPage() {
         setWaitlistResult({
           success: true,
           position: data.position,
+          priceMonthly: data.priceMonthly,
+          tierLabel: data.tierLabel,
           message: data.message,
         });
       } else {
@@ -167,12 +171,17 @@ export default function PlanosPage() {
             <div className="py-2 border-y border-[var(--border)] space-y-1">
               <div className="flex items-baseline gap-2">
                 <span className="text-xs line-through text-[var(--text-muted)] font-mono">R$ 39</span>
-                <span className="text-3xl font-black text-emerald-400">R$ 19</span>
+                <span className="text-3xl font-black text-emerald-400">A partir de R$ 19</span>
                 <span className="text-xs text-[var(--text-muted)] font-mono"> / mês</span>
               </div>
-              <span className="inline-block text-[10px] font-mono font-bold text-amber-300 bg-amber-950/40 border border-amber-500/30 px-2 py-0.5 rounded-full">
-                Preço de Fundador — primeiros 100
-              </span>
+              <div className="space-y-0.5 text-[10px] font-mono">
+                <span className="inline-block font-bold text-amber-300 bg-amber-950/40 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                  Leva Fundador Escalonada
+                </span>
+                <p className="text-[10px] text-[var(--text-muted)] pt-0.5">
+                  Pos. ≤ 100: R$ 19 · Pos. 101-500: R$ 29 · Pos. 501+: R$ 39
+                </p>
+              </div>
             </div>
 
             <ul className="space-y-2.5 text-xs text-[var(--text-secondary)] font-mono">
@@ -315,20 +324,32 @@ export default function PlanosPage() {
 
             <div className="space-y-1">
               <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-950/40 border border-amber-500/30 px-2 py-0.5 rounded-full">
-                PRIMEIROS 100 ASSENTOS
+                RESERVA DE FUNDADOR
               </span>
               <h3 className="text-lg font-bold">Reserva de Preço Fundador</h3>
               <p className="text-xs text-[var(--text-muted)]">
-                Garanta o plano Caronte por R$ 19/mês (51% OFF) travado por 12 meses na liberação da cobrança.
+                Preço travado por 12 meses baseado na sua posição na fila:
               </p>
+              <div className="text-[11px] font-mono text-[var(--text-secondary)] bg-[var(--base)] p-2 rounded-xl border border-[var(--border)] space-y-1 mt-1">
+                <p>• Posição ≤ 100: <strong className="text-emerald-400">R$ 19/mês</strong> (51% OFF)</p>
+                <p>• Posição 101–500: <strong className="text-emerald-400">R$ 29/mês</strong> (25% OFF)</p>
+                <p>• Posição 501+: <strong className="text-amber-300">R$ 39/mês</strong> (Preço Padrão)</p>
+              </div>
             </div>
 
             {waitlistResult?.success ? (
               <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-950/20 space-y-2 text-center">
-                <span className="text-2xl font-black text-emerald-400">
-                  Assento #{waitlistResult.position}
-                </span>
-                <p className="text-xs text-emerald-200">{waitlistResult.message}</p>
+                <div className="space-y-1">
+                  <span className="text-2xl font-black text-emerald-400 block">
+                    Assento #{waitlistResult.position}
+                  </span>
+                  {waitlistResult.priceMonthly && (
+                    <span className="inline-block text-xs font-mono font-bold text-emerald-300 bg-emerald-900/40 px-2.5 py-1 rounded-full border border-emerald-500/30">
+                      Preço Travado: R$ {waitlistResult.priceMonthly}/mês
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-emerald-200 leading-relaxed pt-1">{waitlistResult.message}</p>
                 <button
                   type="button"
                   onClick={() => setIsWaitlistModalOpen(false)}

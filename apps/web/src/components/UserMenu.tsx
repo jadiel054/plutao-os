@@ -81,6 +81,14 @@ export function UserMenu({ userEmail, onOpenModeModal }: UserMenuProps) {
             </Link>
 
             <Link
+              href="/planos"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-2 px-4 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--base)] transition-colors"
+            >
+              💳 Planos & Cota
+            </Link>
+
+            <Link
               href="/configuracoes"
               onClick={() => setIsOpen(false)}
               className="flex items-center gap-2 px-4 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--base)] transition-colors"
