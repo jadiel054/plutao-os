@@ -22,8 +22,8 @@ type Props = {
 };
 
 /**
- * Drawer lateral estilo produto premium (histórico + atalhos Plutão).
- * Sobreposição sobre o chat com transição suave — não é genérico de template.
+ * Drawer lateral — atalhos de produto + conversas.
+ * Configurações ficam no rodapé (ícone), não no bloco principal.
  */
 export function ChatHistoryDrawer({
   open,
@@ -104,8 +104,7 @@ export function ChatHistoryDrawer({
         <nav className="px-2 space-y-0.5">
           {[
             { href: "/cockpit", label: "Missões", hint: "Planos e evidência" },
-            { href: "/configuracoes?tab=conectores", label: "Conectores", hint: "GitHub e integrações" },
-            { href: "/configuracoes", label: "Configurações", hint: "Conta e modelos" },
+            { href: "/configuracoes?tab=conectores", label: "Conectores", hint: "Integrações oficiais" },
             { href: "/ajuda", label: "Ajuda", hint: "Central Plutão" },
           ].map((item) => (
             <Link
@@ -154,8 +153,8 @@ export function ChatHistoryDrawer({
           )}
         </div>
 
-        <div className="border-t border-[var(--border)] p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-[var(--selo)]/15 border border-[var(--selo)]/30 flex items-center justify-center text-sm font-semibold text-[var(--selo)]">
+        <div className="border-t border-[var(--border)] p-3 flex items-center gap-2">
+          <div className="w-9 h-9 rounded-full bg-[var(--selo)]/15 border border-[var(--selo)]/30 flex items-center justify-center text-sm font-semibold text-[var(--selo)] shrink-0">
             {userInitial}
           </div>
           <div className="min-w-0 flex-1">
@@ -164,6 +163,18 @@ export function ChatHistoryDrawer({
             </p>
             <p className="text-[10px] text-[var(--text-muted)]">Operador</p>
           </div>
+          <Link
+            href="/configuracoes"
+            onClick={onClose}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--text-muted)] hover:bg-[var(--base)] hover:text-[var(--text-primary)] transition-colors shrink-0"
+            aria-label="Configurações"
+            title="Configurações"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" strokeLinecap="round" />
+            </svg>
+          </Link>
         </div>
       </aside>
     </>
