@@ -36,10 +36,15 @@ export default function SettingsPage() {
   const [language, setLanguage] = useState<"pt-BR" | "en-US">("pt-BR");
   const { mode } = useModelMode();
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const addToast = (message: string, type: ToastType = "info", title?: string) => {
-    setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
-  };
-  const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
+  const addToast = useCallback((message: string, type: ToastType = "info", title?: string) => {
+    setToasts((prev) => {
+      if (prev.some((t) => t.message === message && t.type === type)) {
+        return prev;
+      }
+      return [...prev, { id: crypto.randomUUID(), message, type, title }];
+    });
+  }, []);
+  const dismissToast = useCallback((id: string) => setToasts((prev) => prev.filter((t) => t.id !== id)), []);
 
   const loadData = useCallback(async () => {
     try {
@@ -97,7 +102,7 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, addToast]);
 
   useEffect(() => {
     void loadData();

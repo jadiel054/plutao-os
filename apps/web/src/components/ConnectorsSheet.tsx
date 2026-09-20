@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { ConnectorPublicView } from "@plutao/domain";
 
@@ -25,9 +25,15 @@ export function ConnectorsSheet({
   onClose: () => void;
   onNotify?: (msg: string, type?: "info" | "success" | "error") => void;
 }) {
+  const onNotifyRef = useRef(onNotify);
+  useEffect(() => {
+    onNotifyRef.current = onNotify;
+  });
+
   const [connectors, setConnectors] = useState<ConnectorPublicView[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
   const [oauthReady, setOauthReady] = useState({ github: false, crypto: false });
 
   const load = useCallback(async () => {
@@ -36,23 +42,33 @@ export function ConnectorsSheet({
       const res = await fetch("/api/connectors", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        onNotify?.(
+        if (res.status === 503 || String(data.error).includes("Tabela de conectores")) {
+          setInlineError(
+            typeof data.error === "string"
+              ? data.error
+              : "Tabela de conectores ainda não aplicada. Rode a migration 0004."
+          );
+          return;
+        }
+        setInlineError(null);
+        onNotifyRef.current?.(
           typeof data.error === "string" ? data.error : "Falha ao carregar conectores",
           "error"
         );
         return;
       }
+      setInlineError(null);
       setConnectors(Array.isArray(data.connectors) ? data.connectors : []);
       setOauthReady({
         github: Boolean(data.oauth?.githubConfigured),
         crypto: Boolean(data.oauth?.tokenEncryptionReady),
       });
     } catch {
-      onNotify?.("Erro de rede ao carregar conectores", "error");
+      onNotifyRef.current?.("Erro de rede ao carregar conectores", "error");
     } finally {
       setLoading(false);
     }
-  }, [onNotify]);
+  }, []);
 
   useEffect(() => {
     if (open) void load();
@@ -64,7 +80,7 @@ export function ConnectorsSheet({
       const res = await fetch("/api/connectors/github/authorize", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        onNotify?.(
+        onNotifyRef.current?.(
           typeof data.error === "string" ? data.error : "Não foi possível iniciar OAuth",
           "error"
         );
@@ -74,9 +90,9 @@ export function ConnectorsSheet({
         window.location.href = data.authorizeUrl;
         return;
       }
-      onNotify?.("URL de autorização ausente", "error");
+      onNotifyRef.current?.("URL de autorização ausente", "error");
     } catch {
-      onNotify?.("Erro de rede ao autorizar", "error");
+      onNotifyRef.current?.("Erro de rede ao autorizar", "error");
     } finally {
       setBusy(null);
     }
@@ -88,16 +104,16 @@ export function ConnectorsSheet({
       const res = await fetch("/api/connectors/github/disconnect", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        onNotify?.(
+        onNotifyRef.current?.(
           typeof data.error === "string" ? data.error : "Falha ao desconectar",
           "error"
         );
         return;
       }
-      onNotify?.("GitHub desconectado", "success");
+      onNotifyRef.current?.("GitHub desconectado", "success");
       await load();
     } catch {
-      onNotify?.("Erro de rede ao desconectar", "error");
+      onNotifyRef.current?.("Erro de rede ao desconectar", "error");
     } finally {
       setBusy(null);
     }
@@ -124,6 +140,13 @@ export function ConnectorsSheet({
         <h2 className="text-center text-sm font-semibold text-[var(--text-primary)] mb-4">
           Conectores
         </h2>
+
+        {inlineError ? (
+          <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300 mb-3">
+            <p className="font-semibold">Erro do Sistema</p>
+            <p>{inlineError}</p>
+          </div>
+        ) : null}
 
         <div className="space-y-2 mb-4">
           <Link
