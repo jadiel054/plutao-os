@@ -620,6 +620,7 @@ function ChatPageInner() {
                     content={m.content}
                     steps={m.steps}
                     trace={m.trace}
+                    isStreaming={sending && m.id === messages[messages.length - 1]?.id}
                   />
                   {m.artifacts?.map((art) =>
                     art.thumbnailUrl ? (
