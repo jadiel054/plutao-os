@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "scripts/patch-followups.mjs"
+      - "scripts/patch-followups.cjs"
       - "apps/web/src/lib/chat/buildFollowUps.ts"
       - "apps/web/src/components/chat/FollowUpChips.tsx"
 
@@ -19,7 +19,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Apply patch script
-        run: node scripts/patch-followups.mjs
+        run: node scripts/patch-followups.cjs
       - name: Commit if changed
         run: |
           git config user.name "plutao-bot"
