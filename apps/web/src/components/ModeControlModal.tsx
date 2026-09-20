@@ -72,7 +72,7 @@ export function ModeControlModal({ isOpen, onClose, onNotify }: ModeControlModal
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
           <div className="flex items-center gap-2">
-            <span className="text-xl">⚡</span>
+            <span className="text-xl"></span>
             <div>
               <h2 className="text-base font-semibold text-[var(--text-primary)]">
                 Modo de Operação e IA
@@ -147,7 +147,7 @@ export function ModeControlModal({ isOpen, onClose, onNotify }: ModeControlModal
                 : "border-[var(--border)] bg-[var(--base)]/50 hover:bg-[var(--base)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            <span className="text-xl shrink-0 mt-0.5">⚡</span>
+            <span className="text-xl shrink-0 mt-0.5"></span>
             <div className="space-y-1 flex-1">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium">Automático (Híbrido)</h3>

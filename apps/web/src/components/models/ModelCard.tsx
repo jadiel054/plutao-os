@@ -51,21 +51,21 @@ export function ModelCard({
                   : "bg-blue-500/10 text-blue-400 border-blue-500/20"
               }`}
             >
-              {model.providerType === "cloud" ? "☁️ Nuvem API" : "💻 Local Browser"}
+              {model.providerType === "cloud" ? "Nuvem API" : "Local Browser"}
             </span>
 
             {/* Category Tag */}
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border border-[var(--border)] bg-[var(--base)] text-[var(--text-muted)]">
-              {model.category === "text" && "💬 Texto"}
-              {model.category === "code" && "💻 Código"}
-              {model.category === "vision" && "👁️ Visão"}
-              {model.category === "lightweight" && "⚡ Ultraleve"}
+              {model.category === "text" && "Texto"}
+              {model.category === "code" && "Código"}
+              {model.category === "vision" && "Visão"}
+              {model.category === "lightweight" && "Ultraleve"}
             </span>
 
             {/* Recommended Badge */}
             {model.isRecommended && (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
-                ⭐ Recomendado
+              Recomendado
               </span>
             )}
           </div>
@@ -74,15 +74,15 @@ export function ModelCard({
           <div>
             {isActive ? (
               <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-[var(--selo)] text-[var(--base)] shadow-xs">
-                ● ATIVO
+                ATIVO
               </span>
             ) : isDownloading ? (
               <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-amber-500 text-black animate-pulse">
-                ⏳ BAIXANDO…
+              BAIXANDO...
               </span>
             ) : isDownloaded || model.providerType === "cloud" ? (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                ✓ Pronto
+              Pronto
               </span>
             ) : (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--base)] text-[var(--text-muted)] border border-[var(--border)]">
@@ -159,7 +159,7 @@ export function ModelCard({
             disabled
             className="flex-1 py-2 rounded-xl bg-[var(--selo)]/20 text-[var(--selo)] text-xs font-semibold cursor-default text-center border border-[var(--selo)]/40"
           >
-            ✓ Modelo Ativo
+          Modelo Ativo
           </button>
         ) : model.providerType === "cloud" || isDownloaded ? (
           <button
@@ -167,17 +167,16 @@ export function ModelCard({
             onClick={() => onActivate(model.id)}
             className="flex-1 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] hover:bg-[var(--nucleo)] text-xs font-semibold transition-all shadow-xs cursor-pointer"
           >
-            ⚡ Usar Modelo
+          Usar Modelo
           </button>
         ) : (
           <button
             type="button"
             disabled={isDownloading}
             onClick={() => onStartDownload(model)}
-            className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5"
+            className="flex-1 py-2 rounded-xl bg-[var(--selo)] hover:bg-[var(--nucleo)] text-[var(--base)] text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5"
           >
-            <span>⬇️</span>
-            <span>Baixar Modelo</span>
+            Baixar Modelo
           </button>
         )}
 
@@ -188,7 +187,7 @@ export function ModelCard({
           className="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-xs font-medium text-[var(--text-primary)] transition-all cursor-pointer flex items-center gap-1"
           title="Testar resposta do modelo em tempo real"
         >
-          <span>🧪 Testar</span>
+          Testar
         </button>
 
         {/* Delete Cache (if local & downloaded) */}
@@ -198,9 +197,7 @@ export function ModelCard({
             onClick={() => onDeleteModel(model.id)}
             className="px-2.5 py-2 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 text-xs transition-colors cursor-pointer"
             title="Remover cache local do modelo"
-          >
-            🗑️
-          </button>
+          >Remover</button>
         )}
       </div>
     </div>

@@ -3,7 +3,7 @@
 import { ReasoningBlock, type ReasoningStepItem } from "./ReasoningBlock";
 import { ActionCards, type ToolCallItem } from "./ActionCards";
 import { CodeBlock } from "./CodeBlock";
-import { RichText } from "./RichText";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 export type StructuredStep =
   | { type: "reasoning"; reasoning: ReasoningStepItem }
@@ -86,7 +86,7 @@ export function StructuredMessage({
               return <CodeBlock key={idx} code={p.text} language={p.language} />;
             }
             if (!p.text.trim()) return null;
-            return <RichText key={idx} text={p.text} />;
+            return <MarkdownRenderer key={idx} text={p.text} />;
           })}
         </div>
       )}

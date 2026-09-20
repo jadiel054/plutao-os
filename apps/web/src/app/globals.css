@@ -6,29 +6,30 @@
    ============================================================ */
 
 :root {
-  /* Brand base */
-  --base: #0B0D0C;
-  --bg: #0B0D0C;
-  --surface: #182420;
+  /* Brand base - Fundo com temperatura esverdeada */
+  --base: #0B0E0C;
+  --bg: #0B0E0C;
+  --surface: rgba(61, 190, 130, 0.07);
   --surface-elevated: #1F3D33;
   --mid: #2E5C4C;
   --pinho: #1F3D33;
-  --papel: #F5F3EE;
+  --papel: #06110C;
 
-  /* Borders */
-  --border: #2E5C4C;
-  --border-subtle: #182420;
+  /* Borders - alpha almost invisible */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.10);
 
-  /* Text */
-  --text-primary: #F5F3EE;
-  --text-secondary: #9CD9C2;
+  /* Text - nunca branco puro */
+  --text-primary: #E8F0EC;
+  --text-secondary: #9DB3A8;
   --text-muted: #5FA88C;
 
   /* Brand accent (selo / núcleo) */
-  --selo: #5FA88C;
-  --nucleo: #9CD9C2;
-  --accent: #5FA88C;
-  --accent-hover: #9CD9C2;
+  --selo: #3DBE82;
+  --nucleo: #9DB3A8;
+  --accent: #3DBE82;
+  --accent-hover: #2FA76F;
   --accent-muted: #1F3D33;
 
   /* Status (functional — not brand mark) */
@@ -36,6 +37,14 @@
   --success: #10B981;
   --warning: #F59E0B;
   --danger: #EF4444;
+
+  /* User message bubble gradient */
+  --user-gradient-start: #3DBE82;
+  --user-gradient-end: #2FA76F;
+
+  /* Agent message bubble - glass effect */
+  --agent-surface: rgba(61, 190, 130, 0.07);
+  --agent-border: rgba(255, 255, 255, 0.06);
 
   --background: var(--bg);
   --foreground: var(--text-primary);
@@ -48,6 +57,7 @@
   --color-surface-elevated: var(--surface-elevated);
   --color-border: var(--border);
   --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
@@ -60,6 +70,10 @@
   --color-danger: var(--danger);
   --color-selo: var(--selo);
   --color-nucleo: var(--nucleo);
+  --color-user-gradient-start: var(--user-gradient-start);
+  --color-user-gradient-end: var(--user-gradient-end);
+  --color-agent-surface: var(--agent-surface);
+  --color-agent-border: var(--agent-border);
 
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
@@ -67,6 +81,7 @@
 
 body {
   background: var(--bg);
+  background-image: radial-gradient(ellipse at center, #0E1512 0%, #070908 100%);
   color: var(--text-primary);
   font-family: var(--font-sans);
   min-height: 100dvh;
@@ -78,6 +93,10 @@ body {
 .bg-surface {
   background-color: var(--surface);
 }
+.bg-agent {
+  background-color: var(--agent-surface);
+  backdrop-filter: blur(12px);
+}
 .text-secondary {
   color: var(--text-secondary);
 }
@@ -87,11 +106,19 @@ body {
 .border-plutao {
   border-color: var(--border);
 }
+.border-agent {
+  border-color: var(--agent-border);
+}
 .accent {
   color: var(--accent);
 }
 .bg-accent {
   background-color: var(--accent);
+}
+
+/* User message bubble gradient */
+.bg-user-gradient {
+  background: linear-gradient(135deg, var(--user-gradient-start) 0%, var(--user-gradient-end) 100%);
 }
 
 /* View mode: forced desktop on narrow devices */

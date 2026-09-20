@@ -97,7 +97,7 @@ export function UserMenu({ userEmail, onOpenModeModal }: UserMenuProps) {
                 }}
                 className="w-full text-left flex items-center gap-2 px-4 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--base)] transition-colors cursor-pointer"
               >
-                ⚡ Modo de IA
+                 Modo de IA
               </button>
             )}
           </div>

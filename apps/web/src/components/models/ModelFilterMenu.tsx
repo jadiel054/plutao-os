@@ -43,7 +43,7 @@ export function ModelFilterMenu({
             onClick={onClose}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] px-2 py-1 rounded hover:bg-[var(--base)] cursor-pointer"
           >
-            ✕ Fechar
+             Fechar
           </button>
         </div>
       </div>
@@ -62,9 +62,9 @@ export function ModelFilterMenu({
             }
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
           >
-            <option value="all">🌐 Todos os Provedores</option>
-            <option value="cloud">☁️ Nuvem (Groq / OpenRouter)</option>
-            <option value="local">💻 Local Browser (WebGPU / CPU)</option>
+            <option value="all"> Todos os Provedores</option>
+            <option value="cloud"> Nuvem (Groq / OpenRouter)</option>
+            <option value="local"> Local Browser (WebGPU / CPU)</option>
           </select>
         </div>
 
@@ -82,10 +82,10 @@ export function ModelFilterMenu({
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
           >
             <option value="all">📑 Todas as Categorias</option>
-            <option value="text">💬 Geração de Texto / Chat</option>
-            <option value="code">💻 Código e Raciocínio</option>
-            <option value="vision">👁️ Visão & OCR (Multimodal)</option>
-            <option value="lightweight">⚡ Ultraleve / Embeddings</option>
+            <option value="text"> Geração de Texto / Chat</option>
+            <option value="code"> Código e Raciocínio</option>
+            <option value="vision"> Visão & OCR (Multimodal)</option>
+            <option value="lightweight"> Ultraleve / Embeddings</option>
           </select>
         </div>
 
@@ -102,9 +102,9 @@ export function ModelFilterMenu({
             }
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
           >
-            <option value="all">📦 Todos os Status</option>
-            <option value="downloaded">✅ Baixados / Prontos</option>
-            <option value="available">⬇️ Disponíveis para Baixar</option>
+            <option value="all"> Todos os Status</option>
+            <option value="downloaded"> Baixados / Prontos</option>
+            <option value="available"> Disponíveis para Baixar</option>
           </select>
         </div>
 
@@ -122,9 +122,9 @@ export function ModelFilterMenu({
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
           >
             <option value="name">🔤 Nome (A-Z)</option>
-            <option value="speed">⚡ Velocidade</option>
+            <option value="speed"> Velocidade</option>
             <option value="size">💾 Tamanho em Disco</option>
-            <option value="parameters">📊 Parâmetros</option>
+            <option value="parameters"> Parâmetros</option>
           </select>
         </div>
       </div>

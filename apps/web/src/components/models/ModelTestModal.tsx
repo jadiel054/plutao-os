@@ -35,7 +35,7 @@ export function ModelTestModal({
         {/* Modal Header */}
         <div className="p-5 border-b border-[var(--border)] flex items-center justify-between bg-[var(--base)]">
           <div className="flex items-center gap-2">
-            <span className="text-xl">🧪</span>
+            <span className="text-xl"></span>
             <div>
               <h3 className="text-sm font-bold text-[var(--text-primary)]">
                 Teste de Inferência — {model.name}
@@ -91,7 +91,7 @@ export function ModelTestModal({
               <div className="flex items-center justify-between text-[11px] font-mono">
                 <span className="text-[var(--text-muted)]">RESPOSTA DO MODELO</span>
                 <div className="flex items-center gap-3">
-                  <span className="text-emerald-400 font-semibold">⚡ {testResult.latencyMs} ms</span>
+                  <span className="text-emerald-400 font-semibold"> {testResult.latencyMs} ms</span>
                   {testResult.tokensGenerated && (
                     <span className="text-[var(--text-muted)]">~{testResult.tokensGenerated} tokens</span>
                   )}
