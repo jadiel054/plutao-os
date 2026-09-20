@@ -12,6 +12,7 @@ import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/run
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
 import { detectAndExecuteGitHubTool, type GitHubToolExecutionResult } from "@/lib/chat/githubToolRunner";
+import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 
 export const runtime = "nodejs";
 
@@ -272,6 +273,14 @@ ${
       });
     }
 
+    const reasoningSteps = buildReasoningSteps({
+      userMessage: lastUserText,
+      githubConnected,
+      githubLogin,
+      artifactsCount: validatedArtifacts.length,
+      hasActiveMission: Boolean(missionId),
+    });
+
     const isStreamRequested =
       Boolean(body.stream) ||
       req.headers.get("accept")?.includes("text/event-stream");
@@ -291,12 +300,22 @@ ${
           }
 
           try {
-            emit("reasoning_step", {
-              id: crypto.randomUUID(),
-              index: 1,
-              text: "Analisando intenção e capacidades do Núcleo...",
-            });
+            // ==========================================
+            // FASE 1 — RACIOCÍNIO (linha por linha)
+            // ==========================================
+            for (const step of reasoningSteps) {
+              emit("reasoning_step", {
+                id: step.id,
+                index: step.index,
+                text: step.text,
+              });
+              // Pequena pausa perceptual para simular pensamento linha a linha em streaming
+              await new Promise((resolve) => setTimeout(resolve, 80));
+            }
 
+            // ==========================================
+            // FASE 2 — EXECUÇÃO (Tools se necessário)
+            // ==========================================
             let githubToolExec: GitHubToolExecutionResult = { executed: false };
             if (githubConnected) {
               const toolId = crypto.randomUUID();
@@ -328,6 +347,9 @@ ${
               }
             }
 
+            // ==========================================
+            // FASE 3 — RESPOSTA (Content Delta & Done)
+            // ==========================================
             const payloadMessages: ModelMessage[] = [
               { role: "system", content: systemPrompt },
               ...history.slice(-10).map((m) => ({
@@ -402,35 +424,32 @@ ${
               ? { toolCalls: [githubToolExec.trace] }
               : undefined;
 
-            const steps = [];
-            if (githubToolExec.executed) {
+            const steps: Array<
+              | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
+              | { type: "tool_call"; toolCall: Record<string, unknown> }
+            > = reasoningSteps.map((step) => ({
+              type: "reasoning" as const,
+              reasoning: step,
+            }));
+
+            if (githubToolExec.executed && githubToolExec.trace) {
               steps.push({
-                type: "reasoning" as const,
-                reasoning: {
-                  id: crypto.randomUUID(),
-                  index: 1,
-                  text: `Consultando conector GitHub para ${githubToolExec.capability ?? "dados"}...`,
+                type: "tool_call" as const,
+                toolCall: {
+                  id: githubToolExec.trace.id,
+                  provider: "github",
+                  capability: githubToolExec.trace.capability,
+                  status: githubToolExec.trace.status,
+                  summaryInput:
+                    typeof githubToolExec.trace.input === "string"
+                      ? githubToolExec.trace.input
+                      : JSON.stringify(githubToolExec.trace.input),
+                  summaryOutput: githubToolExec.trace.output.slice(0, 300),
+                  fullInput: githubToolExec.trace.input,
+                  fullOutput: githubToolExec.trace.output,
+                  durationMs: githubToolExec.trace.durationMs,
                 },
               });
-              if (githubToolExec.trace) {
-                steps.push({
-                  type: "tool_call" as const,
-                  toolCall: {
-                    id: githubToolExec.trace.id,
-                    provider: "github",
-                    capability: githubToolExec.trace.capability,
-                    status: githubToolExec.trace.status,
-                    summaryInput:
-                      typeof githubToolExec.trace.input === "string"
-                        ? githubToolExec.trace.input
-                        : JSON.stringify(githubToolExec.trace.input),
-                    summaryOutput: githubToolExec.trace.output.slice(0, 300),
-                    fullInput: githubToolExec.trace.input,
-                    fullOutput: githubToolExec.trace.output,
-                    durationMs: githubToolExec.trace.durationMs,
-                  },
-                });
-              }
             }
 
             emit("done", {
@@ -466,6 +485,7 @@ ${
       });
     }
 
+    // Non-streamed JSON handling
     let githubToolExec: GitHubToolExecutionResult = { executed: false };
     if (githubConnected) {
       githubToolExec = await detectAndExecuteGitHubTool({
@@ -491,7 +511,6 @@ ${
       });
     }
 
-    // Montar imageParts para QUALQUER provider com capacidade de visão (ex.: gemini, openai)
     if (VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig.provider) && validatedArtifacts.length > 0) {
       const imageParts = buildImageParts(validatedArtifacts);
 
@@ -571,35 +590,32 @@ ${
       ? { toolCalls: [githubToolExec.trace] }
       : undefined;
 
-    const steps = [];
-    if (githubToolExec.executed) {
+    const steps: Array<
+      | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
+      | { type: "tool_call"; toolCall: Record<string, unknown> }
+    > = reasoningSteps.map((step) => ({
+      type: "reasoning" as const,
+      reasoning: step,
+    }));
+
+    if (githubToolExec.executed && githubToolExec.trace) {
       steps.push({
-        type: "reasoning" as const,
-        reasoning: {
-          id: crypto.randomUUID(),
-          index: 1,
-          text: `Consultando conector GitHub para ${githubToolExec.capability ?? "dados"}...`,
+        type: "tool_call" as const,
+        toolCall: {
+          id: githubToolExec.trace.id,
+          provider: "github",
+          capability: githubToolExec.trace.capability,
+          status: githubToolExec.trace.status,
+          summaryInput:
+            typeof githubToolExec.trace.input === "string"
+              ? githubToolExec.trace.input
+              : JSON.stringify(githubToolExec.trace.input),
+          summaryOutput: githubToolExec.trace.output.slice(0, 300),
+          fullInput: githubToolExec.trace.input,
+          fullOutput: githubToolExec.trace.output,
+          durationMs: githubToolExec.trace.durationMs,
         },
       });
-      if (githubToolExec.trace) {
-        steps.push({
-          type: "tool_call" as const,
-          toolCall: {
-            id: githubToolExec.trace.id,
-            provider: "github",
-            capability: githubToolExec.trace.capability,
-            status: githubToolExec.trace.status,
-            summaryInput:
-              typeof githubToolExec.trace.input === "string"
-                ? githubToolExec.trace.input
-                : JSON.stringify(githubToolExec.trace.input),
-            summaryOutput: githubToolExec.trace.output.slice(0, 300),
-            fullInput: githubToolExec.trace.input,
-            fullOutput: githubToolExec.trace.output,
-            durationMs: githubToolExec.trace.durationMs,
-          },
-        });
-      }
     }
 
     return NextResponse.json({

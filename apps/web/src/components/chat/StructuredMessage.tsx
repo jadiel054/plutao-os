@@ -14,6 +14,7 @@ type StructuredMessageProps = {
   content: string;
   steps?: StructuredStep[];
   trace?: { toolCalls?: ToolCallItem[] };
+  isStreaming?: boolean;
 };
 
 /** Parses text content to extract ```lang ... ``` code blocks */
@@ -43,7 +44,7 @@ function parseContentParts(content: string) {
   return parts;
 }
 
-export function StructuredMessage({ role, content, steps, trace }: StructuredMessageProps) {
+export function StructuredMessage({ role, content, steps, trace, isStreaming = false }: StructuredMessageProps) {
   if (role === "user") {
     return <div className="whitespace-pre-wrap">{content}</div>;
   }
@@ -61,15 +62,20 @@ export function StructuredMessage({ role, content, steps, trace }: StructuredMes
 
   const parts = parseContentParts(content);
 
+  // If toolCalls exist or text response has started streaming (content is not empty), reasoning phase is complete
+  const isReasoningStreaming = isStreaming && toolCallSteps.length === 0 && !content;
+
   return (
     <div className="space-y-3">
-      {/* 1. Reasoning Block */}
-      {reasoningSteps.length > 0 && <ReasoningBlock steps={reasoningSteps} />}
+      {/* FASE 1 — Balão de Raciocínio (pensa em voz alta) */}
+      {reasoningSteps.length > 0 && (
+        <ReasoningBlock steps={reasoningSteps} isStreaming={isReasoningStreaming} />
+      )}
 
-      {/* 2. Action Cards */}
+      {/* FASE 2 — ActionCards (só aparecem após o raciocínio) */}
       {toolCallSteps.length > 0 && <ActionCards toolCalls={toolCallSteps} />}
 
-      {/* 3. Text & Code Blocks */}
+      {/* FASE 3 — Resposta e CodeBlocks */}
       <div className="space-y-2">
         {parts.map((p, idx) => {
           if (p.type === "code") {
@@ -83,7 +89,7 @@ export function StructuredMessage({ role, content, steps, trace }: StructuredMes
         })}
       </div>
 
-      {/* 4. Sources citation footer if connector actions were performed */}
+      {/* Rodapé de citações se houver chamadas de conectores */}
       {toolCallSteps.length > 0 && (
         <div className="pt-2 border-t border-[var(--border)]/40 text-[10px] text-[var(--text-muted)] font-mono flex items-center gap-1.5">
           <span>fontes:</span>

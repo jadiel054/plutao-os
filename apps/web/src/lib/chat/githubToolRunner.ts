@@ -22,51 +22,48 @@ export type GitHubToolExecutionResult = {
   contextText?: string;
 };
 
-/**
- * Detects GitHub query intent from user text and executes the tool via Executor (runGithub).
- */
-export async function detectAndExecuteGitHubTool(opts: {
-  text: string;
-  userId: string;
-  githubLogin: string | null;
-  missionId?: string | null;
-}): Promise<GitHubToolExecutionResult> {
-  const t = opts.text.toLowerCase();
+export type GitHubToolPlan = {
+  action: string;
+  owner?: string;
+  repo?: string;
+  issueNumber?: number;
+};
 
-  // Basic intent keywords check
+export function detectGitHubToolAction(text: string, defaultOwner?: string | null): GitHubToolPlan | null {
+  const t = text.toLowerCase();
+
   const isGithubIntent =
     t.includes("github") ||
     t.includes("repo") ||
     t.includes("issue") ||
     t.includes("pull") ||
     t.includes("pr ") ||
+    t.includes("prs") ||
     t.includes("action") ||
     t.includes("workflow");
 
   if (!isGithubIntent) {
-    return { executed: false };
+    return null;
   }
 
   let action: string | null = null;
-  let owner: string | undefined = opts.githubLogin ?? undefined;
+  let owner: string | undefined = defaultOwner ?? undefined;
   let repo: string | undefined = undefined;
   let issueNumber: number | undefined = undefined;
 
-  // Extract owner/repo if present: "owner/repo" or "repositório X" or "repo Y"
-  const fullRepoMatch = opts.text.match(/\b([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)\b/);
+  const fullRepoMatch = text.match(/\b([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)\b/);
   if (fullRepoMatch) {
     owner = fullRepoMatch[1];
     repo = fullRepoMatch[2];
   } else {
-    const singleRepoMatch = opts.text.match(/(?:repositório|repo)\s+([a-zA-Z0-9_.-]+)/i);
+    const singleRepoMatch = text.match(/(?:repositório|repo)\s+([a-zA-Z0-9_.-]+)/i);
     if (singleRepoMatch) {
       repo = singleRepoMatch[1];
     }
   }
 
-  // Determine action
   if (t.includes("issue")) {
-    const issueNumMatch = opts.text.match(/issue\s*#?(\d+)/i);
+    const issueNumMatch = text.match(/issue\s*#?(\d+)/i);
     if (issueNumMatch) {
       action = "issues_get";
       issueNumber = parseInt(issueNumMatch[1], 10);
@@ -86,8 +83,32 @@ export async function detectAndExecuteGitHubTool(opts: {
   }
 
   if (!action) {
+    return null;
+  }
+
+  return {
+    action,
+    owner,
+    repo,
+    issueNumber,
+  };
+}
+
+/**
+ * Detects GitHub query intent from user text and executes the tool via Executor (runGithub).
+ */
+export async function detectAndExecuteGitHubTool(opts: {
+  text: string;
+  userId: string;
+  githubLogin: string | null;
+  missionId?: string | null;
+}): Promise<GitHubToolExecutionResult> {
+  const plan = detectGitHubToolAction(opts.text, opts.githubLogin);
+  if (!plan) {
     return { executed: false };
   }
+
+  const { action, owner, repo, issueNumber } = plan;
 
   const payload: Record<string, unknown> = { action };
   if (owner) payload.owner = owner;
