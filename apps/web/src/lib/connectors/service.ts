@@ -20,6 +20,7 @@ function asCapabilities(raw: unknown): ConnectorCapability[] {
       name: String(c.name ?? ""),
       description: c.description ? String(c.description) : undefined,
       kind: c.kind === "mcp_tool" ? ("mcp_tool" as const) : ("rest_api" as const),
+      mode: c.mode === "write" ? ("write" as const) : ("read" as const),
     }))
     .filter((c) => c.name.length > 0);
 }
@@ -234,11 +235,11 @@ export async function getAccessToken(
 /** Capacidades padrão GitHub após OAuth bem-sucedido (REST mapeadas para o Executor). */
 export function githubDefaultCapabilities(): ConnectorCapability[] {
   return [
-    { name: "repos_list", description: "Listar repositórios do usuário", kind: "rest_api" },
-    { name: "issues_list", description: "Listar issues de um repositório", kind: "rest_api" },
-    { name: "issues_get", description: "Obter issue por número", kind: "rest_api" },
-    { name: "pulls_list", description: "Listar pull requests", kind: "rest_api" },
-    { name: "actions_list", description: "Listar workflow runs", kind: "rest_api" },
-    { name: "repo_get", description: "Metadados de um repositório", kind: "rest_api" },
+    { name: "repos_list", description: "Listar repositórios do usuário", kind: "rest_api", mode: "read" },
+    { name: "issues_list", description: "Listar issues de um repositório", kind: "rest_api", mode: "read" },
+    { name: "issues_get", description: "Obter issue por número", kind: "rest_api", mode: "read" },
+    { name: "pulls_list", description: "Listar pull requests", kind: "rest_api", mode: "read" },
+    { name: "actions_list", description: "Listar workflow runs", kind: "rest_api", mode: "read" },
+    { name: "repo_get", description: "Metadados de um repositório", kind: "rest_api", mode: "read" },
   ];
 }
