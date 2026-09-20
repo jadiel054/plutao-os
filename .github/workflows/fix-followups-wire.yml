@@ -1,0 +1,28 @@
+name: Fix follow-ups wire
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/fix-followups-wire.cjs"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/fix-followups-wire.cjs
+      - name: Commit
+        run: |
+          git config user.name "plutao-bot"
+          git config user.email "bot@plutao.local"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "fix(chat): define suggestedFollowUps + chips UI"
+            git push
+          fi
