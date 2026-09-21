@@ -1,71 +1,105 @@
 /**
- * Auth do MCP server do Plutão — Fase 1.
+ * Auth do MCP resource server do Plutão.
  *
- * Bearer token estático (API key pessoal do operador).
- * Fase 2: OAuth 2.1 + PKCE com o auth do próprio Plutão.
+ * Aceita Authorization: Bearer <token> onde token é:
+ * 1) Access token OAuth emitido por /api/oauth/token (preferido)
+ * 2) PLUTAO_MCP_API_KEY de ops (break-glass, header only)
+ *
+ * 401 inclui resource_metadata (RFC 9728) para discovery OAuth.
  */
+
+import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  getMcpIssuer,
+  getMcpResourceUrl,
+  timingSafeStringEqual,
+  verifyAccessToken,
+} from "./tokens";
 
 export type McpAuthContext = {
   userId: string;
-  /** true se a chave bateu com PLUTAO_MCP_API_KEY */
-  ok: true;
+  scopes: string[];
+  clientId: string;
+  method: "oauth" | "ops_key";
 };
 
-export type McpAuthResult =
-  | McpAuthContext
-  | { ok: false; status: 401 | 503; error: string };
+export const mcpAuthStore = new AsyncLocalStorage<McpAuthContext>();
 
-/**
- * Valida Authorization: Bearer <token>.
- * Requer env:
- *   PLUTAO_MCP_API_KEY  — segredo longo (openssl rand -hex 32)
- *   PLUTAO_MCP_USER_ID  — UUID do usuário dono (suas missões/conectores)
- */
-export function authenticateMcpRequest(req: Request): McpAuthResult {
-  const apiKey = process.env.PLUTAO_MCP_API_KEY?.trim();
-  const userId = process.env.PLUTAO_MCP_USER_ID?.trim();
-
-  if (!apiKey || !userId) {
-    return {
-      ok: false,
-      status: 503,
-      error:
-        "MCP server não configurado. Defina PLUTAO_MCP_API_KEY e PLUTAO_MCP_USER_ID no ambiente.",
-    };
-  }
-
-  const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  const token = match?.[1]?.trim() || "";
-
-  // Comparação em tempo constante o suficiente para Phase 1 (token de alto entropy).
-  if (!token || token.length !== apiKey.length || !timingSafeEqual(token, apiKey)) {
-    return {
-      ok: false,
-      status: 401,
-      error: "Unauthorized — Bearer token inválido ou ausente.",
-    };
-  }
-
-  return { ok: true, userId };
+export function getMcpAuth(): McpAuthContext {
+  const ctx = mcpAuthStore.getStore();
+  if (!ctx) throw new Error("MCP auth context missing");
+  return ctx;
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let out = 0;
-  for (let i = 0; i < a.length; i++) {
-    out |= a.charCodeAt(i) ^ b.charCodeAt(i);
+export type McpAuthResult =
+  | ({ ok: true } & McpAuthContext)
+  | { ok: false; status: 401 | 503; error: string };
+
+function extractBearer(req: Request): string {
+  const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match?.[1]?.trim() || "";
+}
+
+export function authenticateMcpRequest(req: Request): McpAuthResult {
+  const token = extractBearer(req);
+  if (!token) {
+    return { ok: false, status: 401, error: "Unauthorized — Bearer token ausente." };
   }
-  return out === 0;
+
+  // 1) Access token OAuth
+  try {
+    const claims = verifyAccessToken(token);
+    if (claims) {
+      const scopes = claims.scope.split(/\s+/).filter(Boolean);
+      if (!scopes.includes("mcp:read")) {
+        return { ok: false, status: 401, error: "Unauthorized — scope mcp:read exigido." };
+      }
+      return {
+        ok: true,
+        userId: claims.sub,
+        scopes,
+        clientId: claims.client_id,
+        method: "oauth",
+      };
+    }
+  } catch {
+    /* signing key missing or invalid — tenta ops key */
+  }
+
+  // 2) Ops API key (nunca em query)
+  const apiKey = process.env.PLUTAO_MCP_API_KEY?.trim();
+  const userId = process.env.PLUTAO_MCP_USER_ID?.trim();
+  if (apiKey && userId && timingSafeStringEqual(token, apiKey)) {
+    return {
+      ok: true,
+      userId,
+      scopes: ["mcp:read"],
+      clientId: "plutao-ops",
+      method: "ops_key",
+    };
+  }
+
+  return { ok: false, status: 401, error: "Unauthorized — Bearer token inválido." };
 }
 
 export function mcpUnauthorizedResponse(result: Extract<McpAuthResult, { ok: false }>): Response {
+  const resourceMeta = `${getMcpIssuer()}/.well-known/oauth-protected-resource`;
+  const www =
+    result.status === 401
+      ? `Bearer realm="plutao-mcp", resource_metadata="${resourceMeta}", scope="mcp:read"`
+      : `Bearer realm="plutao-mcp"`;
+
   return new Response(JSON.stringify({ error: result.error }), {
     status: result.status,
     headers: {
       "Content-Type": "application/json",
-      "WWW-Authenticate": 'Bearer realm="plutao-mcp"',
+      "WWW-Authenticate": www,
       "Cache-Control": "no-store",
     },
   });
+}
+
+export function mcpResourceUrl(): string {
+  return getMcpResourceUrl();
 }
