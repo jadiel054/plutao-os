@@ -5,12 +5,13 @@ import {
   issueAuthorizationCode,
   normalizeScopes,
 } from "@/lib/mcp/tokens";
+import { createGrant, storeAuthCode } from "@/lib/mcp/grants";
 
 export const runtime = "nodejs";
 
 /**
  * Após o usuário aprovar na UI /oauth/consent.
- * Emite authorization code e redireciona ao client (nunca envia access token no redirect).
+ * Cria grant persistido, emite authorization code single-use e redireciona ao client.
  */
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
@@ -41,23 +42,42 @@ export async function POST(req: NextRequest) {
     return NextResponse.redirect(redirect.toString());
   }
 
-  let code: string;
   try {
-    code = issueAuthorizationCode({
+    const { grantId } = await createGrant({
+      userId: user.id,
+      clientId,
+      redirectUri,
+      scope,
+    });
+    const issued = issueAuthorizationCode({
       userId: user.id,
       clientId,
       redirectUri,
       scope,
       codeChallenge,
+      grantId,
     });
+    await storeAuthCode({
+      jti: issued.jti,
+      grantId,
+      userId: user.id,
+      clientId,
+      redirectUri,
+      scope,
+      codeChallenge,
+      expiresAt: issued.expiresAt,
+    });
+
+    redirect.searchParams.set("code", issued.code);
+    if (state) redirect.searchParams.set("state", state);
+    return NextResponse.redirect(redirect.toString());
   } catch (e) {
     return NextResponse.json(
-      { error: "server_error", error_description: e instanceof Error ? e.message : "token secret missing" },
+      {
+        error: "server_error",
+        error_description: e instanceof Error ? e.message : "token secret or db missing",
+      },
       { status: 503 }
     );
   }
-
-  redirect.searchParams.set("code", code);
-  if (state) redirect.searchParams.set("state", state);
-  return NextResponse.redirect(redirect.toString());
 }
