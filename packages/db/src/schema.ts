@@ -24,6 +24,7 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   plan: text("plan").notNull().default("free"),
   preferredModel: text("preferred_model"),
+  isGuest: boolean("is_guest").notNull().default(false),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -269,5 +270,32 @@ export const connectors = pgTable(
     uniqueIndex("connectors_user_provider_uidx").on(t.userId, t.provider),
     index("connectors_user_id_idx").on(t.userId),
     index("connectors_status_idx").on(t.status),
+  ]
+);
+
+export const guestSessions = pgTable(
+  "guest_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    token: text("token").notNull().unique(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    messageCount: integer("message_count").notNull().default(0),
+    firstMessageAt: timestamp("first_message_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    convertedUserId: uuid("converted_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("guest_sessions_token_uidx").on(t.token),
+    index("guest_sessions_user_id_idx").on(t.userId),
+    index("guest_sessions_ip_idx").on(t.ip),
+    index("guest_sessions_created_at_idx").on(t.createdAt),
   ]
 );

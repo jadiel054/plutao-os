@@ -4,8 +4,9 @@ import { agents, artifacts as artifactsTable, users, usageCounters } from "@plut
 import { getDb } from "@/lib/db";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";
-import { getSessionUser } from "@/lib/auth/session";
-import { loadConnectorRuntime, runConnectedConnectorTools } from "@/lib/chat/connectorRuntime";
+import { getAuthOrGuestUser } from "@/lib/auth/session";
+import { incrementGuestMessageCount, GuestRateLimitError } from "@/lib/auth/guest";
+import { loadConnectorRuntime, runConnectedConnectorTools, type ConnectorRuntimeSnapshot } from "@/lib/chat/connectorRuntime";
 import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { buildFollowUps } from "@/lib/chat/buildFollowUps";
 import { getModelConfig } from "@/lib/runtime/model/config";
@@ -67,13 +68,49 @@ async function incrementUsageCounter(db: ReturnType<typeof getDb>, userId: strin
 }
 
 export async function POST(req: NextRequest) {
-  const user = await getSessionUser();
-  if (!user) {
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : req.headers.get("x-real-ip") || "127.0.0.1";
+  const userAgent = req.headers.get("user-agent") || null;
+
+  let user;
+  try {
+    user = await getAuthOrGuestUser({ ip, userAgent });
+  } catch (err) {
+    if (err instanceof GuestRateLimitError) {
+      return NextResponse.json({ error: err.message }, { status: 429 });
+    }
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
+  // Se for convidado e tiver atingido o limite (10 msgs ou 15 min), bloqueia o chat
+  if (user.isGuest && user.guestSession) {
+    if (user.guestSession.isLimitReached) {
+      return NextResponse.json(
+        {
+          guestLimitReached: true,
+          limitReason: user.guestSession.limitReason,
+          messageCount: user.guestSession.messageCount,
+          secondsRemaining: user.guestSession.secondsRemaining,
+          error: "Você atingiu o limite de uso como Convidado (10 mensagens ou 15 minutos). Faça login para continuar.",
+        },
+        { status: 403 }
+      );
+    }
+  }
+
   try {
-    const connectorSnap = await loadConnectorRuntime(user.id);
+    // Convidados não possuem conectores ativos (modo leitura/básico apenas)
+    const connectorSnap: ConnectorRuntimeSnapshot = user.isGuest
+      ? {
+          connectors: [],
+          systemBlock: "\nCONECTORES ATIVOS:\nNenhum conector ativo (modo Convidado).",
+          githubConnected: false,
+          githubLogin: null,
+          vercelConnected: false,
+          vercelLogin: null,
+          vercelToken: null,
+        }
+      : await loadConnectorRuntime(user.id);
 
     const body = await req.json().catch(() => ({}));
     let history: ChatInputMessage[] = [];
@@ -817,7 +854,11 @@ ${
               });
             }
 
-            await incrementUsageCounter(db, user.id, isTargetModelPremium);
+            if (user.isGuest && user.guestSession) {
+              await incrementGuestMessageCount(user.guestSession.id);
+            } else {
+              await incrementUsageCounter(db, user.id, isTargetModelPremium);
+            }
 
             emit("done", {
               full: assistantContent,
@@ -1069,7 +1110,11 @@ ${
       });
     }
 
-    await incrementUsageCounter(db, user.id, isTargetModelPremium);
+    if (user.isGuest && user.guestSession) {
+      await incrementGuestMessageCount(user.guestSession.id);
+    } else {
+      await incrementUsageCounter(db, user.id, isTargetModelPremium);
+    }
 
     return NextResponse.json({
       message: { role: "assistant", content: assistantContent },

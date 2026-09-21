@@ -54,6 +54,10 @@ function ChatPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [userEmail, setUserEmail] = useState("");
+  const [isGuest, setIsGuest] = useState(false);
+  const [guestMessagesRemaining, setGuestMessagesRemaining] = useState<number | null>(null);
+  const [guestSecondsRemaining, setGuestSecondsRemaining] = useState<number | null>(null);
+  const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [agentName, setAgentName] = useState("Plutão");
   const [agentIdentity, setAgentIdentity] = useState("Assistente Pessoal Autônomo");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -144,6 +148,15 @@ function ChatPageInner() {
       const meData = await me.json();
       const email = meData.user?.email ?? "";
       setUserEmail(email);
+      setIsGuest(Boolean(meData.user?.isGuest));
+      if (meData.user?.isGuest && meData.user?.guestSession) {
+        const gs = meData.user.guestSession;
+        setGuestMessagesRemaining(gs.messagesRemaining);
+        setGuestSecondsRemaining(gs.secondsRemaining);
+        if (gs.isLimitReached) {
+          setGuestLimitReached(true);
+        }
+      }
       const a = await fetch("/api/agent", { cache: "no-store" });
       if (a.ok) {
         const d = await a.json();
@@ -199,6 +212,21 @@ function ChatPageInner() {
   }, [router, searchParams, refreshMissions]);
 
   useEffect(() => { void init(); }, [init]);
+
+  // Guest 15-minute countdown timer
+  useEffect(() => {
+    if (!isGuest || guestSecondsRemaining === null || guestSecondsRemaining <= 0 || guestLimitReached) return;
+    const timer = setInterval(() => {
+      setGuestSecondsRemaining((prev) => {
+        if (prev === null || prev <= 1) {
+          setGuestLimitReached(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isGuest, guestSecondsRemaining, guestLimitReached]);
   useEffect(() => {
     if (userEmail && messages.length > 0) {
       localStorage.setItem(`plutao_chat_${userEmail}`, JSON.stringify(messages));
@@ -586,6 +614,10 @@ function ChatPageInner() {
       } else {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+          if (data.guestLimitReached) {
+            setGuestLimitReached(true);
+            setGuestMessagesRemaining(0);
+          }
           const errMsg =
             typeof data.error === "string" && data.error.trim()
               ? data.error
@@ -1159,6 +1191,31 @@ function ChatPageInner() {
           />
         </div>
 
+        {isGuest && (
+          <div className="flex items-center justify-between gap-2 p-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs font-mono">
+            <div className="flex items-center gap-2">
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400">
+                Modo Convidado
+              </span>
+              <span className="text-[var(--text-secondary)]">
+                {guestLimitReached
+                  ? "Limite do modo Convidado atingido"
+                  : `${guestMessagesRemaining ?? 10} msgs restantes · ${
+                      guestSecondsRemaining !== null
+                        ? `${Math.floor(guestSecondsRemaining / 60)}m ${guestSecondsRemaining % 60}s`
+                        : "15m"
+                    }`}
+              </span>
+            </div>
+            <a
+              href="/login"
+              className="px-2.5 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] font-semibold text-[11px] hover:opacity-90 transition-opacity"
+            >
+              Entrar / Criar Conta
+            </a>
+          </div>
+        )}
+
         {editingMessageId && (
           <div className="flex items-center justify-between gap-2 p-2 rounded-xl border border-[var(--selo)]/40 bg-[var(--surface)] text-xs font-mono">
             <span className="text-[var(--selo)] font-semibold">Editando mensagem do usuário</span>
@@ -1270,18 +1327,20 @@ function ChatPageInner() {
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                queue.length >= 3
-                  ? "Aguarde o Plutão responder…"
-                  : pendingArtifacts.length
-                    ? "Instrução sobre o arquivo…"
-                    : `Mensagem para ${agentName}…`
+                guestLimitReached
+                  ? "Limite do modo Convidado atingido. Faça login para continuar."
+                  : queue.length >= 3
+                    ? "Aguarde o Plutão responder…"
+                    : pendingArtifacts.length
+                      ? "Instrução sobre o arquivo…"
+                      : `Mensagem para ${agentName}…`
               }
-              disabled={queue.length >= 3}
-              className="flex-1 bg-transparent px-2 py-1 text-base focus:outline-none min-h-[36px] max-h-[320px]"
+              disabled={guestLimitReached || queue.length >= 3}
+              className="flex-1 bg-transparent px-2 py-1 text-base focus:outline-none min-h-[36px] max-h-[320px] disabled:opacity-50"
             />
             <button
               type="submit"
-              disabled={queue.length >= 3 || (!inputMessage.trim() && pendingArtifacts.length === 0)}
+              disabled={guestLimitReached || queue.length >= 3 || (!inputMessage.trim() && pendingArtifacts.length === 0)}
               className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold disabled:opacity-40 font-mono cursor-pointer"
             >
               {editingMessageId ? "Salvar e Regenerar" : "Enviar"}
@@ -1297,6 +1356,45 @@ function ChatPageInner() {
           )}
         </form>
       </main>
+
+      {guestLimitReached && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="max-w-md w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center space-y-5 shadow-2xl">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl">
+              P
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+                Limite do Modo Convidado atingido
+              </h3>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Você atingiu o limite de 10 mensagens ou 15 minutos do modo convidado.
+                Crie sua conta ou faça login para continuar usando o Plutão sem interrupções e preservar seu histórico.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2.5 pt-2">
+              <a
+                href="/api/auth/google/authorize"
+                className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl border border-[var(--border)] bg-white text-black font-semibold text-xs hover:bg-gray-100 transition-colors"
+              >
+                <span>Continuar com Google</span>
+              </a>
+              <a
+                href="/api/auth/github/authorize"
+                className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-[#24292e] text-white font-semibold text-xs hover:bg-[#1b1f23] transition-colors"
+              >
+                <span>Continuar com GitHub</span>
+              </a>
+              <a
+                href="/login"
+                className="w-full py-2.5 px-4 rounded-xl border border-[var(--border)] text-[var(--text-secondary)] font-medium text-xs hover:bg-[var(--base)] transition-colors"
+              >
+                Entrar com e-mail e senha
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       <MobileNav />
       <ConfirmModal
