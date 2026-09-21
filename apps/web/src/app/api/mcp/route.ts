@@ -36,8 +36,8 @@ const mcpHandler = createMcpHandler((server) => {
       inputSchema: z.object({}),
     },
     async () => {
-      const { userId } = getMcpAuth();
-      return toolSystemStatus(userId);
+      const { userId, method } = getMcpAuth();
+      return toolSystemStatus(userId, method);
     }
   );
 

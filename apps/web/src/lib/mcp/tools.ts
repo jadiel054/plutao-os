@@ -13,7 +13,7 @@ function textResult(payload: unknown) {
   return { content: [{ type: "text" as const, text }] };
 }
 
-export async function toolSystemStatus(userId: string) {
+export async function toolSystemStatus(userId: string, authMethod?: "oauth" | "ops_key") {
   const modelProvider = process.env.MODEL_PROVIDER || "(default xai)";
   const modelName = process.env.MODEL_NAME || "(default por provider)";
   const hasModelKey = Boolean(process.env.MODEL_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || process.env.XAI_API_KEY?.trim());
@@ -31,6 +31,13 @@ export async function toolSystemStatus(userId: string) {
     connectorsSummary = [{ provider: "_", status: `error: ${e instanceof Error ? e.message : String(e)}`, account: null }];
   }
 
+  const authLabel =
+    authMethod === "oauth"
+      ? "OAuth 2.1 access token (PKCE)"
+      : authMethod === "ops_key"
+        ? "ops API key (break-glass)"
+        : "bearer API key";
+
   return textResult({
     product: "Plutão",
     role: "MCP audit surface (Phase 1 read-only)",
@@ -43,7 +50,7 @@ export async function toolSystemStatus(userId: string) {
     },
     mcp: {
       phase: 1,
-      auth: "bearer API key",
+      auth: authLabel,
       writeTools: false,
     },
     connectors: connectorsSummary,
