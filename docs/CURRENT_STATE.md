@@ -29,7 +29,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | GitHub OAuth App + callback | **VERIFICADO** | Fluxo completo em produção. |
 | Vercel conector | **VERIFICADO** | Conectado e tools em chat. |
 | Neon / Stripe (manifests declarativos) | **IMPLEMENTED** | Código Wave A/B; smoke OAuth/token **pendente**. |
-| MCP personalizado (+) | **PARCIAL** | Estrutura existe; UX/fluxo estável ainda em evolução. |
+| MCP personalizado (+) | **IMPLEMENTED** | Endpoints RFC 8414/9728 com `logo_uri` (`/icon.png`); favicon e app icon oficial 512x512 configurados. |
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |

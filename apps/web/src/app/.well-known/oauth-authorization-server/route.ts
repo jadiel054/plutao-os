@@ -18,6 +18,7 @@ export async function GET() {
     revocation_endpoint_auth_methods_supported: ["none"],
     scopes_supported: ["mcp:read"],
     client_id_metadata_document_supported: false,
+    logo_uri: `${issuer}/icon.png`,
   };
 
   return Response.json(body, {

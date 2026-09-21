@@ -13,6 +13,7 @@ export async function GET() {
     scopes_supported: ["mcp:read"],
     bearer_methods_supported: ["header"],
     resource_documentation: `${issuer}/ajuda`,
+    logo_uri: `${issuer}/icon.png`,
   };
 
   return Response.json(body, {
