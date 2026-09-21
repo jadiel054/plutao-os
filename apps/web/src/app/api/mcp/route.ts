@@ -87,7 +87,7 @@ const mcpHandler = createMcpHandler((server) => {
 });
 
 async function handle(req: Request): Promise<Response> {
-  const auth = authenticateMcpRequest(req);
+  const auth = await authenticateMcpRequest(req);
   if (!auth.ok) {
     return mcpUnauthorizedResponse(auth);
   }
@@ -97,6 +97,7 @@ async function handle(req: Request): Promise<Response> {
       userId: auth.userId,
       scopes: auth.scopes,
       clientId: auth.clientId,
+      grantId: auth.grantId,
       method: auth.method,
     },
     () => mcpHandler(req)
