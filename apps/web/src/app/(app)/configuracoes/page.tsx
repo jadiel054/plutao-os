@@ -12,6 +12,7 @@ import { SettingsAboutSection } from "@/components/SettingsAboutSection";
 import { SettingsProfileSection } from "@/components/SettingsProfileSection";
 import { SettingsNotificationsSection } from "@/components/SettingsNotificationsSection";
 import { SettingsConnectorsSection } from "@/components/SettingsConnectorsSection";
+import { SettingsMcpGrantsSection } from "@/components/SettingsMcpGrantsSection";
 import { useModelMode } from "@/hooks/useModelMode";
 
 type TabType = "ia" | "conectores" | "perfil" | "notificacoes" | "seguranca" | "sobre";
@@ -250,13 +251,16 @@ export default function SettingsPage() {
             />
           )}
           {activeTab === "seguranca" && (
-            <DataControlsSection
-              userEmail={userEmail}
-              onExport={handleExportData}
-              onNotify={addToast}
-              onOpenClearLocal={() => setIsClearModalOpen(true)}
-              onOpenDeleteAccount={() => setIsDeleteAccountModalOpen(true)}
-            />
+            <>
+              <SettingsMcpGrantsSection onNotify={addToast} />
+              <DataControlsSection
+                userEmail={userEmail}
+                onExport={handleExportData}
+                onNotify={addToast}
+                onOpenClearLocal={() => setIsClearModalOpen(true)}
+                onOpenDeleteAccount={() => setIsDeleteAccountModalOpen(true)}
+              />
+            </>
           )}
           {activeTab === "sobre" && <SettingsAboutSection />}
         </div>
