@@ -5,6 +5,7 @@ import { magicLinkTokens } from "@plutao/db";
 import { getOrCreateUserByEmail } from "@/lib/auth/social";
 import { createSession } from "@/lib/auth/session";
 import { setSessionCookie } from "@/lib/auth/cookies";
+import { handleGuestMigrationOnAuth } from "@/lib/auth/guest";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest) {
 
     // Get or create user by email
     const user = await getOrCreateUserByEmail(tokenRow.email);
+    await handleGuestMigrationOnAuth(req, user.id);
 
     // Create session & cookie
     const { token: sessionToken, expiresAt } = await createSession({

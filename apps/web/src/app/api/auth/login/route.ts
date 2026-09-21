@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { verifyPassword } from "@/lib/auth/password";
 import { createSession } from "@/lib/auth/session";
 import { setSessionCookie } from "@/lib/auth/cookies";
+import { handleGuestMigrationOnAuth } from "@/lib/auth/guest";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,8 @@ export async function POST(req: NextRequest) {
     if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
       return NextResponse.json({ error: "E-mail ou senha inválidos" }, { status: 401 });
     }
+
+    await handleGuestMigrationOnAuth(req, user.id);
 
     const { token, expiresAt } = await createSession({
       userId: user.id,

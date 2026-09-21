@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOrCreateUserByEmail } from "@/lib/auth/social";
 import { createSession } from "@/lib/auth/session";
 import { setSessionCookie } from "@/lib/auth/cookies";
+import { handleGuestMigrationOnAuth } from "@/lib/auth/guest";
 
 export const runtime = "nodejs";
 
@@ -65,6 +66,7 @@ export async function GET(req: NextRequest) {
 
     // 3. Link or create user, ensure waitlist inclusion
     const user = await getOrCreateUserByEmail(email, name);
+    await handleGuestMigrationOnAuth(req, user.id);
 
     // 4. Create session and set cookie
     const { token, expiresAt } = await createSession({

@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { hashPassword } from "@/lib/auth/password";
 import { createSession } from "@/lib/auth/session";
 import { setSessionCookie } from "@/lib/auth/cookies";
+import { handleGuestMigrationOnAuth } from "@/lib/auth/guest";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,8 @@ export async function POST(req: NextRequest) {
       .returning({ id: users.id, email: users.email, name: users.name });
 
     const user = inserted[0];
+    await handleGuestMigrationOnAuth(req, user.id);
+
     const { token, expiresAt } = await createSession({
       userId: user.id,
       userAgent: req.headers.get("user-agent"),
