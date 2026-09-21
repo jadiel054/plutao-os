@@ -64,6 +64,13 @@
       "when": 1727000000000,
       "tag": "0008_conversation_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1727100000000,
+      "tag": "0009_mcp_oauth_grants",
+      "breakpoints": true
     }
   ]
 }
