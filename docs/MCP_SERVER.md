@@ -1,110 +1,110 @@
-# MCP Server do Plutão — Fase 1
+# MCP Server do Plutão — OAuth 2.1 (produção)
 
-O Plutão expõe um **servidor MCP remoto** para que agentes externos (Claude, Cursor, ChatGPT custom connector, etc.) auditem o sistema com tools **read-only**.
+Arquitetura alinhada a **GitHub / Vercel MCP** e à spec MCP Authorization:
 
-**Endpoint:** `https://<APP_URL>/api/mcp`  
-**Transporte:** Streamable HTTP (`mcp-handler` + spec 2026-07-28, fallback 2025)  
-**Auth:** `Authorization: Bearer <PLUTAO_MCP_API_KEY>`
+| Papel | Componente |
+|-------|------------|
+| **Resource server** | `POST/GET /api/mcp` — tools; só `Authorization: Bearer` |
+| **Authorization server** | `/api/oauth/authorize`, `/api/oauth/token`, consent UI |
+| **Discovery** | `/.well-known/oauth-protected-resource` + `oauth-authorization-server` |
+
+**Tools:** somente leitura (`mcp:read`). Tokens de GitHub/Vercel/Neon **nunca** saem nas respostas.
 
 ---
 
-## 1. Variáveis no Vercel
+## Endpoints
+
+| URL | Função |
+|-----|--------|
+| `https://<APP>/api/mcp` | MCP Streamable HTTP |
+| `https://<APP>/.well-known/oauth-protected-resource` | RFC 9728 |
+| `https://<APP>/.well-known/oauth-authorization-server` | RFC 8414 |
+| `https://<APP>/api/oauth/authorize` | Login + redirect consent |
+| `https://<APP>/oauth/consent` | UI de permissão |
+| `https://<APP>/api/oauth/token` | code → access_token (PKCE) |
+
+---
+
+## Variáveis de ambiente (Vercel)
 
 ```bash
-# Segredo longo — não reutilizar SESSION_SECRET
-PLUTAO_MCP_API_KEY="$(openssl rand -hex 32)"
+APP_URL=https://plutao-os.vercel.app
 
-# UUID do seu usuário na tabela users (Neon → users → id)
-PLUTAO_MCP_USER_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# Assinatura de auth codes e access tokens (≥16 chars)
+MCP_TOKEN_SECRET=   # openssl rand -hex 32
+# fallback: CONNECTOR_TOKEN_SECRET ou SESSION_SECRET
+
+# Ops break-glass (opcional) — só header Bearer, nunca query
+PLUTAO_MCP_API_KEY=
+PLUTAO_MCP_USER_ID=
+
+# Opcional: restringir redirect_uri (prefixos separados por vírgula)
+# Se vazio: https://* + localhost/127.0.0.1 (usuário vê URI no consent)
+MCP_OAUTH_REDIRECT_ALLOWLIST=
 ```
 
-Target: **Production** (e Preview se for testar em branch).
-
-Redeploy após salvar.
-
-### Como achar o USER_ID
-
-No Neon SQL:
-
-```sql
-SELECT id, email FROM users ORDER BY created_at LIMIT 10;
-```
-
-Use o `id` da conta que você usa no Plutão (missões e conectores dessa conta).
+Redeploy após salvar. **Não** use token na query string.
 
 ---
 
-## 2. Tools disponíveis (Fase 1)
+## Fluxo (cliente Claude / Cursor / Grok com OAuth)
 
-| Tool | Descrição |
-|------|-----------|
-| `plutao_system_status` | Modelo (sem secret), fase MCP, resumo de conectores |
-| `plutao_list_connectors` | Status, account, scopes, capabilities (sem tokens) |
-| `plutao_list_conversations` | Missões recentes (limit opcional) |
-| `plutao_get_mission` | Detalhe: plan, steps, evidence, errors |
+1. Cliente chama `/api/mcp` sem token → **401** +  
+   `WWW-Authenticate: Bearer resource_metadata="https://…/.well-known/oauth-protected-resource"`
+2. Cliente lê PRM → `authorization_servers: [APP_URL]`
+3. Cliente lê AS metadata → authorize + token endpoints
+4. Browser: `/api/oauth/authorize?…&code_challenge=…&code_challenge_method=S256`
+5. Usuário loga no Plutão (se preciso) → **Autorizar** no consent
+6. Redirect com `?code=` → cliente troca em `/api/oauth/token` com `code_verifier`
+7. Cliente usa `Authorization: Bearer <access_token>` nas tools
 
-**Não incluído na Fase 1:** `send_message`, `run_test` (writes) — entram com gate de confirmação na Fase 1.5/2.
+**PKCE S256 é obrigatório.** Access token: ~1h, `aud` = URL do MCP, scope `mcp:read`.
 
 ---
 
-## 3. Conectar um cliente
-
-### Claude (Custom connector)
-
-1. Settings → Connectors → Add custom connector  
-2. URL: `https://plutao-os.vercel.app/api/mcp` (ou seu domínio)  
-3. Auth: Bearer / API key → cole o valor de `PLUTAO_MCP_API_KEY`
-
-### Cursor / configs JSON (Streamable HTTP)
-
-```json
-{
-  "mcpServers": {
-    "plutao": {
-      "url": "https://plutao-os.vercel.app/api/mcp",
-      "headers": {
-        "Authorization": "Bearer SEU_PLUTAO_MCP_API_KEY"
-      }
-    }
-  }
-}
-```
-
-### Teste rápido (curl)
+## Ops (curl / CI)
 
 ```bash
-curl -sS -X POST "https://plutao-os.vercel.app/api/mcp" \
+curl -sS -X POST "$APP_URL/api/mcp" \
   -H "Authorization: Bearer $PLUTAO_MCP_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
-Sem Bearer → **401**. Sem env configurado → **503**.
+---
+
+## Segurança (checklist)
+
+- [x] Sem secret em query string
+- [x] Bearer only no resource server
+- [x] PKCE S256
+- [x] Consentimento explícito (conta, client_id, redirect_uri, scopes)
+- [x] Token curto + audience fixa no MCP
+- [x] Tools read-only; sem tokens de conectores
+- [x] 401 com `resource_metadata` (RFC 9728)
+- [ ] Write tools (`mcp:write`) — futuro, com scope + gate
+- [ ] Revogação de grants na UI — próximo polish
 
 ---
 
-## 4. Segurança
+## Tools
 
-- A key dá acesso de **leitura** às missões e conectores do `PLUTAO_MCP_USER_ID` apenas.
-- Tokens OAuth de GitHub/Vercel **nunca** saem nas tools.
-- Não commitar a key; só Vercel env.
-- Fase 2: OAuth 2.1 + PKCE; API key fica só para ops/break-glass.
-
----
-
-## 5. Roadmap
-
-| Fase | Escopo |
-|------|--------|
-| **1** (agora) | `/api/mcp` + Bearer + 4 tools read-only |
-| **1.5** | `send_message` / `run_test` com `test_session` + confirmação |
-| **2** | OAuth 2.1, múltiplas keys por usuário na UI Configurações |
+| Tool | Descrição |
+|------|-----------|
+| `plutao_system_status` | Modelo (sem key), fase, resumo conectores |
+| `plutao_list_connectors` | Status/capabilities sem secrets |
+| `plutao_list_conversations` | Missões recentes |
+| `plutao_get_mission` | Detalhe da missão do `sub` do token |
 
 ---
 
-## 6. Arquivos
+## Arquivos
 
-- `apps/web/src/app/api/mcp/route.ts` — handler HTTP
-- `apps/web/src/lib/mcp/auth.ts` — Bearer
-- `apps/web/src/lib/mcp/tools.ts` — implementação das tools
+- `apps/web/src/lib/mcp/tokens.ts` — codes + access tokens HMAC
+- `apps/web/src/lib/mcp/auth.ts` — Bearer verify + ALS
+- `apps/web/src/lib/mcp/tools.ts` — tools
+- `apps/web/src/app/api/mcp/route.ts`
+- `apps/web/src/app/api/oauth/*`
+- `apps/web/src/app/oauth/consent/page.tsx`
+- `apps/web/src/app/.well-known/*`
