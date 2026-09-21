@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-21
+**Última atualização:** 2026-09-21 (migrations Neon confirmadas pelo operador)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -34,11 +34,11 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
 | Billing Stripe live (checkout/webhook) | **PENDENTE** | Schema/planos prontos; cobrança real não fechada. |
-| B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; `/share/[token]`; migration 0008. |
+| B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; `/share/[token]`; migration 0008 no Neon **VERIFICADA**. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
 | Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml`. |
 | Migrations 0000–0008 no repo | **IMPLEMENTED** | Journal Drizzle atualizado. |
-| Migrations 0005–0008 no Neon produção | **A CONFIRMAR** | Operador deve validar no banco. |
+| Migrations no Neon produção | **VERIFICADO** | 2026-09-21: tabelas 0000–0004/0006/0007 presentes; colunas 0002/0006/0008 presentes (`idempotency_key`, `plan`, `preferred_model`, `is_pinned`, `share_token`). **0005** (`chat_messages`) não se aplica — tabela não existe no schema atual (SQL opcional/futuro). |
 | Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha de missão ponta a ponta ainda a formalizar. |
 | Durable execution (Inngest etc.) | **DESIGNED** | Fora do fechamento V1. |
 | Identidade “Cockpit” | **PROVISÓRIA** | Revisar pós-estabilização. |
@@ -60,13 +60,14 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ## Checklist V1 (objetivo)
 
-### Operação (fazer agora)
+### Operação
 
-- [ ] Confirmar no Neon: migrations **0004–0008** aplicadas (URL direta / unpooled)
+- [x] Confirmar no Neon: migrations **0004–0008** (0005 skip deliberado)
 - [ ] Vercel env modelos: `MODEL_PROVIDER`, `MODEL_API_KEY` ou `XAI_API_KEY`, opcional `MODEL_NAME=grok-4.6`, `MODEL_BASE_URL=https://api.x.ai/v1`
 - [ ] Chaves opcionais por card: `GROQ_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`
 - [ ] Smoke modelos: chat default + teste em Configurações → Modelos (só cards com chave)
-- [ ] Smoke conectores: GitHub list repos + Vercel list projects + desconectar/reconectar
+- [ ] Smoke conectores: GitHub list repos + Vercel list projects + desconectar/reconectar (já feito em parte; revalidar após deploys)
+- [ ] Smoke B2: pin conversa + gerar link `/share/[token]` (usa colunas 0008)
 
 ### Produto (próximo ciclo)
 
@@ -76,7 +77,6 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - [ ] MCP personalizado: fluxo + estável e profissional
 - [ ] Smoke missão formal: chat → plano → executar tool → evidência na trilha
 - [ ] Central de ajuda: FAQ + bot (sem genérico)
-- [ ] Atualizar este arquivo quando cada item acima for **VERIFICADO**
 
 ### Explicitamente fora do V1
 
@@ -121,12 +121,12 @@ AUTH_GITHUB_CLIENT_SECRET=
 # Resend / magic link conforme docs de auth
 ```
 
-Guia conectores GitHub: **`docs/CONECTORES_M5.md`** (atualizar smoke quando marcar VERIFICADO).
+Guia conectores GitHub: **`docs/CONECTORES_M5.md`**.
 
 ---
 
 ## Próximo passo recomendado
 
-1. Operador: migrations Neon + env de modelo + smoke (checklist Operação).  
-2. Dev: Neon **ou** Stripe (um conector de cada vez) + billing se for faturar.  
+1. **Operador:** conferir env de modelo no Vercel + smoke chat/modelos + pin/share (0008).  
+2. **Dev:** Neon **ou** Stripe (um conector de cada vez) + billing se for faturar.  
 3. Só então expandir catálogo nativo e UX fina.
