@@ -1,10 +1,10 @@
 /**
  * Tokens do MCP Authorization Server do Plutão.
  *
- * - Authorization codes e access tokens são payloads HMAC-SHA256
- *   (sem DB; adequado a Vercel serverless).
- * - Access token: curto (1h), audience = resource MCP, scopes explícitos.
- * - Nunca colocar token em query string de produção nas tools.
+ * - Authorization codes: HMAC transport + jti single-use no DB (mcp_auth_codes)
+ * - Access tokens: HMAC, 1h, aud = resource MCP, grant_id para revogação
+ * - Refresh tokens: opaco (prt_*), hash no grant, rotação no refresh
+ * - Nunca colocar token em query string
  */
 
 import { createHmac, timingSafeEqual, createHash, randomBytes } from "node:crypto";
@@ -12,8 +12,9 @@ import { createHmac, timingSafeEqual, createHash, randomBytes } from "node:crypt
 export const MCP_SCOPES = ["mcp:read"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
-const ACCESS_TTL_SEC = 60 * 60; // 1h
-const CODE_TTL_SEC = 5 * 60; // 5 min
+const ACCESS_TTL_SEC = 60 * 60;
+const CODE_TTL_SEC = 5 * 60;
+const REFRESH_TTL_SEC = 60 * 60 * 24 * 30;
 
 function signingKey(): Buffer {
   const raw =
@@ -77,6 +78,7 @@ export type AuthCodeClaims = {
   scope: string;
   code_challenge: string;
   code_challenge_method: "S256";
+  grant_id: string;
   exp: number;
   iat: number;
   jti: string;
@@ -88,6 +90,7 @@ export type AccessTokenClaims = {
   client_id: string;
   scope: string;
   aud: string;
+  grant_id: string;
   exp: number;
   iat: number;
   jti: string;
@@ -99,8 +102,10 @@ export function issueAuthorizationCode(input: {
   redirectUri: string;
   scope: string;
   codeChallenge: string;
-}): string {
+  grantId: string;
+}): { code: string; jti: string; expiresAt: Date } {
   const now = Math.floor(Date.now() / 1000);
+  const jti = randomBytes(16).toString("hex");
   const claims: AuthCodeClaims = {
     typ: "mcp_code",
     sub: input.userId,
@@ -109,14 +114,19 @@ export function issueAuthorizationCode(input: {
     scope: input.scope,
     code_challenge: input.codeChallenge,
     code_challenge_method: "S256",
+    grant_id: input.grantId,
     iat: now,
     exp: now + CODE_TTL_SEC,
-    jti: randomBytes(16).toString("hex"),
+    jti,
   };
-  return signPayload(claims);
+  return {
+    code: signPayload(claims),
+    jti,
+    expiresAt: new Date((now + CODE_TTL_SEC) * 1000),
+  };
 }
 
-export function consumeAuthorizationCode(code: string): AuthCodeClaims | null {
+export function peekAuthorizationCode(code: string): AuthCodeClaims | null {
   const claims = verifyPayload<AuthCodeClaims>(code);
   if (!claims || claims.typ !== "mcp_code") return null;
   return claims;
@@ -126,6 +136,7 @@ export function issueAccessToken(input: {
   userId: string;
   clientId: string;
   scope: string;
+  grantId: string;
 }): { accessToken: string; expiresIn: number; scope: string; tokenType: "Bearer" } {
   const now = Math.floor(Date.now() / 1000);
   const claims: AccessTokenClaims = {
@@ -134,6 +145,7 @@ export function issueAccessToken(input: {
     client_id: input.clientId,
     scope: input.scope,
     aud: getMcpResourceUrl(),
+    grant_id: input.grantId,
     iat: now,
     exp: now + ACCESS_TTL_SEC,
     jti: randomBytes(16).toString("hex"),
@@ -150,10 +162,18 @@ export function verifyAccessToken(token: string): AccessTokenClaims | null {
   const claims = verifyPayload<AccessTokenClaims>(token);
   if (!claims || claims.typ !== "mcp_at") return null;
   if (claims.aud !== getMcpResourceUrl()) return null;
+  if (!claims.grant_id) return null;
   return claims;
 }
 
-/** PKCE S256: BASE64URL(SHA256(verifier)) === challenge */
+export function refreshTtlSec(): number {
+  return REFRESH_TTL_SEC;
+}
+
+export function refreshExpiresAt(): Date {
+  return new Date(Date.now() + REFRESH_TTL_SEC * 1000);
+}
+
 export function verifyPkceS256(verifier: string, challenge: string): boolean {
   if (!verifier || verifier.length < 43 || verifier.length > 128) return false;
   const computed = createHash("sha256").update(verifier).digest("base64url");
@@ -177,12 +197,6 @@ export function normalizeScopes(requested: string | null | undefined): string {
   return [...new Set(out)].join(" ");
 }
 
-/**
- * Redirect URIs permitidos:
- * - http://localhost / 127.0.0.1 (qualquer porta) — clientes locais
- * - https:// — obrigatório em produção para remotos
- * - lista extra em MCP_OAUTH_REDIRECT_ALLOWLIST (prefixos, vírgula)
- */
 export function isRedirectUriAllowed(uri: string): boolean {
   let parsed: URL;
   try {
@@ -194,15 +208,11 @@ export function isRedirectUriAllowed(uri: string): boolean {
     return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
   }
   if (parsed.protocol !== "https:") return false;
-
   const allow = (process.env.MCP_OAUTH_REDIRECT_ALLOWLIST || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (allow.length === 0) {
-    // Padrão seguro: qualquer https (usuário vê URI na tela de consentimento)
-    return true;
-  }
+  if (allow.length === 0) return true;
   return allow.some((prefix) => uri === prefix || uri.startsWith(prefix));
 }
 

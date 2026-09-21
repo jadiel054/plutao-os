@@ -2,7 +2,7 @@
  * Auth do MCP resource server do Plutão.
  *
  * Aceita Authorization: Bearer <token> onde token é:
- * 1) Access token OAuth emitido por /api/oauth/token (preferido)
+ * 1) Access token OAuth (HMAC + grant ativo no DB)
  * 2) PLUTAO_MCP_API_KEY de ops (break-glass, header only)
  *
  * 401 inclui resource_metadata (RFC 9728) para discovery OAuth.
@@ -15,11 +15,13 @@ import {
   timingSafeStringEqual,
   verifyAccessToken,
 } from "./tokens";
+import { isGrantActive, touchGrant } from "./grants";
 
 export type McpAuthContext = {
   userId: string;
   scopes: string[];
   clientId: string;
+  grantId?: string;
   method: "oauth" | "ops_key";
 };
 
@@ -41,13 +43,12 @@ function extractBearer(req: Request): string {
   return match?.[1]?.trim() || "";
 }
 
-export function authenticateMcpRequest(req: Request): McpAuthResult {
+export async function authenticateMcpRequest(req: Request): Promise<McpAuthResult> {
   const token = extractBearer(req);
   if (!token) {
     return { ok: false, status: 401, error: "Unauthorized — Bearer token ausente." };
   }
 
-  // 1) Access token OAuth
   try {
     const claims = verifyAccessToken(token);
     if (claims) {
@@ -55,11 +56,17 @@ export function authenticateMcpRequest(req: Request): McpAuthResult {
       if (!scopes.includes("mcp:read")) {
         return { ok: false, status: 401, error: "Unauthorized — scope mcp:read exigido." };
       }
+      const active = await isGrantActive(claims.grant_id);
+      if (!active) {
+        return { ok: false, status: 401, error: "Unauthorized — grant revogado ou inexistente." };
+      }
+      void touchGrant(claims.grant_id).catch(() => undefined);
       return {
         ok: true,
         userId: claims.sub,
         scopes,
         clientId: claims.client_id,
+        grantId: claims.grant_id,
         method: "oauth",
       };
     }
@@ -67,7 +74,6 @@ export function authenticateMcpRequest(req: Request): McpAuthResult {
     /* signing key missing or invalid — tenta ops key */
   }
 
-  // 2) Ops API key (nunca em query)
   const apiKey = process.env.PLUTAO_MCP_API_KEY?.trim();
   const userId = process.env.PLUTAO_MCP_USER_ID?.trim();
   if (apiKey && userId && timingSafeStringEqual(token, apiKey)) {
