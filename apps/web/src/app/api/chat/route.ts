@@ -68,10 +68,6 @@ async function incrementUsageCounter(db: ReturnType<typeof getDb>, userId: strin
 }
 
 export async function POST(req: NextRequest) {
-  const forwardedFor = req.headers.get("x-forwarded-for");
-  const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : req.headers.get("x-real-ip") || "127.0.0.1";
-  const userAgent = req.headers.get("user-agent") || null;
-
   let user;
   try {
     user = await getAuthOrGuestUser();

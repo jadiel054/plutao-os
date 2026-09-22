@@ -40,7 +40,7 @@ let mockCookieToken: string | null = null;
 vi.mock("@/lib/db", () => ({
   getDb: () => ({
     select: () => ({
-      from: (table: { name?: string }) => ({
+      from: (_table: { name?: string }) => ({
         where: () => {
           if (throwDbError) {
             throw new Error("Neon Database Connection Error");
@@ -54,23 +54,24 @@ vi.mock("@/lib/db", () => ({
       }),
     }),
     insert: () => ({
-      values: (val: any) => ({
+      values: (val: Record<string, unknown>) => ({
         returning: () => {
-          if (val.email && val.email.includes("guest")) {
-            const newUser = { id: `usr_${Date.now()}_${Math.random()}`, email: val.email, name: val.name, isGuest: true };
+          const emailVal = typeof val.email === "string" ? val.email : "";
+          if (emailVal.includes("guest")) {
+            const newUser = { id: `usr_${Date.now()}_${Math.random()}`, email: emailVal, name: String(val.name ?? ""), isGuest: true };
             mockUsersDb.push(newUser);
             return [{ id: newUser.id }];
           } else {
             const newSession = {
               id: `gst_sess_${Date.now()}_${Math.random()}`,
-              token: val.token,
-              userId: val.userId,
-              ip: val.ip,
+              token: String(val.token ?? ""),
+              userId: String(val.userId ?? ""),
+              ip: String(val.ip ?? "127.0.0.1"),
               messageCount: 0,
               firstMessageAt: null,
-              expiresAt: val.expiresAt,
-              createdAt: val.createdAt,
-              updatedAt: val.updatedAt,
+              expiresAt: (val.expiresAt as Date) || new Date(),
+              createdAt: (val.createdAt as Date) || new Date(),
+              updatedAt: (val.updatedAt as Date) || new Date(),
             };
             mockGuestSessionsDb.push(newSession);
             return [{ id: newSession.id }];
