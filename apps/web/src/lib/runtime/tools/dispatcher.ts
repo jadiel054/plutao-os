@@ -120,6 +120,7 @@ export async function dispatchTool(opts: {
     source: "tool_dispatcher",
     taskId,
     missionId: execution.missionId,
+    executionId: opts.executionId,
     createdAt: now.toISOString(),
   };
 
@@ -150,7 +151,7 @@ export async function dispatchTool(opts: {
   await db
     .update(missions)
     .set({ evidence: [...prevEv, evidenceItem], updatedAt: now })
-    .where(eq(missions.id, execution.missionId));
+    .where(and(eq(missions.id, execution.missionId), eq(missions.userId, opts.userId)));
 
   calls.add(callKey);
   const nextCp: CheckpointShape = {

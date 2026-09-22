@@ -108,6 +108,21 @@ function isIdempotentToolDispatch(toolDispatch: unknown): boolean {
   return dispatch?.idempotent === true;
 }
 
+function getToolDispatchError(toolDispatch: unknown): string | null {
+  if (!toolDispatch || typeof toolDispatch !== "object") return null;
+  const dispatch = toolDispatch as {
+    error?: unknown;
+    result?: { ok?: unknown; error?: unknown };
+  };
+  if (typeof dispatch.error === "string") return dispatch.error;
+  if (dispatch.result?.ok === false) {
+    return typeof dispatch.result.error === "string"
+      ? dispatch.result.error
+      : "tool failed";
+  }
+  return null;
+}
+
 /**
  * Agent Loop Controller
  * 
@@ -265,19 +280,19 @@ export async function runAgentLoop(
     }
 
     // Verifica se tool dispatch retornou erro
-    if (toolDispatch && typeof toolDispatch === "object" && "error" in toolDispatch) {
-      const dispatch = toolDispatch as { error: string };
+    const toolError = getToolDispatchError(toolDispatch);
+    if (toolError) {
       
       // Adiciona mensagem de contexto com o erro da tool
       toolContextMessages.push(
         toolResultToMessage(
           stepResult.model.toolProposal?.name || "unknown",
-          toolDispatch,
+          { error: toolError },
           true
         )
       );
       
-      stopReason = `TOOL_ERROR: ${dispatch.error}`;
+      stopReason = `TOOL_ERROR: ${toolError}`;
       
       details.push({
         iteration,

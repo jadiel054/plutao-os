@@ -135,6 +135,7 @@ describe("GitHub Tool Execution & Capability Enforcement", () => {
     if (res.ok) {
       expect(res.tool).toBe("github");
       expect(res.output).toContain("user/plutao-os");
+      expect(res.output).not.toContain("decrypted-github-token");
       expect(typeof res.durationMs).toBe("number");
     }
 

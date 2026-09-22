@@ -240,6 +240,7 @@ export async function runModelStep(
     source: `model:${providerType}:${modelId}`,
     taskId: execution.currentTaskId,
     missionId: execution.missionId,
+    executionId,
     createdAt: now.toISOString(),
   };
 

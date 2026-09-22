@@ -144,11 +144,40 @@ export async function runAutonomousMissionServer(opts: {
   const loop = await runAgentLoop(executionId, userId, maxIterations);
   const stepsOk = loop.iterations ?? 0;
 
-  try {
-    await completeExecution(executionId, userId, "COMPLETED");
-  } catch {
-    /* non-blocking */
+  const loopFailed =
+    !loop.ok ||
+    loop.stopReason.startsWith("TOOL_ERROR") ||
+    loop.stopReason.startsWith("MODEL_STEP_ERROR") ||
+    loop.stopReason === "MAX_ITERATIONS_REACHED";
+
+  if (loopFailed) {
+    const failure = loop.error ?? loop.stopReason;
+    await completeExecution(executionId, userId, "FAILED", failure);
+
+    const failedMission = await transitionMissionStatus({
+      missionId,
+      userId,
+      toStatus: "FAILED",
+    });
+    const failedStatus = failedMission.ok
+      ? failedMission.status
+      : String((await getOwnedMission(missionId, userId))?.status ?? status);
+
+    return {
+      ok: false,
+      missionId,
+      finalStatus: failedStatus,
+      allowedTransitions: nextStatuses(failedStatus),
+      stepsOk,
+      completed: false,
+      executionId,
+      stopReason: loop.stopReason,
+      error: failure,
+      message: `Execução falhou: ${failure}`,
+    };
   }
+
+  await completeExecution(executionId, userId, "COMPLETED");
 
   if (status === "EXECUTING") {
     const t = await transitionMissionStatus({
@@ -166,7 +195,10 @@ export async function runAutonomousMissionServer(opts: {
   if (status === "VERIFYING") {
     const full = await getOwnedMission(missionId, userId);
     if (full) {
-      const evidence = parseEvidence(full.evidence);
+      const allEvidence = parseEvidence(full.evidence);
+      const evidence = allEvidence.filter(
+        (item) => item.executionId === executionId
+      );
       const dod = verifyDefinitionOfDone({
         objective: String(full.objective ?? ""),
         definitionOfDone: full.definitionOfDone,

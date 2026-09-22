@@ -49,7 +49,7 @@ export function extractFilesystemFacts(evidence: EvidenceLike[]): {
     const source = String(e.source ?? "").toLowerCase();
 
     if (type.includes("model") || source.includes("model")) modelSteps++;
-    if (type.includes("tool") || source.includes("tool") || content.includes("tool:")) {
+    if (type === "tool_result") {
       toolResults++;
     }
 
