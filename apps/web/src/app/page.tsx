@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getSessionUser } from "@/lib/auth/session";
 import { BrandLockup, BrandMark } from "@/components/BrandMark";
+import { GuestButton } from "@/components/GuestButton";
 
 export default async function Home() {
   const user = await getSessionUser();
@@ -93,6 +94,7 @@ export default async function Home() {
                 >
                   Já tenho conta
                 </Link>
+                <GuestButton />
               </>
             )}
           </div>

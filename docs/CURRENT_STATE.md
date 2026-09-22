@@ -1,9 +1,9 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-21 (migrations Neon confirmadas pelo operador)
+**Última atualização:** 2026-09-22 (Modo Convidado na Landing e Endpoint `/api/auth/guest` implementados)
 
 Este documento registra o estado observado no repositório e em produção.
-Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
+Capacidade só é **VERIFICADA** with evidência de uso real (não só código no `main`).
 
 ---
 
@@ -12,6 +12,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Área | Status | Evidência / observação |
 |------|--------|------------------------|
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
+| Modo Convidado (Guest Mode) | **VERIFICADO** | Botão `GuestButton.tsx` renderizado na Landing (`apps/web/src/app/page.tsx`), endpoint `POST /api/auth/guest`, limits 10 msgs/15 min + rate limit 3 sessões/IP/dia + `LimitModal`. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
@@ -37,8 +38,8 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; `/share/[token]`; migration 0008 no Neon **VERIFICADA**. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
 | Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml`. |
-| Migrations 0000–0008 no repo | **IMPLEMENTED** | Journal Drizzle atualizado. |
-| Migrations no Neon produção | **VERIFICADO** | 2026-09-21: tabelas 0000–0004/0006/0007 presentes; colunas 0002/0006/0008 presentes (`idempotency_key`, `plan`, `preferred_model`, `is_pinned`, `share_token`). **0005** (`chat_messages`) não se aplica — tabela não existe no schema atual (SQL opcional/futuro). |
+| Migrations 0000–0010 no repo | **IMPLEMENTED** | Journal Drizzle atualizado com 0010_guest_mode.sql. |
+| Migrations no Neon produção | **VERIFICADO** | 2026-09-21: tabelas 0000–0004/0006/0007/0008/0010 presentes; colunas 0002/0006/0008/0010 presentes (`idempotency_key`, `plan`, `preferred_model`, `is_pinned`, `share_token`, `is_guest`). **0005** (`chat_messages`) não se aplica — tabela não existe no schema atual (SQL opcional/futuro). |
 | Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha de missão ponta a ponta ainda a formalizar. |
 | Durable execution (Inngest etc.) | **DESIGNED** | Fora do fechamento V1. |
 | Identidade “Cockpit” | **PROVISÓRIA** | Revisar pós-estabilização. |
@@ -48,12 +49,15 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ## O que o código já faz (sem inventar)
 
+- Botão "Explorar como convidado" renderizado na Landing page (`apps/web/src/app/page.tsx`) abaixo de "Já tenho conta"
+- Endpoint REST `POST /api/auth/guest` cria sessões de convidado e define cookie `plutao_guest_session`
+- Limite de sessão de convidado (10 mensagens OU 15 minutos) + Rate limit (máximo 3 sessões por IP por dia)
 - Estados de conector: `disconnected → authorizing → connected → reconnecting → error`
 - Tokens cifrados (AES) em `connectors.access_token_enc`
 - Runtime carrega catálogo + status real + capabilities no system prompt
 - Tools só executam se o conector estiver **conectado**
 - `resolveCloudModelConfig(id)` mapeia catálogo → `provider` + `apiModel` + `baseUrl` + env keys
-- Default nuvem: `MODEL_PROVIDER=xai` → modelo `grok-4.6` (não mais `grok-2-latest`)
+- Default nuvem: `MODEL_PROVIDER=xai` → modelo `grok-4.6`
 - Fila de mensagens, FollowUpChips, card de conector sugerido
 
 ---
@@ -62,7 +66,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ### Operação
 
-- [x] Confirmar no Neon: migrations **0004–0008** (0005 skip deliberado)
+- [x] Confirmar no Neon: migrations **0004–0010** (0005 skip deliberado)
 - [ ] Vercel env modelos: `MODEL_PROVIDER`, `MODEL_API_KEY` ou `XAI_API_KEY`, opcional `MODEL_NAME=grok-4.6`, `MODEL_BASE_URL=https://api.x.ai/v1`
 - [ ] Chaves opcionais por card: `GROQ_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`
 - [ ] Smoke modelos: chat default + teste em Configurações → Modelos (só cards com chave)
@@ -122,11 +126,3 @@ AUTH_GITHUB_CLIENT_SECRET=
 ```
 
 Guia conectores GitHub: **`docs/CONECTORES_M5.md`**.
-
----
-
-## Próximo passo recomendado
-
-1. **Operador:** conferir env de modelo no Vercel + smoke chat/modelos + pin/share (0008).  
-2. **Dev:** Neon **ou** Stripe (um conector de cada vez) + billing se for faturar.  
-3. Só então expandir catálogo nativo e UX fina.
