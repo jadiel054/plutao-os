@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-22 (Modo Convidado na Landing e Endpoint `/api/auth/guest` implementados)
+**Última atualização:** 2026-09-23 (Correção do Bug Crítico de Sessão Guest e Leitura/Escrita Purificadas)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** with evidência de uso real (não só código no `main`).
@@ -12,7 +12,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Área | Status | Evidência / observação |
 |------|--------|------------------------|
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
-| Modo Convidado (Guest Mode) | **VERIFICADO** | Botão `GuestButton.tsx` renderizado na Landing (`apps/web/src/app/page.tsx`), endpoint `POST /api/auth/guest`, limits 10 msgs/15 min + rate limit 3 sessões/IP/dia + `LimitModal`. |
+| Modo Convidado (Guest Mode) | **VERIFICADO** | Botão `GuestButton.tsx` renderizado na Landing (`apps/web/src/app/page.tsx`), endpoint `POST /api/auth/guest`, limits 10 msgs/15 min + rate limit 3 sessões/IP/dia + `LimitModal`. Leitura purificada sem auto-criação em page views (`getAuthOrGuestUser` / `getGuestSessionByToken`); erros de DB falham explicitamente. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |

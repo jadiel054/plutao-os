@@ -85,8 +85,9 @@ export async function getGuestSessionByToken(token: string): Promise<GuestSessio
       secondsRemaining,
       limitReason,
     };
-  } catch {
-    return null;
+  } catch (err) {
+    console.error("[getGuestSessionByToken] Erro de banco de dados ao buscar sessão guest:", err);
+    throw err;
   }
 }
 
@@ -179,18 +180,6 @@ export async function createGuestSession(opts: {
   };
 }
 
-export async function getOrStartGuestSession(opts?: {
-  ip?: string | null;
-  userAgent?: string | null;
-}): Promise<GuestSessionInfo> {
-  const jar = await cookies();
-  const token = jar.get(GUEST_COOKIE)?.value;
-  if (token) {
-    const existing = await getGuestSessionByToken(token);
-    if (existing) return existing;
-  }
-  return createGuestSession({ ip: opts?.ip, userAgent: opts?.userAgent });
-}
 
 export async function incrementGuestMessageCount(guestSessionId: string): Promise<GuestSessionInfo | null> {
   const db = getDb();
