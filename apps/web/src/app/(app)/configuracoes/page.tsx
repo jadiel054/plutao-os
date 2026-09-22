@@ -203,9 +203,23 @@ export default function SettingsPage() {
             type="button"
             disabled={saving}
             onClick={() => void handleSaveAll()}
-            className="self-start sm:self-auto px-5 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:bg-[var(--nucleo)] transition-all disabled:opacity-50 cursor-pointer"
+            className="self-start sm:self-auto px-5 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:bg-[var(--nucleo)] transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
           >
-            {saving ? "Salvando…" : "Salvar alterações"}
+            {saving ? (
+              <>
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
+                Salvando…
+              </>
+            ) : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                  <polyline points="17 21 17 13 7 13 7 21" />
+                  <polyline points="7 3 7 8 15 8" />
+                </svg>
+                Salvar alterações
+              </>
+            )}
           </button>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 border-b border-[var(--border)] pb-3">
