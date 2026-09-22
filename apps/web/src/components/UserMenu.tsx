@@ -65,7 +65,7 @@ export function UserMenu({ userEmail, onOpenModeModal }: UserMenuProps) {
             aria-hidden="true"
           />
 
-          <div className="absolute right-0 mt-2 w-56 bg-[#121f19]/95 border border-[var(--border)] rounded-2xl shadow-2xl py-2 z-50 backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="absolute right-0 mt-2 w-56 bg-[var(--surface-elevated)]/95 border border-[var(--border)] rounded-2xl shadow-2xl py-2 z-50 backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-150">
             <div className="px-4 py-2 border-b border-[var(--border)]">
               <p className="text-[10px] uppercase font-mono text-[var(--text-muted)]">Conectado como</p>
               <p className="text-xs font-medium text-[var(--text-primary)] truncate">{userEmail || "Sessão Ativa"}</p>
