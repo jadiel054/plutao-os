@@ -4,11 +4,12 @@ export const githubManifest: ConnectorManifest = {
   provider: "github",
   displayName: "GitHub",
   description:
-    "Repositórios, issues, pull requests e actions da sua conta. OAuth real; o Executor só usa o que estiver conectado.",
+    "Repositórios, issues, pull requests e actions da sua conta. OAuth real; o Executor só usa o que estiver conectado. Escritas passam pelo portão de aprovação humana.",
   category: "desenvolvedores",
   featured: true,
   authMode: "oauth",
   baseUrl: "https://api.github.com",
+  // `repo` = full control of private repos (includes create/push). Do not drop without product decision.
   defaultScopes: ["repo", "read:user", "workflow"],
   defaultServerUrl: "https://api.github.com",
   headers: (token: string) => ({
@@ -173,6 +174,43 @@ export const githubManifest: ConnectorManifest = {
           return `workflow runs (${runs.length}):\n${lines.join("\n") || "(vazio)"}`;
         },
       },
+    },
+    // Writes — executed only after write_gate approval (runGithub + /api/gates).
+    // Declarative request shape; real execution is in githubWrite.ts (Git Data API).
+    {
+      name: "repo_create",
+      description: "Criar repositório na conta do usuário (requer aprovação humana)",
+      mode: "write",
+      request: {
+        method: "POST",
+        path: "/user/repos",
+      },
+      requiredArgs: ["name"],
+      intentKeywords: [
+        "criar repositório",
+        "criar repo",
+        "novo repositório",
+        "create repo",
+        "create repository",
+      ],
+    },
+    {
+      name: "push_files",
+      description: "Enviar um ou mais arquivos para um repositório (requer aprovação humana)",
+      mode: "write",
+      request: {
+        method: "POST",
+        path: "/repos/{owner}/{repo}/git/trees",
+      },
+      requiredArgs: ["owner", "repo", "files"],
+      intentKeywords: [
+        "push",
+        "enviar arquivo",
+        "commit",
+        "atualizar arquivo",
+        "criar arquivo no github",
+        "push files",
+      ],
     },
   ],
 };
