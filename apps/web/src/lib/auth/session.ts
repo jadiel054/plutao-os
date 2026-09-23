@@ -1,1 +1,121 @@
-PLACEHOLDER
+import { randomBytes } from "node:crypto";
+import { cookies } from "next/headers";
+import { eq, and, gt } from "drizzle-orm";
+import { sessions, users } from "@plutao/db";
+import { getDb } from "@/lib/db";
+import { GUEST_COOKIE, getGuestSessionByToken, GuestSessionInfo } from "./guest";
+
+export const SESSION_COOKIE = "plutao_session";
+const SESSION_DAYS = 30;
+
+export function generateSessionToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+export async function createSession(opts: {
+  userId: string;
+  userAgent?: string | null;
+  ip?: string | null;
+}): Promise<{ token: string; expiresAt: Date }> {
+  const db = getDb();
+  const token = generateSessionToken();
+  const now = new Date();
+  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+
+  // Neon HTTP + Drizzle: do not rely on ORM defaultNow() for NOT NULL columns.
+  await db.insert(sessions).values({
+    userId: opts.userId,
+    token,
+    expiresAt,
+    createdAt: now,
+    userAgent: opts.userAgent ?? null,
+    ip: opts.ip ?? null,
+  });
+
+  return { token, expiresAt };
+}
+
+export async function destroySession(token: string): Promise<void> {
+  const db = getDb();
+  await db.delete(sessions).where(eq(sessions.token, token));
+}
+
+export async function getSessionUser(): Promise<{
+  id: string;
+  email: string;
+  name: string | null;
+} | null> {
+  const jar = await cookies();
+  const token = jar.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+
+  if (process.env.NODE_ENV !== "production" && token === "dev-session-token") {
+    return { id: "dev-user-1", email: "dev@plutao.ai", name: "Dev User" };
+  }
+
+  try {
+    const db = getDb();
+    const now = new Date();
+    const rows = await db
+      .select({
+        userId: users.id,
+        email: users.email,
+        name: users.name,
+        expiresAt: sessions.expiresAt,
+      })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(and(eq(sessions.token, token), gt(sessions.expiresAt, now)))
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) return null;
+    return { id: row.userId, email: row.email, name: row.name };
+  } catch {
+    return null;
+  }
+}
+
+export async function getAuthOrGuestUser(): Promise<{
+  id: string;
+  email: string;
+  name: string | null;
+  isGuest: boolean;
+  guestSession?: GuestSessionInfo | null;
+} | null> {
+  const user = await getSessionUser();
+  if (user) {
+    return { ...user, isGuest: false };
+  }
+  const jar = await cookies();
+  const token = jar.get(GUEST_COOKIE)?.value;
+  if (!token) {
+    return null;
+  }
+  const guest = await getGuestSessionByToken(token);
+  if (!guest) {
+    return null;
+  }
+  return {
+    id: guest.userId,
+    email: "guest@plutao.ai",
+    name: "Convidado",
+    isGuest: true,
+    guestSession: guest,
+  };
+}
+
+export async function requireUser() {
+  const user = await getSessionUser();
+  if (!user) {
+    throw new AuthError("UNAUTHORIZED");
+  }
+  return user;
+}
+
+export class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
