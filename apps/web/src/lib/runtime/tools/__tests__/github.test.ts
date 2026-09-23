@@ -36,6 +36,14 @@ describe("GitHub Tool Execution & Capability Enforcement", () => {
   });
 
   it("should return error if capability is not authorized in user connector row", async () => {
+    vi.spyOn(cryptoService, "decryptToken").mockReturnValue("decrypted-github-token");
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => JSON.stringify({ message: "Capability 'repos_list' não está autorizada" }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
     vi.spyOn(connectorsService, "getConnectorRow").mockResolvedValue({
       id: "conn-1",
       userId: "user-1",
