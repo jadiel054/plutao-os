@@ -241,5 +241,17 @@ export function githubDefaultCapabilities(): ConnectorCapability[] {
     { name: "pulls_list", description: "Listar pull requests", kind: "rest_api", mode: "read" },
     { name: "actions_list", description: "Listar workflow runs", kind: "rest_api", mode: "read" },
     { name: "repo_get", description: "Metadados de um repositório", kind: "rest_api", mode: "read" },
+    {
+      name: "repo_create",
+      description: "Criar repositório na conta do usuário (requer aprovação humana)",
+      kind: "rest_api",
+      mode: "write",
+    },
+    {
+      name: "push_files",
+      description: "Enviar arquivos para um repositório (requer aprovação humana)",
+      kind: "rest_api",
+      mode: "write",
+    },
   ];
 }
