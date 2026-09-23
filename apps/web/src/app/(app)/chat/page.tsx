@@ -450,6 +450,21 @@ function ChatPageInner() {
         signal: controller.signal,
       });
 
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.guestLimitReached) {
+          setGuestLimitReached(true);
+          setGuestMessagesRemaining(0);
+        }
+        const errMsg =
+          typeof data.error === "string" && data.error.trim()
+            ? data.error
+            : `Falha ao enviar (${res.status})`;
+        setError(errMsg);
+        addToast(errMsg, "error");
+        return;
+      }
+
       const isSSE = res.headers.get("content-type")?.includes("text/event-stream");
 
       if (isSSE && res.body) {
@@ -466,6 +481,7 @@ function ChatPageInner() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
+        let receivedDoneEvent = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -554,6 +570,7 @@ function ChatPageInner() {
                   })
                 );
               } else if (eventName === "done") {
+                receivedDoneEvent = true;
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== assistantId) return m;
@@ -604,12 +621,22 @@ function ChatPageInner() {
                   );
                 }
               } else if (eventName === "error") {
-                addToast(parsed.error || "Erro durante transmissão", "error");
+                const streamErr = parsed.error || "Erro durante transmissão";
+                setError(streamErr);
+                addToast(streamErr, "error");
               }
             } catch {
-              /* ignore JSON parse errors */
+              const parseErrMsg = "Erro ao processar pacote da resposta (JSON inválido)";
+              setError(parseErrMsg);
+              addToast(parseErrMsg, "error");
             }
           }
+        }
+
+        if (!receivedDoneEvent) {
+          const eofMsg = "Conexão de streaming interrompida antes da conclusão.";
+          setError(eofMsg);
+          addToast(eofMsg, "warning");
         }
       } else {
         const data = await res.json().catch(() => ({}));

@@ -60,6 +60,7 @@ export default function CockpitPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [taskTitle, setTaskTitle] = useState("");
+  const [taskError, setTaskError] = useState<string | null>(null);
   const [execution, setExecution] = useState<ExecutionRow | null>(null);
   const [missionEvidence, setMissionEvidence] = useState<EvidenceItem[]>([]);
   const [allowedTransitions, setAllowedTransitions] = useState<string[]>([]);
@@ -68,6 +69,12 @@ export default function CockpitPage() {
     status: string;
     objective: string;
   } | null>(null);
+  const [panelErrors, setPanelErrors] = useState<{
+    mission?: boolean;
+    tasks?: boolean;
+    executions?: boolean;
+    evidence?: boolean;
+  }>({});
   const [cpNote, setCpNote] = useState("");
   const [modelConfigured, setModelConfigured] = useState(false);
   const [modelInfo, setModelInfo] = useState("");
@@ -158,28 +165,16 @@ export default function CockpitPage() {
     })();
   }, [load]);
 
-  async function openMission(id: string) {
-    if (openId === id) {
-      setOpenId(null);
-      setTasks([]);
-      setExecution(null);
-      setMissionEvidence([]);
-      setAllowedTransitions([]);
-      setOpenMissionMeta(null);
-      setDodResult(null);
-      return;
-    }
-    setOpenId(id);
-    setActionBusy("load_mission");
+  async function reloadMissionResource(
+    id: string,
+    resource: "mission" | "tasks" | "executions" | "evidence"
+  ) {
+    setActionBusy(`load_${resource}`);
     try {
-      const [mRes, tRes, rRes, eRes] = await Promise.all([
-        fetch(`/api/missions/${id}`, { cache: "no-store" }),
-        fetch(`/api/missions/${id}/tasks`, { cache: "no-store" }),
-        fetch(`/api/missions/${id}/executions`, { cache: "no-store" }),
-        fetch(`/api/missions/${id}/evidence`, { cache: "no-store" }),
-      ]);
-      if (mRes.ok) {
-        const d = await mRes.json();
+      if (resource === "mission") {
+        const res = await fetch(`/api/missions/${id}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
         const mission = d.mission;
         setOpenMissionMeta({
           createdAt: mission?.createdAt ?? mission?.created_at,
@@ -194,22 +189,130 @@ export default function CockpitPage() {
               : row
           )
         );
-      }
-      if (tRes.ok) {
-        const d = await tRes.json();
+        setPanelErrors((prev) => ({ ...prev, mission: false }));
+      } else if (resource === "tasks") {
+        const res = await fetch(`/api/missions/${id}/tasks`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
         setTasks((d.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
-      }
-      if (rRes.ok) {
-        const d = await rRes.json();
+        setPanelErrors((prev) => ({ ...prev, tasks: false }));
+      } else if (resource === "executions") {
+        const res = await fetch(`/api/missions/${id}/executions`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
         setExecution(d.recoverable ?? null);
-      }
-      if (eRes.ok) {
-        const d = await eRes.json();
+        setPanelErrors((prev) => ({ ...prev, executions: false }));
+      } else if (resource === "evidence") {
+        const res = await fetch(`/api/missions/${id}/evidence`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
         setMissionEvidence(d.evidence ?? []);
+        setPanelErrors((prev) => ({ ...prev, evidence: false }));
       }
+    } catch {
+      setPanelErrors((prev) => ({ ...prev, [resource]: true }));
+      addToast(`Falha ao recarregar dados da missão (${resource})`, "error");
     } finally {
       setActionBusy(null);
     }
+  }
+
+  async function openMission(id: string) {
+    if (openId === id) {
+      setOpenId(null);
+      setTasks([]);
+      setExecution(null);
+      setMissionEvidence([]);
+      setAllowedTransitions([]);
+      setOpenMissionMeta(null);
+      setDodResult(null);
+      setPanelErrors({});
+      return;
+    }
+    setOpenId(id);
+    setActionBusy("load_mission");
+    setPanelErrors({});
+
+    const results = await Promise.allSettled([
+      fetch(`/api/missions/${id}`, { cache: "no-store" }),
+      fetch(`/api/missions/${id}/tasks`, { cache: "no-store" }),
+      fetch(`/api/missions/${id}/executions`, { cache: "no-store" }),
+      fetch(`/api/missions/${id}/evidence`, { cache: "no-store" }),
+    ]);
+
+    const newPanelErrors: { mission?: boolean; tasks?: boolean; executions?: boolean; evidence?: boolean } = {};
+
+    // 0: mission
+    const mRes = results[0];
+    if (mRes.status === "fulfilled" && mRes.value.ok) {
+      try {
+        const d = await mRes.value.json();
+        const mission = d.mission;
+        setOpenMissionMeta({
+          createdAt: mission?.createdAt ?? mission?.created_at,
+          status: String(mission?.status ?? "CREATED"),
+          objective: String(mission?.objective ?? ""),
+        });
+        setAllowedTransitions(Array.isArray(d.allowedTransitions) ? d.allowedTransitions : []);
+        setMissions((prev) =>
+          prev.map((row) =>
+            row.id === id && mission?.status
+              ? { ...row, status: String(mission.status) }
+              : row
+          )
+        );
+      } catch {
+        newPanelErrors.mission = true;
+      }
+    } else {
+      newPanelErrors.mission = true;
+    }
+
+    // 1: tasks
+    const tRes = results[1];
+    if (tRes.status === "fulfilled" && tRes.value.ok) {
+      try {
+        const d = await tRes.value.json();
+        setTasks((d.tasks ?? []).map((t: TaskRow) => ({ id: t.id, title: t.title, status: t.status })));
+      } catch {
+        newPanelErrors.tasks = true;
+      }
+    } else {
+      newPanelErrors.tasks = true;
+    }
+
+    // 2: executions
+    const rRes = results[2];
+    if (rRes.status === "fulfilled" && rRes.value.ok) {
+      try {
+        const d = await rRes.value.json();
+        setExecution(d.recoverable ?? null);
+      } catch {
+        newPanelErrors.executions = true;
+      }
+    } else {
+      newPanelErrors.executions = true;
+    }
+
+    // 3: evidence
+    const eRes = results[3];
+    if (eRes.status === "fulfilled" && eRes.value.ok) {
+      try {
+        const d = await eRes.value.json();
+        setMissionEvidence(d.evidence ?? []);
+      } catch {
+        newPanelErrors.evidence = true;
+      }
+    } else {
+      newPanelErrors.evidence = true;
+    }
+
+    if (Object.keys(newPanelErrors).length > 0) {
+      setPanelErrors(newPanelErrors);
+      addToast("Alguns painéis da missão falharam ao carregar", "warning");
+    }
+
+    setActionBusy(null);
   }
 
   async function verifyDoD() {
@@ -348,12 +451,20 @@ export default function CockpitPage() {
   async function saveAgent() {
     setBusy(true);
     setActionBusy("save_agent");
+    setError(null);
     try {
-      await fetch("/api/agent", {
+      const res = await fetch("/api/agent", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: agentName, identity: agentIdentity }),
       });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = d.error ?? d.message ?? "Falha ao salvar o perfil do agente";
+        setError(errMsg);
+        addToast(errMsg, "error");
+        return;
+      }
       addToast("Perfil do agente salvo com sucesso!", "success");
     } catch {
       const errMsg = networkErrorMessage("salvar o perfil do agente");
@@ -526,6 +637,7 @@ export default function CockpitPage() {
 
   async function addTask() {
     if (!openId || taskTitle.trim().length < 2) return;
+    setTaskError(null);
     setActionBusy("add_task");
     try {
       const res = await fetch(`/api/missions/${openId}/tasks`, {
@@ -533,10 +645,16 @@ export default function CockpitPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: taskTitle.trim() }),
       });
-      if (res.ok) {
-        addToast("Tarefa adicionada com sucesso", "success");
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = d.error ?? d.message ?? "Falha ao adicionar tarefa";
+        setTaskError(errMsg);
+        addToast(errMsg, "error");
+        return;
       }
+      addToast("Tarefa adicionada com sucesso", "success");
       setTaskTitle("");
+      setTaskError(null);
       const tRes = await fetch(`/api/missions/${openId}/tasks`, { cache: "no-store" });
       if (tRes.ok) {
         const td = await tRes.json();
@@ -544,7 +662,7 @@ export default function CockpitPage() {
       }
     } catch {
       const errMsg = networkErrorMessage("adicionar a tarefa");
-      setError(errMsg);
+      setTaskError(errMsg);
       addToast(errMsg, "error");
     } finally {
       setActionBusy(null);
@@ -733,6 +851,18 @@ export default function CockpitPage() {
                           <span>CICLO DE VIDA DA MISSÃO</span>
                           <span className="text-[var(--nucleo)]">{openMissionMeta?.status ?? m.status}</span>
                         </div>
+                        {panelErrors.mission ? (
+                          <div className="flex items-center justify-between p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 font-mono">
+                            <span>Falha ao carregar ciclo de vida.</span>
+                            <button
+                              type="button"
+                              onClick={() => void reloadMissionResource(m.id, "mission")}
+                              className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-white transition-colors cursor-pointer"
+                            >
+                              Tentar novamente
+                            </button>
+                          </div>
+                        ) : null}
                         <div className="space-y-1.5">
                           <button
                             type="button"
@@ -821,7 +951,18 @@ export default function CockpitPage() {
                           <span>Model: {modelConfigured ? modelInfo : "Offline / Local"}</span>
                         </div>
 
-                        {execution ? (
+                        {panelErrors.executions ? (
+                          <div className="flex items-center justify-between p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 font-mono">
+                            <span>Falha ao carregar runtime.</span>
+                            <button
+                              type="button"
+                              onClick={() => void reloadMissionResource(m.id, "executions")}
+                              className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-white transition-colors cursor-pointer"
+                            >
+                              Tentar novamente
+                            </button>
+                          </div>
+                        ) : execution ? (
                           <>
                             <div className="flex items-center gap-2 text-xs font-mono">
                               <span className="text-[var(--text-muted)]">Status do Runtime:</span>
@@ -938,10 +1079,23 @@ export default function CockpitPage() {
                         <div className="text-[11px] font-mono text-[var(--text-muted)] font-semibold">
                           EVIDÊNCIAS DA MISSÃO
                         </div>
-                        <MissionEvidencePanel
-                          items={missionEvidence}
-                          loading={actionBusy === "load_mission"}
-                        />
+                        {panelErrors.evidence ? (
+                          <div className="flex items-center justify-between p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 font-mono">
+                            <span>Falha ao carregar evidências.</span>
+                            <button
+                              type="button"
+                              onClick={() => void reloadMissionResource(m.id, "evidence")}
+                              className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-white transition-colors cursor-pointer"
+                            >
+                              Tentar novamente
+                            </button>
+                          </div>
+                        ) : (
+                          <MissionEvidencePanel
+                            items={missionEvidence}
+                            loading={actionBusy === "load_mission"}
+                          />
+                        )}
                       </div>
 
                       <MissionDoDPanel
@@ -955,35 +1109,56 @@ export default function CockpitPage() {
 
                       <div className="space-y-2">
                         <div className="text-[11px] font-mono text-[var(--text-muted)] font-semibold">TAREFAS DA MISSÃO</div>
-                        <div className="flex gap-2">
-                          <input
-                            value={taskTitle}
-                            onChange={(e) => setTaskTitle(e.target.value)}
-                            placeholder="Adicionar nova sub-tarefa..."
-                            className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-1.5 text-xs text-[var(--text-primary)]"
-                          />
-                          <button
-                            type="button"
-                            disabled={actionBusy === "add_task" || !taskTitle.trim()}
-                            onClick={() => void addTask()}
-                            className="rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold px-4 py-1.5 hover:bg-[var(--nucleo)] disabled:opacity-40 cursor-pointer"
-                          >
-                            + Add
-                          </button>
-                        </div>
-                        {tasks.length === 0 ? (
-                          <p className="text-xs text-[var(--text-muted)] italic">Nenhuma sub-tarefa criada ainda.</p>
+                        {panelErrors.tasks ? (
+                          <div className="flex items-center justify-between p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 font-mono">
+                            <span>Falha ao carregar tarefas.</span>
+                            <button
+                              type="button"
+                              onClick={() => void reloadMissionResource(m.id, "tasks")}
+                              className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-white transition-colors cursor-pointer"
+                            >
+                              Tentar novamente
+                            </button>
+                          </div>
                         ) : (
-                          <ul className="space-y-1.5 pt-1">
-                            {tasks.map((t) => (
-                              <li key={t.id} className="text-xs flex items-center justify-between p-2 rounded-lg border border-[var(--border)] bg-[var(--base)]">
-                                <span className="text-[var(--text-primary)]">{t.title}</span>
-                                <span className="text-[10px] font-mono text-[var(--nucleo)] px-2 py-0.5 rounded bg-[var(--surface)]">
-                                  {t.status}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
+                          <>
+                            <div className="flex gap-2">
+                              <input
+                                value={taskTitle}
+                                onChange={(e) => {
+                                  setTaskTitle(e.target.value);
+                                  if (taskError) setTaskError(null);
+                                }}
+                                placeholder="Adicionar nova sub-tarefa..."
+                                className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-1.5 text-xs text-[var(--text-primary)]"
+                              />
+                              <button
+                                type="button"
+                                disabled={actionBusy === "add_task" || !taskTitle.trim()}
+                                onClick={() => void addTask()}
+                                className="rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold px-4 py-1.5 hover:bg-[var(--nucleo)] disabled:opacity-40 cursor-pointer"
+                              >
+                                + Add
+                              </button>
+                            </div>
+                            {taskError && (
+                              <p className="text-xs text-[var(--danger)] font-mono">{taskError}</p>
+                            )}
+                            {tasks.length === 0 ? (
+                              <p className="text-xs text-[var(--text-muted)] italic">Nenhuma sub-tarefa criada ainda.</p>
+                            ) : (
+                              <ul className="space-y-1.5 pt-1">
+                                {tasks.map((t) => (
+                                  <li key={t.id} className="text-xs flex items-center justify-between p-2 rounded-lg border border-[var(--border)] bg-[var(--base)]">
+                                    <span className="text-[var(--text-primary)]">{t.title}</span>
+                                    <span className="text-[10px] font-mono text-[var(--nucleo)] px-2 py-0.5 rounded bg-[var(--surface)]">
+                                      {t.status}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
