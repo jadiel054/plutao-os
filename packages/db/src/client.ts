@@ -12,8 +12,9 @@ import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "./schema";
 import * as schemaMcp from "./schema-mcp";
+import * as schemaGates from "./schema-gates";
 
-const fullSchema = { ...schema, ...schemaMcp };
+const fullSchema = { ...schema, ...schemaMcp, ...schemaGates };
 
 export type Db = ReturnType<typeof createDb>;
 

@@ -1,5 +1,6 @@
 export * from "./schema";
 export * from "./schema-mcp";
+export * from "./schema-gates";
 export { createDb, checkDatabaseConnection, type Db } from "./client";
 
 // Storage Abstraction - import and re-export StorageBackend type
