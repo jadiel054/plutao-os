@@ -66,3 +66,47 @@ index 2984fc6..018009f 100644
    }
  
    // Se for convidado e tiver atingido o limite (10 msgs ou 15 min), bloqueia o chat
+@@ -854,8 +858,12 @@
+               });
+             }
+ 
++            let updatedGuestSession = user.guestSession;
+             if (user.isGuest && user.guestSession) {
+-              await incrementGuestMessageCount(user.guestSession.id);
++              const updated = await incrementGuestMessageCount(user.guestSession.id);
++              if (updated) {
++                updatedGuestSession = updated;
++              }
+             } else {
+               await incrementUsageCounter(db, user.id, isTargetModelPremium);
+             }
+@@ -865,6 +873,7 @@
+               provider: streamModelConfig.provider,
+               model: streamModelConfig.model,
+               modelFallback,
++              guestSession: updatedGuestSession,
+               suggestedPlan: suggestedPlan
+                 ? { stepTitles: suggestedPlan.stepTitles }
+                 : null,
+@@ -1110,8 +1119,12 @@
+       });
+     }
+ 
++    let updatedGuestSession = user.guestSession;
+     if (user.isGuest && user.guestSession) {
+-      await incrementGuestMessageCount(user.guestSession.id);
++      const updated = await incrementGuestMessageCount(user.guestSession.id);
++      if (updated) {
++        updatedGuestSession = updated;
++      }
+     } else {
+       await incrementUsageCounter(db, user.id, isTargetModelPremium);
+     }
+@@ -1123,6 +1136,7 @@
+       provider: result.provider,
+       model: result.model,
+       modelFallback,
++      guestSession: updatedGuestSession,
+       suggestedPlan: suggestedPlan
+         ? { stepTitles: suggestedPlan.stepTitles }
+         : null,
