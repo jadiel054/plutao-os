@@ -9,7 +9,8 @@ import {
   getAccessToken,
   getConnectorRow,
 } from "@/lib/connectors/service";
-import { CONNECTOR_CATALOG, type ConnectorPublicView } from "@plutao/domain";
+import { CONNECTOR_CATALOG, type ConnectorCapability, type ConnectorPublicView } from "@plutao/domain";
+import { githubManifest } from "@/lib/connectors/manifests/github";
 import {
   detectAndExecuteGitHubTool,
   type GitHubToolExecutionResult,
@@ -41,6 +42,28 @@ export type ConnectorToolRunResult = {
   suggestedFollowUps: Array<{ id: string; label: string; prompt: string }>;
 };
 
+/** Merge persisted caps with manifest (so write actions appear even before reconnect). */
+function enrichCapabilities(
+  provider: string,
+  status: string,
+  stored: ConnectorCapability[]
+): ConnectorCapability[] {
+  if (status !== "connected") return stored;
+  if (provider !== "github") return stored;
+  const byName = new Map(stored.map((c) => [c.name, c]));
+  for (const m of githubManifest.capabilities) {
+    if (!byName.has(m.name)) {
+      byName.set(m.name, {
+        name: m.name,
+        description: m.description,
+        kind: "rest_api",
+        mode: m.mode,
+      });
+    }
+  }
+  return Array.from(byName.values());
+}
+
 /**
  * Carrega catálogo + estado real do usuário.
  * Fonte de verdade — o modelo não inventa conector conectado.
@@ -67,6 +90,11 @@ export async function loadConnectorRuntime(
       updatedAt: new Date().toISOString(),
     }));
   }
+
+  connectors = connectors.map((c) => ({
+    ...c,
+    capabilities: enrichCapabilities(c.provider, c.status, c.capabilities),
+  }));
 
   let githubConnected = false;
   let githubLogin: string | null = null;
@@ -100,13 +128,23 @@ export async function loadConnectorRuntime(
     "CONECTORES (fonte de verdade — não invente status):",
     "Para cada provedor: se está no catálogo, se está CONECTADO, conta, e o que você PODE fazer (capabilities).",
     "Só execute tools de conectores com status CONECTADO. Se desconectado, oriente Configurações → Conectores.",
+    "",
+    "ESCRITAS E APROVAÇÃO HUMANA (Princípio 1):",
+    "- Capabilities mode=write (ex.: repo_create, push_files) existem e são executáveis quando o conector está connected.",
+    "- O runtime cria write_gate e o chat mostra o card Aprovar/Recusar. Essa é a única confirmação humana.",
+    "- NÃO peça 'confirma no chat' / 'posso prosseguir?' para escritas. NÃO diga que só tem leitura se write estiver na lista.",
+    "- NÃO ofereça guia manual ou CLI no lugar de usar a tool.",
+    "- Intenção natural do usuário (ex.: criar site, criar repo, publicar) deve mapear para as tools disponíveis nesta sessão.",
   ];
 
   for (const c of connectors) {
     const caps =
       c.capabilities.length > 0
         ? c.capabilities
-            .map((cap) => `${cap.name}${cap.description ? ` (${cap.description})` : ""}`)
+            .map(
+              (cap) =>
+                `${cap.name}[${cap.mode}]${cap.description ? ` (${cap.description})` : ""}`
+            )
             .join("; ")
         : "(sem capabilities listadas)";
     const scopes = c.scopes.length > 0 ? c.scopes.join(", ") : "—";
@@ -176,7 +214,6 @@ export async function runConnectedConnectorTools(opts: {
     }
   }
 
-  // If github/vercel runner didn't catch or for other providers (neon, stripe, etc.)
   if (!github.executed && !vercel.executed) {
     generic = await detectAndExecuteGenericTool({
       text: userText,
