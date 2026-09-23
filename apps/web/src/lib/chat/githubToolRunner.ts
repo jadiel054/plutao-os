@@ -51,12 +51,12 @@ export type GitHubToolPlan = {
 function extractRepoNameCandidate(text: string): string | undefined {
   const patterns = [
     /(?:chamado|nome|named?)\s+["']?([a-zA-Z0-9_.-]+)["']?/i,
-    /(?:criar|create)\s+(?:um\s+)?(?:reposit[oó]rio|repo)\s+(?:p[uú]blico\s+|privado\s+)?(?:chamado\s+)?["']?([a-zA-Z0-9_.-]+)["']?/i,
-    /(?:reposit[oó]rio|repo)\s+["']?([a-zA-Z0-9_.-]+)["']?/i,
+    /(?:criar|create|preciso|quero)\s+(?:de\s+)?(?:um\s+)?(?:reposit[oó]rio|repo)\s+(?:p[uú]blico\s+|privado\s+)?(?:chamado\s+)?["']?([a-zA-Z0-9_.-]+)["']?/i,
+    /(?:reposit[oó]rio|repo)\s+(?:p[uú]blico\s+|privado\s+)?(?:no\s+github\s+)?(?:chamado\s+)?["']?([a-zA-Z0-9_.-]+)["']?/i,
   ];
   for (const re of patterns) {
     const m = text.match(re);
-    if (m?.[1] && m[1].length >= 2 && !/^(github|repo|reposit|publico|privado|com|um|uma)$/i.test(m[1])) {
+    if (m?.[1] && m[1].length >= 2 && !/^(github|repo|reposit|publico|privado|com|um|uma|no|no)$/i.test(m[1])) {
       return m[1];
     }
   }
@@ -64,13 +64,13 @@ function extractRepoNameCandidate(text: string): string | undefined {
 }
 
 function extractReadmeContent(text: string): string | null {
-  const quoted = text.match(/README\.md[^"'\n]{0,40}["']([^"']{3,2000})["']/i);
+  const quoted = text.match(/README\.md[^"'\n]{0,80}["']([^"']{3,2000})["']/i);
   if (quoted?.[1]) return quoted[1].trim();
-  const dizendo = text.match(/(?:dizendo|texto|conte[uú]do|com o texto)\s+["']([^"']{3,2000})["']/i);
+  const dizendo = text.match(/(?:dizendo|texto|conte[uú]do|com o texto)\s+["']?([^"'\n.]{8,500})/i);
   if (dizendo?.[1]) return dizendo[1].trim();
-  const afterReadme = text.match(/README\.md[^.\n]{0,80}(?:que\s+)?(?:foi\s+)?(.{10,500})/i);
-  if (afterReadme?.[1] && /plut[aã]o|pipeline|write\s*gate/i.test(afterReadme[1])) {
-    return afterReadme[1].replace(/[.\s]+$/, "").trim();
+  if (/readme/i.test(text) && /plut[aã]o/i.test(text)) {
+    const m = text.match(/dizendo\s+que\s+(.{8,400})/i);
+    if (m?.[1]) return m[1].replace(/[.\s]+$/, "").trim();
   }
   return null;
 }
@@ -109,35 +109,37 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
   if (fullRepoMatch) {
     owner = fullRepoMatch[1];
     repo = fullRepoMatch[2];
-  } else {
-    const singleRepoMatch = text.match(/(?:reposit[oó]rio|repo)\s+([a-zA-Z0-9_.-]+)/i);
-    if (singleRepoMatch) {
-      repo = singleRepoMatch[1];
-    }
   }
 
+  const named = extractRepoNameCandidate(text);
+
+  // Intent: provision a new repository (natural language, not only verb "criar").
+  const listOnly =
+    /\b(listar|liste|mostrar|mostre|quais\s+(s[aã]o\s+)?(os\s+)?(meus\s+)?repos|meus\s+reposit)/.test(t);
+
   const wantsCreate =
-    /\b(criar|create|novo)\b/.test(t) &&
+    !listOnly &&
     /\b(reposit[oó]rio|repo)\b/.test(t) &&
-    !/\b(n[aã]o\s+consigo\s+criar|n[aã]o\s+posso\s+criar)\b/.test(t);
+    (/\b(criar|create|novo|gerar|gere|montar|monte|provisionar)\b/.test(t) ||
+      /\b(preciso|quero|necessito)\b/.test(t) ||
+      (/\bchamado\b/.test(t) && /\b(p[uú]blic|public|privado|private)\b/.test(t)) ||
+      (/\breadme\b/.test(t) && /\bchamado\b/.test(t)));
 
   const wantsPush =
+    !wantsCreate &&
     /\b(push|enviar\s+arquivo|commit|atualizar\s+arquivo|adicionar\s+(?:o\s+)?(?:arquivo\s+)?readme|readme\.md)\b/.test(
       t
-    ) && !wantsCreate;
+    );
 
-  // Writes first — otherwise "pipeline" / "repo" false-positives steal the intent.
   if (wantsCreate) {
     action = "repo_create";
-    name = extractRepoNameCandidate(text) || repo;
+    name = named || repo;
     if (t.includes("privado") || t.includes("private")) isPrivate = true;
     else if (t.includes("públic") || t.includes("public") || t.includes("publico")) isPrivate = false;
     else isPrivate = false;
     description = "Criado pelo Plutão";
     const readmeBody = extractReadmeContent(text);
-    if (readmeBody) {
-      description = readmeBody.slice(0, 350);
-    }
+    if (readmeBody) description = readmeBody.slice(0, 350);
   } else if (wantsPush) {
     action = "push_files";
     const readmeBody =
@@ -147,10 +149,7 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
       files = [{ path: "README.md", content: readmeBody + (readmeBody.endsWith("\n") ? "" : "\n") }];
       commitMessage = "docs: README via Plutão write gate";
     }
-    if (!repo) {
-      const n = extractRepoNameCandidate(text);
-      if (n) repo = n;
-    }
+    if (!repo && named) repo = named;
   } else if (t.includes("issue")) {
     const issueNumMatch = text.match(/issue\s*#?(\d+)/i);
     if (issueNumMatch) {
@@ -161,7 +160,7 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     }
   } else if (t.includes("pull") || t.includes("pr ") || t.includes("prs")) {
     action = "pulls_list";
-  } else if (/\b(action|workflow|pipeline)\b/.test(t) && !t.includes("write gate")) {
+  } else if (/\b(action|workflow|pipeline)\b/.test(t) && !t.includes("write gate") && !t.includes("portão")) {
     action = "actions_list";
   } else if (
     t.includes("repositório") ||
@@ -169,8 +168,9 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     t.includes("repos") ||
     t.includes("repo")
   ) {
-    if (repo && (t.includes("detalhes") || t.includes("sobre") || t.includes("info"))) {
+    if ((named || repo) && (t.includes("detalhes") || t.includes("sobre") || t.includes("info"))) {
       action = "repo_get";
+      if (!repo && named) repo = named;
     } else {
       action = "repos_list";
     }
