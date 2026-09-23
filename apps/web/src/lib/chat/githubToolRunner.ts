@@ -135,7 +135,6 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     else isPrivate = false;
     description = "Criado pelo Plutão";
     const readmeBody = extractReadmeContent(text);
-    // README goes in a follow-up push after create+approve; keep description only here.
     if (readmeBody) {
       description = readmeBody.slice(0, 350);
     }
@@ -162,9 +161,14 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     }
   } else if (t.includes("pull") || t.includes("pr ") || t.includes("prs")) {
     action = "pulls_list";
-  } else if (\b(action|workflow|pipeline)\b/.test(t) && !t.includes("write gate")) {
+  } else if (/\b(action|workflow|pipeline)\b/.test(t) && !t.includes("write gate")) {
     action = "actions_list";
-  } else if (t.includes("repositório") || t.includes("repositorio") || t.includes("repos") || t.includes("repo")) {
+  } else if (
+    t.includes("repositório") ||
+    t.includes("repositorio") ||
+    t.includes("repos") ||
+    t.includes("repo")
+  ) {
     if (repo && (t.includes("detalhes") || t.includes("sobre") || t.includes("info"))) {
       action = "repo_get";
     } else {
