@@ -650,6 +650,14 @@ function ChatPageInner() {
                   })
                 );
 
+                if (parsed.guestSession) {
+                  setGuestMessagesRemaining(parsed.guestSession.messagesRemaining);
+                  setGuestSecondsRemaining(parsed.guestSession.secondsRemaining);
+                  if (parsed.guestSession.isLimitReached) {
+                    setGuestLimitReached(true);
+                  }
+                }
+
                 if (
                   parsed.suggestedPlan &&
                   Array.isArray(parsed.suggestedPlan.stepTitles) &&
@@ -707,6 +715,15 @@ function ChatPageInner() {
         }
       } else {
         const data = await res.json().catch(() => ({}));
+
+        if (data.guestSession) {
+          setGuestMessagesRemaining(data.guestSession.messagesRemaining);
+          setGuestSecondsRemaining(data.guestSession.secondsRemaining);
+          if (data.guestSession.isLimitReached) {
+            setGuestLimitReached(true);
+          }
+        }
+
         if (!res.ok) {
           if (data.guestLimitReached) {
             setGuestLimitReached(true);
