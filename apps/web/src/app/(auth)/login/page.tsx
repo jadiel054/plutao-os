@@ -1,12 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
 
-export default function LoginPage() {
+function safeNextPath(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/cockpit";
+  return raw;
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [magicLinkEmail, setMagicLinkEmail] = useState("");
@@ -33,7 +41,7 @@ export default function LoginPage() {
         setError(data.error ?? "Falha no login");
         return;
       }
-      router.push("/cockpit");
+      router.push(nextPath);
       router.refresh();
     } catch {
       setError("Erro de rede ao conectar ao servidor");
@@ -77,10 +85,9 @@ export default function LoginPage() {
           <p className="text-xs text-[var(--text-muted)]">Acesse seu espaço de missões</p>
         </div>
 
-        {/* Social Login Buttons */}
         <div className="space-y-2.5">
           <a
-            href="/api/auth/google/authorize"
+            href={`/api/auth/google/authorize?next=${encodeURIComponent(nextPath)}`}
             className="flex items-center justify-center gap-3 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] font-medium py-2.5 text-sm transition-colors text-[var(--text-primary)] cursor-pointer"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -105,7 +112,7 @@ export default function LoginPage() {
           </a>
 
           <a
-            href="/api/auth/github/authorize"
+            href={`/api/auth/github/authorize?next=${encodeURIComponent(nextPath)}`}
             className="flex items-center justify-center gap-3 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] font-medium py-2.5 text-sm transition-colors text-[var(--text-primary)] cursor-pointer"
           >
             <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
@@ -121,7 +128,6 @@ export default function LoginPage() {
           <div className="flex-grow border-t border-[var(--border)]"></div>
         </div>
 
-        {/* Magic Link Toggle / Form */}
         {showMagicForm ? (
           <form onSubmit={onSubmitMagicLink} className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl">
             <div className="flex items-center justify-between">
@@ -224,5 +230,19 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-dvh flex items-center justify-center bg-[var(--base)] text-[var(--text-muted)] text-sm font-mono">
+          Carregando…
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }
