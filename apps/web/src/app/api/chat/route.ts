@@ -68,18 +68,22 @@ async function incrementUsageCounter(db: ReturnType<typeof getDb>, userId: strin
 }
 
 export async function POST(req: NextRequest) {
-  const forwardedFor = req.headers.get("x-forwarded-for");
-  const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : req.headers.get("x-real-ip") || "127.0.0.1";
-  const userAgent = req.headers.get("user-agent") || null;
-
   let user;
   try {
-    user = await getAuthOrGuestUser({ ip, userAgent });
+    user = await getAuthOrGuestUser();
   } catch (err) {
     if (err instanceof GuestRateLimitError) {
       return NextResponse.json({ error: err.message }, { status: 429 });
     }
-    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    console.error("[POST /api/chat auth error]", err);
+    return NextResponse.json({ error: "Erro de autenticação no servidor" }, { status: 500 });
+  }
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Sessão não encontrada ou expirada. Recarregue a página." },
+      { status: 401 }
+    );
   }
 
   // Se for convidado e tiver atingido o limite (10 msgs ou 15 min), bloqueia o chat
@@ -854,8 +858,12 @@ ${
               });
             }
 
+            let updatedGuestSession = user.guestSession;
             if (user.isGuest && user.guestSession) {
-              await incrementGuestMessageCount(user.guestSession.id);
+              const updated = await incrementGuestMessageCount(user.guestSession.id);
+              if (updated) {
+                updatedGuestSession = updated;
+              }
             } else {
               await incrementUsageCounter(db, user.id, isTargetModelPremium);
             }
@@ -865,6 +873,7 @@ ${
               provider: streamModelConfig.provider,
               model: streamModelConfig.model,
               modelFallback,
+              guestSession: updatedGuestSession,
               suggestedPlan: suggestedPlan
                 ? { stepTitles: suggestedPlan.stepTitles }
                 : null,
@@ -1110,8 +1119,12 @@ ${
       });
     }
 
+    let updatedGuestSession = user.guestSession;
     if (user.isGuest && user.guestSession) {
-      await incrementGuestMessageCount(user.guestSession.id);
+      const updated = await incrementGuestMessageCount(user.guestSession.id);
+      if (updated) {
+        updatedGuestSession = updated;
+      }
     } else {
       await incrementUsageCounter(db, user.id, isTargetModelPremium);
     }
@@ -1123,6 +1136,7 @@ ${
       provider: result.provider,
       model: result.model,
       modelFallback,
+      guestSession: updatedGuestSession,
       suggestedPlan: suggestedPlan
         ? { stepTitles: suggestedPlan.stepTitles }
         : null,

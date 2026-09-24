@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { eq, and, gt } from "drizzle-orm";
 import { sessions, users } from "@plutao/db";
 import { getDb } from "@/lib/db";
-import { getOrStartGuestSession, GuestSessionInfo } from "./guest";
+import { GUEST_COOKIE, getGuestSessionByToken, GuestSessionInfo } from "./guest";
 
 export const SESSION_COOKIE = "plutao_session";
 const SESSION_DAYS = 30;
@@ -76,18 +76,26 @@ export async function getSessionUser(): Promise<{
   }
 }
 
-export async function getAuthOrGuestUser(opts?: { ip?: string | null; userAgent?: string | null }): Promise<{
+export async function getAuthOrGuestUser(): Promise<{
   id: string;
   email: string;
   name: string | null;
   isGuest: boolean;
   guestSession?: GuestSessionInfo | null;
-}> {
+} | null> {
   const user = await getSessionUser();
   if (user) {
     return { ...user, isGuest: false };
   }
-  const guest = await getOrStartGuestSession(opts);
+  const jar = await cookies();
+  const token = jar.get(GUEST_COOKIE)?.value;
+  if (!token) {
+    return null;
+  }
+  const guest = await getGuestSessionByToken(token);
+  if (!guest) {
+    return null;
+  }
   return {
     id: guest.userId,
     email: "guest@plutao.ai",
