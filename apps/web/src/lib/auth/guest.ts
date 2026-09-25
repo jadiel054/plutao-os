@@ -251,8 +251,8 @@ export async function migrateGuestSessionToUser(guestToken: string, realUserId: 
       createdAt: now,
     });
 
-    // Remover usuário guest temporário
-    await db.delete(users).where(and(eq(users.id, guestUserId), eq(users.isGuest, true)));
+    // Não deletar user guest aqui — preserva guest_sessions (FK CASCADE).
+    // Expurgo fica a cargo de /api/cron/cleanup-guests (converted_user_id IS NULL + idade).
 
     // Limpar cookie guest
     const jar = await cookies();
