@@ -1,10 +1,14 @@
 /**
- * Assets oficiais Supertonic 3 — Hugging Face Supertone/supertonic (OpenRAIL-M weights;
- * código de inferência web MIT: github.com/supertone-inc/supertonic).
+ * Assets oficiais Supertonic 3 — Hugging Face Supertone/supertonic-3
+ * (split opensource-multilingual, OpenRAIL pesos; web helper MIT:
+ * github.com/supertone-inc/supertonic).
  *
- * Tamanhos medidos via Content-Length (2026-09-25):
- *   duration_predictor 1.5 MB · text_encoder 27 MB · vector_estimator 132 MB · vocoder 101 MB
- *   Total ONNX ≈ 263 MB (+ JSON estilos ~pequeno).
+ * Tamanhos medidos via Content-Length HEAD (2026-09-25, rev main):
+ *   duration_predictor 3.7 MB · text_encoder 36.4 MB ·
+ *   vector_estimator 256.5 MB · vocoder 101.4 MB ·
+ *   tts.json + unicode_indexer ~0.3 MB → total ≈ 398 MB decimal.
+ *
+ * NÃO apontar para Supertone/supertonic (EN / opensource-en).
  */
 
 import {
@@ -13,7 +17,8 @@ import {
   SUPERTONIC_PACK_SIZE_MB,
 } from "../packs";
 
-export const SUPERTONIC_CACHE = "plutao-supertonic-v1";
+/** Bump v1→v2: isolation obrigatória após troca EN→multilingual. */
+export const SUPERTONIC_CACHE = "plutao-supertonic-v2";
 
 export const SUPERTONIC_VOICE_IDS = [
   "F1",
