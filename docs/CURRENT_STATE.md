@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-25 (higiene CI + status billing TEST / guest fix)
+**Última atualização:** 2026-09-25 (BUG-03: conversas e histórico persistidos no servidor)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** with evidência de uso real (não só código no `main`).
@@ -12,7 +12,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Área | Status | Evidência / observação |
 |------|--------|------------------------|
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
-| Modo Convidado (Guest Mode) | **IMPLEMENTED** | Landing + `POST /api/auth/guest` + limits. Bug auto-create: fix em produção via PR #56 (2026-09-24). Leitura purificada: `getAuthOrGuestUser` não cria sessão; criação só via POST. Erros de DB em `getGuestSessionByToken` propagam. Pill server-driven. **Smoke dos ACs pendente do operador — não VERIFICADO.** |
+| Modo Convidado (Guest Mode) | **IMPLEMENTED** | Landing + `POST /api/auth/guest` + limits. Bug auto-create: fix em produção via PR #56 (2026-09-24). Leitura purificada: `getAuthOrGuestUser` não cria sessão; criação só via POST. Erros de DB em `getGuestSessionByToken` propagam. Pill server-driven. Reatribuição de `conversations` e `messages` no `migrateGuestSessionToUser`. **Smoke dos ACs pendente do operador — não VERIFICADO.** |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
@@ -36,6 +36,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
 | Billing Stripe (checkout/webhook) | **IMPLEMENTED** | 6/6 ACs verdes em modo **TEST** em 2026-09-25 (checkout, webhook, idempotência, cancelamento). Checkout hospedado + webhook com assinatura + idempotência `billing_events` (pre-check SELECT). Price IDs só via env. `users.plan` → `caronte` / `orbita_livre`. Migration 0012 (SQL manual Neon). **LIVE pendente** (ativação da conta Stripe pelo operador). **Não VERIFICADO em LIVE.** |
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; `/share/[token]`; migration 0008 no Neon **VERIFICADA**. |
+| BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO (CÓDIGO/BUILD)** | Migration `0014_conversations.sql` adiciona `conversations` e `messages`. Servidor como fonte de verdade em `/api/conversations` (`GET`, `POST`, `PATCH/[id]`, `DELETE/[id]`, `GET/[id]/messages`, `POST/import`). `/api/chat` persiste mensagens sem bloquear resposta. Guest convert reatribui conversas. Shim único de `localStorage` import em `chat/page.tsx`. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
 | Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml` (mantido; one-shots removidos). |
 | Migrations 0000–0012 no repo | **IMPLEMENTED** | Journal com 0012_stripe_billing.sql (aplicar manual no Neon). |

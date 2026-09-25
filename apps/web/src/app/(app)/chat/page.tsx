@@ -80,6 +80,17 @@ type MissionListItem = {
   shareToken?: string | null;
 };
 
+type ConversationListItem = {
+  id: string;
+  title: string;
+  isPinned: boolean;
+  projectId?: string | null;
+  projectName?: string | null;
+  shareToken?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 type ProjectItem = { id: string; name: string };
 
 type SuggestedPlan = { stepTitles: string[] };
@@ -108,6 +119,8 @@ function ChatPageInner() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [recentMissions, setRecentMissions] = useState<MissionListItem[]>([]);
+  const [serverConversations, setServerConversations] = useState<ConversationListItem[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [projectsList, setProjectsList] = useState<ProjectItem[]>([]);
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPlan | null>(null);
   const [suggestedConnectors, setSuggestedConnectors] = useState<SuggestedConnector[]>([]);
@@ -175,6 +188,108 @@ function ChatPageInner() {
     } catch { /* ignore */ }
   }, []);
 
+  const refreshConversations = useCallback(async () => {
+    try {
+      const res = await fetch("/api/conversations", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.conversations)) {
+          setServerConversations(data.conversations);
+          return data.conversations as ConversationListItem[];
+        }
+      }
+    } catch { /* ignore */ }
+    return [];
+  }, []);
+
+  const selectConversation = useCallback(async (id: string | null) => {
+    setActiveConversationId(id);
+    if (!id) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/conversations/${id}/messages`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.messages)) {
+          const loaded: Message[] = data.messages.map((m: {
+            id: string;
+            role: string;
+            content: string;
+            createdAt?: string;
+            metadata?: { steps?: StructuredStep[]; trace?: unknown };
+          }) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            timestamp: m.createdAt
+              ? new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+              : "",
+            steps: m.metadata?.steps,
+            trace: m.metadata?.trace as { toolCalls?: ToolCallItem[] } | undefined,
+          }));
+          setMessages(loaded);
+        }
+      }
+    } catch {
+      addToast("Erro ao carregar mensagens da conversa", "error");
+    }
+  }, []);
+
+  const handleRenameConversation = async (id: string, newTitle: string) => {
+    const res = await fetch(`/api/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newTitle }),
+    });
+    if (!res.ok) throw new Error("Falha ao renomear conversa");
+    await refreshConversations();
+  };
+
+  const handlePinConversation = async (id: string, isPinned: boolean) => {
+    const res = await fetch(`/api/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPinned }),
+    });
+    if (!res.ok) throw new Error("Falha ao alterar fixação da conversa");
+    await refreshConversations();
+  };
+
+  const handleMoveProjectConversation = async (id: string, projectId: string | null) => {
+    const res = await fetch(`/api/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId }),
+    });
+    if (!res.ok) throw new Error("Falha ao mover para projeto");
+    await refreshConversations();
+  };
+
+  const handleShareConversation = async (id: string, enable: boolean): Promise<string | null> => {
+    const res = await fetch(`/api/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enableShare: enable }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error("Falha ao atualizar compartilhamento");
+    await refreshConversations();
+    return data.conversation?.shareToken ?? null;
+  };
+
+  const handleDeleteConversation = async (id: string) => {
+    const res = await fetch(`/api/conversations/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Falha ao excluir conversa");
+    if (activeConversationId === id) {
+      await selectConversation(null);
+    }
+    await refreshConversations();
+  };
+
   const init = useCallback(async () => {
     setError(null);
     try {
@@ -213,22 +328,44 @@ function ChatPageInner() {
         }
       } catch { /* ignore */ }
 
+      const convs = await refreshConversations();
+
       if (email) {
-        const saved = localStorage.getItem(`plutao_chat_${email}`);
-        if (saved) {
+        const importFlagKey = `plutao_chat_imported_${email}`;
+        const isImported = localStorage.getItem(importFlagKey) === "true";
+        const savedLocal = localStorage.getItem(`plutao_chat_${email}`);
+
+        if (convs.length === 0 && !isImported && savedLocal) {
           try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) {
-              setMessages(
-                parsed.map((m: Message) =>
-                  m.role === "user" && typeof m.content === "string"
-                    ? { ...m, content: redactSecrets(m.content).text }
-                    : m
-                )
-              );
+            const parsedLocal = JSON.parse(savedLocal);
+            if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
+              const importRes = await fetch("/api/conversations/import", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: "Conversa Importada",
+                  messages: parsedLocal,
+                }),
+              });
+              const importData = await importRes.json().catch(() => ({}));
+              if (importData.imported) {
+                localStorage.setItem(importFlagKey, "true");
+                await refreshConversations();
+                if (importData.conversationId) {
+                  await selectConversation(importData.conversationId);
+                }
+              }
             }
-          } catch { /* ignore */ }
+          } catch { /* ignore import failure */ }
+        } else if (convs.length > 0) {
+          const fromConvQuery = searchParams.get("conversation");
+          if (fromConvQuery && convs.some((c) => c.id === fromConvQuery)) {
+            await selectConversation(fromConvQuery);
+          } else {
+            await selectConversation(convs[0].id);
+          }
         }
+
         const savedMission = localStorage.getItem(`plutao_chat_mission_${email}`);
         const fromQuery = searchParams.get("mission");
         if (fromQuery) {
@@ -267,7 +404,7 @@ function ChatPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [router, searchParams, refreshMissions]);
+  }, [router, searchParams, refreshMissions, refreshConversations, selectConversation]);
 
   useEffect(() => { void init(); }, [init]);
 
@@ -314,58 +451,6 @@ function ChatPageInner() {
     }
   }, [sending]);
 
-  const handleRenameMission = async (id: string, newTitle: string) => {
-    const res = await fetch(`/api/missions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "rename", title: newTitle }),
-    });
-    if (!res.ok) throw new Error("Falha ao renomear conversa");
-    await refreshMissions();
-  };
-
-  const handlePinMission = async (id: string, isPinned: boolean) => {
-    const res = await fetch(`/api/missions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "pin", isPinned }),
-    });
-    if (!res.ok) throw new Error("Falha ao alterar fixação da conversa");
-    await refreshMissions();
-  };
-
-  const handleMoveProject = async (id: string, projectId: string | null) => {
-    const res = await fetch(`/api/missions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "move_project", projectId }),
-    });
-    if (!res.ok) throw new Error("Falha ao mover para projeto");
-    await refreshMissions();
-  };
-
-  const handleShareMission = async (id: string, enable: boolean): Promise<string | null> => {
-    const res = await fetch(`/api/missions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "share", enable }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error("Falha ao atualizar compartilhamento");
-    await refreshMissions();
-    return data.shareToken ?? null;
-  };
-
-  const handleDeleteMission = async (id: string) => {
-    const res = await fetch(`/api/missions/${id}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error("Falha ao excluir conversa");
-    if (activeMissionId === id) {
-      selectMission(null);
-    }
-    await refreshMissions();
-  };
 
   function selectMission(id: string | null) {
     setActiveMissionId(id);
@@ -503,6 +588,7 @@ function ChatPageInner() {
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           artifactIds: activeArtifacts.map((a) => a.id),
           missionId: activeMissionId,
+          conversationId: activeConversationId,
           stream: true,
         }),
         signal: controller.signal,
@@ -638,6 +724,10 @@ function ChatPageInner() {
                 );
               } else if (eventName === "done") {
                 receivedDoneEvent = true;
+                if (parsed.conversationId) {
+                  setActiveConversationId(parsed.conversationId);
+                  void refreshConversations();
+                }
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== assistantId) return m;
@@ -715,6 +805,11 @@ function ChatPageInner() {
         }
       } else {
         const data = await res.json().catch(() => ({}));
+
+        if (data.conversationId) {
+          setActiveConversationId(data.conversationId);
+          void refreshConversations();
+        }
 
         if (data.guestSession) {
           setGuestMessagesRemaining(data.guestSession.messagesRemaining);
@@ -1047,31 +1142,29 @@ function ChatPageInner() {
         onClose={() => setIsChatMenuOpen(false)}
         userEmail={userEmail}
         userInitial={(userEmail?.[0] || "P").toUpperCase()}
-        history={recentMissions.map((m) => {
-          const proj = projectsList.find((p) => p.id === m.projectId);
-          return {
-            id: m.id,
-            title: m.objective || "Missão",
-            subtitle: m.status,
-            isPinned: m.isPinned,
-            projectId: m.projectId,
-            projectName: proj?.name,
-            shareToken: m.shareToken,
-          };
-        })}
+        history={serverConversations.map((c) => ({
+          id: c.id,
+          title: c.title || "Nova conversa",
+          subtitle: c.updatedAt
+            ? new Date(c.updatedAt).toLocaleDateString([], { day: "2-digit", month: "2-digit" })
+            : undefined,
+          isPinned: c.isPinned,
+          projectId: c.projectId,
+          projectName: c.projectName,
+          shareToken: c.shareToken,
+        }))}
         onNewChat={() => {
-          setMessages([]);
+          void selectConversation(null);
           setSuggestedPlan(null);
           setSuggestedConnectors([]);
           setError(null);
-          if (userEmail) localStorage.removeItem(`plutao_chat_${userEmail}`);
         }}
-        onSelectHistory={(id) => selectMission(id)}
-        onRename={handleRenameMission}
-        onPin={handlePinMission}
-        onMoveProject={handleMoveProject}
-        onShare={handleShareMission}
-        onDelete={handleDeleteMission}
+        onSelectHistory={(id) => void selectConversation(id)}
+        onRename={handleRenameConversation}
+        onPin={handlePinConversation}
+        onMoveProject={handleMoveProjectConversation}
+        onShare={handleShareConversation}
+        onDelete={handleDeleteConversation}
         projectsList={projectsList}
         onNotify={(msg, type) => addToast(msg, type ?? "info")}
       />
@@ -1081,7 +1174,7 @@ function ChatPageInner() {
         variant="chat"
         onOpenMenu={() => setIsChatMenuOpen(true)}
         onNewChat={() => {
-          setMessages([]);
+          void selectConversation(null);
           setSuggestedPlan(null);
           setSuggestedConnectors([]);
           setError(null);
@@ -1541,7 +1634,7 @@ function ChatPageInner() {
         cancelLabel="Cancelar"
         isDanger
         onConfirm={() => {
-          setMessages([]);
+          void selectConversation(null);
           if (userEmail) localStorage.removeItem(`plutao_chat_${userEmail}`);
           setIsClearModalOpen(false);
         }}
