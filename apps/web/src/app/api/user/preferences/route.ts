@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { users } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth/session";
@@ -80,11 +80,27 @@ export async function PATCH(req: NextRequest) {
     }
 
     const db = getDb();
-    // MERGE JSONB: never replace the whole preferences object
+    const existing = await db
+      .select({ preferences: users.preferences })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+    const current = (existing[0]?.preferences as PreferencesShape) ?? {};
+    const merged: PreferencesShape = {
+      ...current,
+      ...(patch.voice
+        ? {
+            voice: {
+              ...(typeof current.voice === "object" && current.voice ? current.voice : {}),
+              ...patch.voice,
+            },
+          }
+        : {}),
+    };
     const updated = await db
       .update(users)
       .set({
-        preferences: sql`COALESCE(${users.preferences}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+        preferences: merged,
         updatedAt: new Date(),
       })
       .where(eq(users.id, user.id))
