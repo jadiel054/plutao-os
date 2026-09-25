@@ -3,8 +3,11 @@
  *
  * Kokoro (kokoro-js@1.2.1): en-US / en-GB apenas (pf_* comentados na lib).
  * Piper: pt_BR-faber-medium leve (~63 MB).
- * Supertonic 3: oficial web/ (MIT) + HF Supertone/supertonic ONNX;
- *   10 vozes M1–M5 / F1–F5, lang=pt, ~263 MB medidos (fp32).
+ * Supertonic 3: oficial web/ (MIT) + HF Supertone/supertonic-3 ONNX
+ *   (split opensource-multilingual, 31 langs incl. pt).
+ *   10 vozes M1–M5 / F1–F5, lang=pt, ~398 MB medidos (fp32).
+ *
+ * NÃO usar Supertone/supertonic (sem sufixo): só opensource-en.
  */
 
 export const KOKORO_MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
@@ -12,11 +15,16 @@ export const KOKORO_DTYPE = "q8" as const;
 
 export const PIPER_VOICE_ID = "pt_BR-faber-medium" as const;
 
-/** HF repo + revision usados no download runtime (versionado). */
-export const SUPERTONIC_HF_REPO = "Supertone/supertonic";
+/** HF repo + revision — multilíngue (pt). Medido 2026-09-25. */
+export const SUPERTONIC_HF_REPO = "Supertone/supertonic-3";
 export const SUPERTONIC_HF_REVISION = "main";
-/** Tamanho medido (soma Content-Length dos 4 ONNX + JSON), não o ~400 MB de marketing. */
-export const SUPERTONIC_PACK_SIZE_MB = 263;
+/**
+ * Soma Content-Length (bytes→MB decimal) dos assets de download:
+ * duration_predictor + text_encoder + vector_estimator + vocoder +
+ * tts.json + unicode_indexer.json ≈ 398 361 202 B → 398 MB.
+ * (Não é o ~400 MB de marketing; é medição HEAD real.)
+ */
+export const SUPERTONIC_PACK_SIZE_MB = 398;
 
 export type VoicePackId = "kokoro-en" | "piper-pt-br" | "supertonic-pt-br";
 
@@ -82,7 +90,7 @@ export const VOICE_PACKS: VoicePackMeta[] = [
     engine: "supertonic",
     name: "Português BR (Supertonic)",
     description:
-      `Supertonic 3 on-device (ONNX · WebGPU/WASM). 10 vozes M1–M5 / F1–F5 em pt-BR. ~${SUPERTONIC_PACK_SIZE_MB} MB — Wi-Fi recomendado. Licença MIT (Supertone).`,
+      `Supertonic 3 on-device (ONNX · WebGPU/WASM). 10 vozes M1–M5 / F1–F5 em pt-BR. ~${SUPERTONIC_PACK_SIZE_MB} MB — Wi-Fi recomendado. Licença OpenRAIL (pesos) + MIT (web helper).`,
     approxSizeMb: SUPERTONIC_PACK_SIZE_MB,
     languages: ["pt-BR"],
     modelId: SUPERTONIC_HF_REPO,
