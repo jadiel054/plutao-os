@@ -1,6 +1,6 @@
 /**
  * Engine de voz Plutão — client-only.
- * Kokoro (en) + Piper (pt-BR) + speechSynthesis (fallback).
+ * Kokoro (en) + Piper (pt-BR) + Supertonic 3 (pt-BR multi-voz) + speechSynthesis.
  */
 
 import {
@@ -90,6 +90,9 @@ export function clearPackReady(packId: string) {
   if (packId === "piper-pt-br") {
     piperSession = null;
     piperLoadPromise = null;
+  }
+  if (packId === "supertonic-pt-br") {
+    void import("./supertonic/runtime").then((m) => m.clearSupertonic());
   }
 }
 
@@ -244,6 +247,13 @@ export async function downloadPack(
     await ensurePiper(onProgress);
     return;
   }
+  if (packId === "supertonic-pt-br") {
+    const { downloadSupertonic } = await import("./supertonic/runtime");
+    await downloadSupertonic((pct, detail) => onProgress?.(pct, "downloading", detail));
+    markPackReady("supertonic-pt-br");
+    onProgress?.(100, "ready", "Pronto");
+    return;
+  }
   throw new Error("Pack não suportado");
 }
 
@@ -282,7 +292,7 @@ export async function speakText(
   text: string,
   prefs: VoiceRuntimePrefs,
   opts?: { onProgress?: ProgressCb; preferNative?: boolean }
-): Promise<{ engine: "kokoro" | "piper" | "native" }> {
+): Promise<{ engine: "kokoro" | "piper" | "supertonic" | "native" }> {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return { engine: "native" };
 
@@ -314,6 +324,24 @@ export async function speakText(
         await playFloat32(result.audio, result.sampling_rate, prefs.volume);
       }
       return { engine: "kokoro" };
+    }
+
+    if (pack.engine === "supertonic") {
+      const { speakSupertonic, isSupertonicReady } = await import("./supertonic/runtime");
+      const ready = await isSupertonicReady();
+      if (!ready) {
+        opts?.onProgress?.(0, "downloading", "Baixando Supertonic…");
+        const nativePromise = speakNative(clean, prefs);
+        void downloadPack("supertonic-pt-br", opts?.onProgress).catch(() => undefined);
+        await nativePromise;
+        return { engine: "native" };
+      }
+      await speakSupertonic(clean, prefs.voiceId || "F1", {
+        speed: prefs.speed,
+        volume: prefs.volume,
+        onProgress: (pct, detail) => opts?.onProgress?.(pct, "downloading", detail),
+      });
+      return { engine: "supertonic" };
     }
 
     if (pack.engine === "piper") {
