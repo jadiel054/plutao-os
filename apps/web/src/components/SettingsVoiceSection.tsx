@@ -115,7 +115,10 @@ export function SettingsVoiceSection({ onNotify }: Props) {
     try {
       const pack = getPack(prefs.packId);
       const phrase =
-        pack?.engine === "piper" || pack?.id === "piper-pt-br"
+        pack?.engine === "piper" ||
+        pack?.engine === "supertonic" ||
+        pack?.id === "piper-pt-br" ||
+        pack?.id === "supertonic-pt-br"
           ? SAMPLE_PHRASE_PT
           : SAMPLE_PHRASE;
       const result = await speakText(phrase, prefs, {
@@ -143,6 +146,16 @@ export function SettingsVoiceSection({ onNotify }: Props) {
 
   const activePack = getPack(prefs.packId) ?? VOICE_PACKS[0];
 
+  /** BUG-05: só vozes de packs prontos, ou do pack ativo. */
+  const selectableVoices = VOICE_PACKS.filter(
+    (p) => (packStatuses[p.id] ?? "idle") === "ready" || p.id === prefs.packId
+  ).flatMap((p) =>
+    p.voices.map((v) => ({
+      id: v.id,
+      label: `${v.name} (${v.language} · ${v.gender}${v.grade ? ` · ${v.grade}` : ""}) — ${p.name}`,
+    }))
+  );
+
   if (loading) {
     return (
       <div className="text-sm text-[var(--text-muted)] font-mono py-6">Carregando voz…</div>
@@ -154,9 +167,8 @@ export function SettingsVoiceSection({ onNotify }: Props) {
       <div className="space-y-1">
         <h2 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Voz</h2>
         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-          Síntese on-device. O texto não é enviado a servidores de TTS. Kokoro cobre inglês; Piper cobre
-          pt-BR (faber-medium). Vozes pf_dora do Kokoro não estão ativas no kokoro-js 1.2.1 (comentadas
-          na lib oficial).
+          Síntese on-device. O texto não sai do navegador. Kokoro (EN); Supertonic 3 (pt-BR, 10 vozes);
+          Piper (pt-BR leve, 1 voz). Packs grandes exigem Wi-Fi.
         </p>
       </div>
 
@@ -269,13 +281,15 @@ export function SettingsVoiceSection({ onNotify }: Props) {
           onChange={(e) => void persist({ ...prefs, voiceId: e.target.value })}
           className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2.5 text-sm text-[var(--text-primary)]"
         >
-          {activePack.voices.map((v) => (
+          {selectableVoices.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name} ({v.language} · {v.gender}
-              {v.grade ? ` · ${v.grade}` : ""})
+              {v.label}
             </option>
           ))}
         </select>
+        <p className="text-[10px] text-[var(--text-muted)]">
+          Só listamos vozes de packs baixados (ou do pack ativo).
+        </p>
       </label>
 
       <label className="block space-y-2">
@@ -296,8 +310,8 @@ export function SettingsVoiceSection({ onNotify }: Props) {
         />
         {activePack.engine === "piper" ? (
           <p className="text-[10px] text-[var(--text-muted)]">
-            Velocidade aplica-se de forma plena no Kokoro e no fallback nativo; no Piper o controle é
-            limitado pelo runtime WASM.
+            Velocidade plena no Kokoro/Supertonic/nativo; no Piper o controle é limitado pelo runtime
+            WASM.
           </p>
         ) : null}
       </label>
