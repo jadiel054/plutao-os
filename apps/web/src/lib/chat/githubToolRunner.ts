@@ -112,6 +112,9 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
   }
 
   const named = extractRepoNameCandidate(text);
+  if (!repo && named) {
+    repo = named;
+  }
 
   // Intent: provision a new repository (natural language, not only verb "criar").
   const listOnly =

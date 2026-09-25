@@ -3,7 +3,7 @@
  *
  * Neon — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
  * Additive: 0001_executions, 0002_missions_idempotency_key, 0003_artifacts, 0004_connectors.
- * 0012: stripe; 0015: users.preferences jsonb.
+ * 0012: stripe; 0015: users.preferences jsonb; 0016: conversations & messages.
  */
 
 import {
@@ -315,5 +315,42 @@ export const guestSessions = pgTable(
     index("guest_sessions_user_id_idx").on(t.userId),
     index("guest_sessions_ip_idx").on(t.ip),
     index("guest_sessions_created_at_idx").on(t.createdAt),
+  ]
+);
+
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default("Nova conversa"),
+    isPinned: boolean("is_pinned").notNull().default(false),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    shareToken: text("share_token"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("conversations_user_updated_idx").on(t.userId, t.updatedAt),
+    uniqueIndex("conversations_share_token_uidx").on(t.shareToken),
+  ]
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    role: text("role").notNull(), // 'user' | 'assistant' | 'system' | 'tool'
+    content: text("content").notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("messages_conversation_created_idx").on(t.conversationId, t.createdAt),
   ]
 );
