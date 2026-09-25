@@ -1,12 +1,47 @@
 "use client";
 
 import { useState } from "react";
+import {
+  defaultVoicePrefs,
+  speakText,
+  stopSpeaking,
+  type VoiceRuntimePrefs,
+} from "@/lib/voice/engine";
 
 type Props = {
   content: string;
   onRegenerate?: () => void;
   disabled?: boolean;
 };
+
+let cachedPrefs: VoiceRuntimePrefs | null = null;
+let prefsFetchedAt = 0;
+
+async function loadVoicePrefs(): Promise<VoiceRuntimePrefs> {
+  const now = Date.now();
+  if (cachedPrefs && now - prefsFetchedAt < 60_000) return cachedPrefs;
+  try {
+    const res = await fetch("/api/user/preferences", { cache: "no-store" });
+    if (!res.ok) {
+      cachedPrefs = defaultVoicePrefs();
+      prefsFetchedAt = now;
+      return cachedPrefs;
+    }
+    const data = await res.json();
+    const v = data.preferences?.voice ?? {};
+    cachedPrefs = {
+      enabled: Boolean(v.enabled),
+      packId: typeof v.packId === "string" ? v.packId : defaultVoicePrefs().packId,
+      voiceId: typeof v.voiceId === "string" ? v.voiceId : defaultVoicePrefs().voiceId,
+      speed: typeof v.speed === "number" ? v.speed : 1,
+      volume: typeof v.volume === "number" ? v.volume : 0.9,
+    };
+    prefsFetchedAt = now;
+    return cachedPrefs;
+  } catch {
+    return defaultVoicePrefs();
+  }
+}
 
 /**
  * Barra de ações sob a resposta do assistente — folha discreta (copiar, falar, regenerar, feedback).
@@ -38,19 +73,20 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
     }
   }
 
-  function handleSpeak() {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
+  async function handleSpeak() {
     if (speaking) {
-      window.speechSynthesis.cancel();
+      stopSpeaking();
       setSpeaking(false);
       return;
     }
-    const u = new SpeechSynthesisUtterance(content.slice(0, 4000));
-    u.lang = "pt-BR";
-    u.onend = () => setSpeaking(false);
-    u.onerror = () => setSpeaking(false);
     setSpeaking(true);
-    window.speechSynthesis.speak(u);
+    try {
+      const prefs = await loadVoicePrefs();
+      // Nova mensagem interrompe a anterior (stopSpeaking dentro de speakText)
+      await speakText(content, prefs);
+    } finally {
+      setSpeaking(false);
+    }
   }
 
   const btn =
@@ -68,7 +104,7 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
       <button type="button" className={btn} onClick={() => void handleShare()} title="Compartilhar" aria-label="Compartilhar">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" strokeLinecap="round" /></svg>
       </button>
-      <button type="button" className={btn} onClick={handleSpeak} title={speaking ? "Parar" : "Ouvir"} aria-label="Ouvir">
+      <button type="button" className={btn} onClick={() => void handleSpeak()} title={speaking ? "Parar" : "Ouvir"} aria-label="Ouvir">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M11 5L6 9H2v6h4l5 4V5z" strokeLinejoin="round" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" strokeLinecap="round" /></svg>
       </button>
       {onRegenerate ? (
