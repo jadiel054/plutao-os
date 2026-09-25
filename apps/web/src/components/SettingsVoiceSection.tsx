@@ -15,6 +15,7 @@ import {
   clearPackReady,
   speakText,
   stopSpeaking,
+  invalidateVoicePrefsCache,
   SAMPLE_PHRASE,
   SAMPLE_PHRASE_PT,
   type VoiceRuntimePrefs,
@@ -80,6 +81,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
         onNotify?.("Não foi possível salvar preferências de voz", "error");
         return;
       }
+      invalidateVoicePrefsCache();
       setPrefs(next);
     } finally {
       setSaving(false);
@@ -121,6 +123,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
         pack?.id === "supertonic-pt-br"
           ? SAMPLE_PHRASE_PT
           : SAMPLE_PHRASE;
+      // prefs do state local (já otimista após troca no seletor) — sem cache 60s
       const result = await speakText(phrase, prefs, {
         onProgress: (pct, status, d) => {
           const id = prefs.packId;
@@ -141,7 +144,9 @@ export function SettingsVoiceSection({ onNotify }: Props) {
     const pack = getPack(packId);
     if (!pack) return;
     const voiceId = pack.voices[0]?.id ?? DEFAULT_VOICE_ID;
-    void persist({ ...prefs, packId, voiceId });
+    const next = { ...prefs, packId, voiceId };
+    setPrefs(next);
+    void persist(next);
   }
 
   const activePack = getPack(prefs.packId) ?? VOICE_PACKS[0];
@@ -183,7 +188,11 @@ export function SettingsVoiceSection({ onNotify }: Props) {
           type="checkbox"
           checked={prefs.enabled}
           disabled={saving}
-          onChange={(e) => void persist({ ...prefs, enabled: e.target.checked })}
+          onChange={(e) => {
+            const next = { ...prefs, enabled: e.target.checked };
+            setPrefs(next);
+            void persist(next);
+          }}
           className="h-4 w-4 accent-[var(--selo)]"
         />
       </label>
@@ -278,7 +287,11 @@ export function SettingsVoiceSection({ onNotify }: Props) {
         <select
           value={prefs.voiceId}
           disabled={saving}
-          onChange={(e) => void persist({ ...prefs, voiceId: e.target.value })}
+          onChange={(e) => {
+            const next = { ...prefs, voiceId: e.target.value };
+            setPrefs(next); // otimista — amostra usa voiceId novo imediato (BUG-06)
+            void persist(next);
+          }}
           className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2.5 text-sm text-[var(--text-primary)]"
         >
           {selectableVoices.map((v) => (
