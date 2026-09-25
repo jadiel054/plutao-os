@@ -14,6 +14,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "@plutao/db": "*",
     "@plutao/domain": "*",
+    "@realtimex/piper-tts-web": "^1.1.1",
     "drizzle-orm": "^0.39.0",
     "kokoro-js": "^1.2.1",
     "mcp-handler": "^2.0.0",
