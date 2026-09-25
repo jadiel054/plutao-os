@@ -16,6 +16,7 @@ import {
   speakText,
   stopSpeaking,
   SAMPLE_PHRASE,
+  SAMPLE_PHRASE_PT,
   type VoiceRuntimePrefs,
   type PackStatus,
 } from "@/lib/voice/engine";
@@ -28,9 +29,9 @@ export function SettingsVoiceSection({ onNotify }: Props) {
   const [prefs, setPrefs] = useState<VoiceRuntimePrefs>(defaultVoicePrefs());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [packStatus, setPackStatus] = useState<PackStatus>("idle");
-  const [progress, setProgress] = useState(0);
-  const [detail, setDetail] = useState<string | null>(null);
+  const [packStatuses, setPackStatuses] = useState<Record<string, PackStatus>>({});
+  const [progress, setProgress] = useState<Record<string, number>>({});
+  const [detail, setDetail] = useState<Record<string, string>>({});
   const [sampleBusy, setSampleBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -44,16 +45,20 @@ export function SettingsVoiceSection({ onNotify }: Props) {
       if (!res.ok) return;
       const data = await res.json();
       const v = data.preferences?.voice ?? {};
-      setPrefs({
+      const next: VoiceRuntimePrefs = {
         enabled: Boolean(v.enabled),
         packId: typeof v.packId === "string" ? v.packId : DEFAULT_PACK_ID,
         voiceId: typeof v.voiceId === "string" ? v.voiceId : DEFAULT_VOICE_ID,
         speed: typeof v.speed === "number" ? v.speed : 1,
         volume: typeof v.volume === "number" ? v.volume : 0.9,
-      });
-      if (isPackMarkedReady(v.packId || DEFAULT_PACK_ID)) {
-        setPackStatus("ready");
+      };
+      setPrefs(next);
+
+      const statuses: Record<string, PackStatus> = {};
+      for (const p of VOICE_PACKS) {
+        statuses[p.id] = isPackMarkedReady(p.id) ? "ready" : "idle";
       }
+      setPackStatuses(statuses);
     } finally {
       setLoading(false);
     }
@@ -81,40 +86,44 @@ export function SettingsVoiceSection({ onNotify }: Props) {
     }
   }
 
-  async function handleDownload() {
-    const packId = (prefs.packId || DEFAULT_PACK_ID) as VoicePackId;
-    setPackStatus("downloading");
-    setProgress(0);
+  async function handleDownload(packId: VoicePackId) {
+    setPackStatuses((s) => ({ ...s, [packId]: "downloading" }));
+    setProgress((p) => ({ ...p, [packId]: 0 }));
     try {
       await downloadPack(packId, (pct, status, d) => {
-        setProgress(pct);
-        setPackStatus(status);
-        if (d) setDetail(d);
+        setProgress((p) => ({ ...p, [packId]: pct }));
+        setPackStatuses((s) => ({ ...s, [packId]: status }));
+        if (d) setDetail((x) => ({ ...x, [packId]: d }));
       });
-      setPackStatus("ready");
-      onNotify?.("Pack de voz pronto neste dispositivo", "success");
+      setPackStatuses((s) => ({ ...s, [packId]: "ready" }));
+      onNotify?.(`Pack ${packId} pronto neste dispositivo`, "success");
     } catch {
-      setPackStatus("error");
+      setPackStatuses((s) => ({ ...s, [packId]: "error" }));
       onNotify?.("Falha ao baixar o modelo. Verifique a rede e tente de novo.", "error");
     }
   }
 
-  function handleRemove() {
-    clearPackReady(prefs.packId || DEFAULT_PACK_ID);
-    setPackStatus("idle");
-    setProgress(0);
-    setDetail(null);
+  function handleRemove(packId: string) {
+    clearPackReady(packId);
+    setPackStatuses((s) => ({ ...s, [packId]: "idle" }));
+    setProgress((p) => ({ ...p, [packId]: 0 }));
     onNotify?.("Pack removido deste dispositivo (cache local)", "info");
   }
 
   async function handleSample() {
     setSampleBusy(true);
     try {
-      const result = await speakText(SAMPLE_PHRASE, prefs, {
+      const pack = getPack(prefs.packId);
+      const phrase =
+        pack?.engine === "piper" || pack?.id === "piper-pt-br"
+          ? SAMPLE_PHRASE_PT
+          : SAMPLE_PHRASE;
+      const result = await speakText(phrase, prefs, {
         onProgress: (pct, status, d) => {
-          setProgress(pct);
-          setPackStatus(status);
-          if (d) setDetail(d);
+          const id = prefs.packId;
+          setProgress((p) => ({ ...p, [id]: pct }));
+          setPackStatuses((s) => ({ ...s, [id]: status }));
+          if (d) setDetail((x) => ({ ...x, [id]: d }));
         },
       });
       if (result.engine === "native" && prefs.enabled) {
@@ -125,15 +134,14 @@ export function SettingsVoiceSection({ onNotify }: Props) {
     }
   }
 
-  const pack = getPack(prefs.packId) ?? VOICE_PACKS[0];
-  const statusLabel =
-    packStatus === "ready"
-      ? "Pronto"
-      : packStatus === "downloading"
-        ? `Baixando… ${progress}%`
-        : packStatus === "error"
-          ? "Erro"
-          : "Não baixado";
+  function selectPack(packId: VoicePackId) {
+    const pack = getPack(packId);
+    if (!pack) return;
+    const voiceId = pack.voices[0]?.id ?? DEFAULT_VOICE_ID;
+    void persist({ ...prefs, packId, voiceId });
+  }
+
+  const activePack = getPack(prefs.packId) ?? VOICE_PACKS[0];
 
   if (loading) {
     return (
@@ -146,8 +154,9 @@ export function SettingsVoiceSection({ onNotify }: Props) {
       <div className="space-y-1">
         <h2 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Voz</h2>
         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-          Síntese on-device com Kokoro (WASM/WebGPU). O texto da conversa não é enviado a servidores de TTS.
-          Português (pt-BR) usa a voz nativa do navegador — o kokoro-js oficial não inclui pack pt-BR.
+          Síntese on-device. O texto não é enviado a servidores de TTS. Kokoro cobre inglês; Piper cobre
+          pt-BR (faber-medium). Vozes pf_dora do Kokoro não estão ativas no kokoro-js 1.2.1 (comentadas
+          na lib oficial).
         </p>
       </div>
 
@@ -167,46 +176,90 @@ export function SettingsVoiceSection({ onNotify }: Props) {
         />
       </label>
 
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium text-[var(--text-primary)]">{pack.name}</div>
-            <div className="text-[11px] text-[var(--text-muted)] mt-1">{pack.description}</div>
-            <div className="text-[10px] font-mono text-[var(--text-muted)] mt-2">
-              ~{pack.approxSizeMb} MB · {pack.languages.join(", ")} · {statusLabel}
-            </div>
-            {detail && packStatus === "downloading" ? (
-              <div className="text-[10px] text-[var(--text-secondary)] mt-1">{detail}</div>
-            ) : null}
-          </div>
-        </div>
-        {packStatus === "downloading" ? (
-          <div className="h-1.5 rounded-full bg-[var(--base)] overflow-hidden">
-            <div
-              className="h-full bg-[var(--selo)] transition-all duration-200"
-              style={{ width: `${Math.max(4, progress)}%` }}
-            />
-          </div>
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={packStatus === "downloading" || packStatus === "ready"}
-            onClick={() => void handleDownload()}
-            className="rounded-lg bg-[var(--selo)] text-[var(--base)] text-xs font-semibold px-3 py-2 disabled:opacity-40"
-          >
-            {packStatus === "ready" ? "Já baixado" : "Baixar pack"}
-          </button>
-          <button
-            type="button"
-            disabled={packStatus !== "ready"}
-            onClick={handleRemove}
-            className="rounded-lg border border-[var(--border)] text-xs px-3 py-2 text-[var(--text-secondary)] disabled:opacity-40"
-          >
-            Remover deste dispositivo
-          </button>
-        </div>
-      </section>
+      <div className="space-y-3">
+        <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Packs</div>
+        {VOICE_PACKS.map((pack) => {
+          const st = packStatuses[pack.id] ?? "idle";
+          const pct = progress[pack.id] ?? 0;
+          const statusLabel =
+            st === "ready"
+              ? "Pronto"
+              : st === "downloading"
+                ? `Baixando… ${pct}%`
+                : st === "error"
+                  ? "Erro"
+                  : "Não baixado";
+          const selected = prefs.packId === pack.id;
+
+          return (
+            <section
+              key={pack.id}
+              className={`rounded-xl border p-4 space-y-3 ${
+                selected
+                  ? "border-[var(--selo)]/60 bg-[var(--surface)]"
+                  : "border-[var(--border)] bg-[var(--surface)]"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <button
+                  type="button"
+                  className="text-left flex-1"
+                  onClick={() => selectPack(pack.id)}
+                >
+                  <div className="text-sm font-medium text-[var(--text-primary)]">
+                    {pack.name}
+                    {selected ? (
+                      <span className="ml-2 text-[10px] text-[var(--selo)] font-mono">ativo</span>
+                    ) : null}
+                  </div>
+                  <div className="text-[11px] text-[var(--text-muted)] mt-1">{pack.description}</div>
+                  <div className="text-[10px] font-mono text-[var(--text-muted)] mt-2">
+                    ~{pack.approxSizeMb} MB · {pack.languages.join(", ")} · {statusLabel}
+                  </div>
+                  {detail[pack.id] && st === "downloading" ? (
+                    <div className="text-[10px] text-[var(--text-secondary)] mt-1">{detail[pack.id]}</div>
+                  ) : null}
+                </button>
+              </div>
+              {st === "downloading" ? (
+                <div className="h-1.5 rounded-full bg-[var(--base)] overflow-hidden">
+                  <div
+                    className="h-full bg-[var(--selo)] transition-all duration-200"
+                    style={{ width: `${Math.max(4, pct)}%` }}
+                  />
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={st === "downloading" || st === "ready"}
+                  onClick={() => void handleDownload(pack.id)}
+                  className="rounded-lg bg-[var(--selo)] text-[var(--base)] text-xs font-semibold px-3 py-2 disabled:opacity-40"
+                >
+                  {st === "ready" ? "Já baixado" : "Baixar pack"}
+                </button>
+                <button
+                  type="button"
+                  disabled={st !== "ready"}
+                  onClick={() => handleRemove(pack.id)}
+                  className="rounded-lg border border-[var(--border)] text-xs px-3 py-2 text-[var(--text-secondary)] disabled:opacity-40"
+                >
+                  Remover
+                </button>
+                {!selected ? (
+                  <button
+                    type="button"
+                    onClick={() => selectPack(pack.id)}
+                    className="rounded-lg border border-[var(--border)] text-xs px-3 py-2 text-[var(--text-secondary)]"
+                  >
+                    Usar este pack
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          );
+        })}
+      </div>
 
       <label className="block space-y-1.5">
         <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Voz</span>
@@ -216,7 +269,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
           onChange={(e) => void persist({ ...prefs, voiceId: e.target.value })}
           className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2.5 text-sm text-[var(--text-primary)]"
         >
-          {pack.voices.map((v) => (
+          {activePack.voices.map((v) => (
             <option key={v.id} value={v.id}>
               {v.name} ({v.language} · {v.gender}
               {v.grade ? ` · ${v.grade}` : ""})
@@ -241,6 +294,12 @@ export function SettingsVoiceSection({ onNotify }: Props) {
           onTouchEnd={() => void persist(prefs)}
           className="w-full accent-[var(--selo)]"
         />
+        {activePack.engine === "piper" ? (
+          <p className="text-[10px] text-[var(--text-muted)]">
+            Velocidade aplica-se de forma plena no Kokoro e no fallback nativo; no Piper o controle é
+            limitado pelo runtime WASM.
+          </p>
+        ) : null}
       </label>
 
       <label className="block space-y-2">
