@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-23 (billing Stripe checkout/webhook — implementado, smoke pendente)
+**Última atualização:** 2026-09-25 (higiene CI + status billing TEST / guest fix)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** with evidência de uso real (não só código no `main`).
@@ -12,7 +12,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Área | Status | Evidência / observação |
 |------|--------|------------------------|
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
-| Modo Convidado (Guest Mode) | **IMPLEMENTED** (bug auto-create: fix implementado, smoke pendente) | Landing + `POST /api/auth/guest` + limits. Leitura purificada: `getAuthOrGuestUser` não cria sessão; criação só via POST. Erros de DB em `getGuestSessionByToken` propagam. Pill server-driven. **Não marcar VERIFICADO até ACs em produção.** |
+| Modo Convidado (Guest Mode) | **IMPLEMENTED** | Landing + `POST /api/auth/guest` + limits. Bug auto-create: fix em produção via PR #56 (2026-09-24). Leitura purificada: `getAuthOrGuestUser` não cria sessão; criação só via POST. Erros de DB em `getGuestSessionByToken` propagam. Pill server-driven. **Smoke dos ACs pendente do operador — não VERIFICADO.** |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
@@ -34,10 +34,10 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
-| Billing Stripe live (checkout/webhook) | **IMPLEMENTED** (smoke pendente) | Checkout hospedado + webhook com assinatura + idempotência `billing_events`. Price IDs só via env. `users.plan` → `caronte` / `orbita_livre`. Migration 0012 (SQL manual Neon). **Não VERIFICADO até ACs AC1–AC6 em produção.** |
+| Billing Stripe (checkout/webhook) | **IMPLEMENTED** | 6/6 ACs verdes em modo **TEST** em 2026-09-25 (checkout, webhook, idempotência, cancelamento). Checkout hospedado + webhook com assinatura + idempotência `billing_events` (pre-check SELECT). Price IDs só via env. `users.plan` → `caronte` / `orbita_livre`. Migration 0012 (SQL manual Neon). **LIVE pendente** (ativação da conta Stripe pelo operador). **Não VERIFICADO em LIVE.** |
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; `/share/[token]`; migration 0008 no Neon **VERIFICADA**. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
-| Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml`. |
+| Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml` (mantido; one-shots removidos). |
 | Migrations 0000–0012 no repo | **IMPLEMENTED** | Journal com 0012_stripe_billing.sql (aplicar manual no Neon). |
 | Migrations no Neon produção | **VERIFICADO** (até 0010) | 2026-09-21: tabelas 0000–0004/0006/0007/0008/0010 presentes. **0011 write_gates e 0012 stripe_billing: aplicar SQL manual se ainda não rodado.** 0005 skip deliberado. |
 | Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha de missão ponta a ponta ainda a formalizar. |
@@ -59,7 +59,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 - `resolveCloudModelConfig(id)` mapeia catálogo → `provider` + `apiModel` + `baseUrl` + env keys
 - Default nuvem: `MODEL_PROVIDER=xai` → modelo `grok-4.6`
 - Fila de mensagens, FollowUpChips, card de conector sugerido
-- Billing: `POST /api/billing/checkout` (requireUser, planSlug server-side) → Stripe Checkout Session; `POST /api/billing/webhook` (assinatura + idempotência); UI `/planos` com 3 CTAs fundador; `/planos/sucesso`
+- Billing: `POST /api/billing/checkout` (requireUser, planSlug server-side) → Stripe Checkout Session; `POST /api/billing/webhook` (assinatura + idempotência pre-check); UI `/planos` com 3 CTAs fundador; `/planos/sucesso`
 
 ---
 
@@ -68,15 +68,17 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 ### Operação
 
 - [x] Confirmar no Neon: migrations **0004–0010** (0005 skip deliberado)
-- [ ] Neon: aplicar **0011_write_gates** + **0012_stripe_billing** (SQL Editor, manual)
+- [ ] Neon: aplicar **0011_write_gates** + **0012_stripe_billing** (SQL Editor, manual) se ainda pendente
 - [ ] Vercel env modelos: `MODEL_PROVIDER`, `MODEL_API_KEY` ou `XAI_API_KEY`, opcional `MODEL_NAME=grok-4.6`, `MODEL_BASE_URL=https://api.x.ai/v1`
-- [ ] Vercel env Stripe (TEST depois LIVE): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_FOUNDER19`, `STRIPE_PRICE_FOUNDER29`, `STRIPE_PRICE_FOUNDER39`
-- [ ] Stripe Dashboard: Products founder + webhook endpoint `https://plutao-os.vercel.app/api/billing/webhook`
+- [ ] Vercel env Stripe LIVE (após ativação da conta): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_FOUNDER19`, `STRIPE_PRICE_FOUNDER29`, `STRIPE_PRICE_FOUNDER39`
+- [ ] Stripe Dashboard LIVE: Products founder + webhook endpoint `https://plutao-os.vercel.app/api/billing/webhook`
 - [ ] Chaves opcionais por card: `GROQ_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`
 - [ ] Smoke modelos: chat default + teste em Configurações → Modelos (só cards com chave)
 - [ ] Smoke conectores: GitHub list repos + Vercel list projects + desconectar/reconectar (já feito em parte; revalidar após deploys)
 - [ ] Smoke B2: pin conversa + gerar link `/share/[token]` (usa colunas 0008)
-- [ ] Smoke billing AC1–AC6 (checkout, plan sync, replay idempotente, cancel → orbita_livre, assinatura inválida 400, guest → login)
+- [ ] Smoke guest ACs em produção (PR #56 deployado; ACs ainda pendentes do operador)
+- [x] Smoke billing AC1–AC6 em **TEST** (2026-09-25)
+- [ ] Smoke billing em **LIVE** após ativação Stripe
 
 ### Produto (próximo ciclo)
 
@@ -130,7 +132,7 @@ AUTH_GITHUB_CLIENT_SECRET=
 # Resend / magic link conforme docs de auth
 
 # Billing Stripe (checkout + webhook)
-STRIPE_SECRET_KEY=sk_test_...   # ou sk_live_
+STRIPE_SECRET_KEY=sk_test_...   # ou sk_live_ após ativação
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_FOUNDER19=price_...
 STRIPE_PRICE_FOUNDER29=price_...
