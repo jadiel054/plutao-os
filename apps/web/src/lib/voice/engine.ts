@@ -38,7 +38,7 @@ let piperSession: {
 let piperLoadPromise: Promise<void> | null = null;
 
 let currentAudio: HTMLAudioElement | null = null;
-let currentUtterance: SpeechSynthesisUtterance | null = null;
+let _currentUtterance: SpeechSynthesisUtterance | null = null;
 
 export function defaultVoicePrefs(): VoiceRuntimePrefs {
   return {
@@ -97,7 +97,7 @@ export function stopSpeaking() {
   if (typeof window !== "undefined" && window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
-  currentUtterance = null;
+  _currentUtterance = null;
   if (currentAudio) {
     currentAudio.pause();
     currentAudio.src = "";
@@ -262,14 +262,14 @@ function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
     const pt = voices.find((v) => v.lang.toLowerCase().startsWith("pt"));
     if (pt) u.voice = pt;
     u.onend = () => {
-      currentUtterance = null;
+      _currentUtterance = null;
       resolve();
     };
     u.onerror = () => {
-      currentUtterance = null;
+      _currentUtterance = null;
       resolve();
     };
-    currentUtterance = u;
+    _currentUtterance = u;
     window.speechSynthesis.speak(u);
   });
 }

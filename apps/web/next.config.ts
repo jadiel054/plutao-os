@@ -10,12 +10,11 @@ const nextConfig: NextConfig = {
   // Client-only TTS engines (dynamic import). Keep off the Node server bundle.
   serverExternalPackages: ["@realtimex/piper-tts-web", "kokoro-js"],
 
-  // Piper WASM glue does require("fs") / require("path") for the Node path;
-  // in the browser those must resolve to an empty shim (Turbopack + webpack).
+  // Piper WASM glue does require("fs") for the Node path; browser needs empty shim.
+  // NÃO aliasar `path` — quebra path.normalize no prerender (ex. /404).
   turbopack: {
     resolveAlias: {
       fs: "./src/lib/voice/empty-shim.js",
-      path: "./src/lib/voice/empty-shim.js",
     },
   },
 
