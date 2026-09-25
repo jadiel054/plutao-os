@@ -3,7 +3,7 @@
  *
  * Neon — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
  * Additive: 0001_executions, 0002_missions_idempotency_key, 0003_artifacts, 0004_connectors.
- * 0012: stripe_customer_id, stripe_subscription_id, billing_events.
+ * 0012: stripe; 0015: users.preferences jsonb.
  */
 
 import {
@@ -31,6 +31,8 @@ export const users = pgTable("users", {
   stripeCustomerId: text("stripe_customer_id"),
   /** Stripe Subscription ID (sub_...) — ativo quando plan pago */
   stripeSubscriptionId: text("stripe_subscription_id"),
+  /** Preferências de produto (voz TTS, etc.) — merge via API, nunca replace cego */
+  preferences: jsonb("preferences").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -57,7 +59,7 @@ export const usageCounters = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    day: text("day").notNull(), // 'YYYY-MM-DD'
+    day: text("day").notNull(),
     messages: integer("messages").notNull().default(0),
     premiumMessages: integer("premium_messages").notNull().default(0),
   },
@@ -74,10 +76,6 @@ export const founderWaitlist = pgTable("founder_waitlist", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/**
- * Log idempotente de eventos Stripe.
- * UNIQUE(stripe_event_id) — replay do mesmo evento não reprocessa efeito.
- */
 export const billingEvents = pgTable(
   "billing_events",
   {
@@ -263,7 +261,6 @@ export const artifacts = pgTable(
   ]
 );
 
-/** MCP / OAuth connectors — one row per (user, provider). Tokens encrypted at app layer. */
 export const connectors = pgTable(
   "connectors",
   {

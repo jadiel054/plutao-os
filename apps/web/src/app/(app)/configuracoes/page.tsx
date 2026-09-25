@@ -13,9 +13,10 @@ import { SettingsProfileSection } from "@/components/SettingsProfileSection";
 import { SettingsNotificationsSection } from "@/components/SettingsNotificationsSection";
 import { SettingsConnectorsSection } from "@/components/SettingsConnectorsSection";
 import { SettingsMcpGrantsSection } from "@/components/SettingsMcpGrantsSection";
+import { SettingsVoiceSection } from "@/components/SettingsVoiceSection";
 import { useModelMode } from "@/hooks/useModelMode";
 
-type TabType = "ia" | "conectores" | "perfil" | "notificacoes" | "seguranca" | "sobre";
+type TabType = "ia" | "conectores" | "voz" | "perfil" | "notificacoes" | "seguranca" | "sobre";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -87,6 +88,7 @@ export default function SettingsPage() {
           if (
             tab === "conectores" ||
             tab === "ia" ||
+            tab === "voz" ||
             tab === "perfil" ||
             tab === "notificacoes" ||
             tab === "seguranca" ||
@@ -184,6 +186,7 @@ export default function SettingsPage() {
   const tabs: { id: TabType; label: string }[] = [
     { id: "ia", label: "Modelos" },
     { id: "conectores", label: "Conectores" },
+    { id: "voz", label: "Voz" },
     { id: "perfil", label: "Conta" },
     { id: "notificacoes", label: "Notificações" },
     { id: "seguranca", label: "Privacidade" },
@@ -197,7 +200,7 @@ export default function SettingsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Painel de Configurações</h1>
-            <p className="text-xs text-[var(--text-muted)]">Modelos, conectores, perfil e dados</p>
+            <p className="text-xs text-[var(--text-muted)]">Modelos, conectores, voz, perfil e dados</p>
           </div>
           <button
             type="button"
@@ -222,7 +225,7 @@ export default function SettingsPage() {
             )}
           </button>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 border-b border-[var(--border)] pb-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 border-b border-[var(--border)] pb-3">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -241,6 +244,7 @@ export default function SettingsPage() {
         <div className="space-y-6">
           {activeTab === "ia" && <SettingsModelsSection onNotify={addToast} />}
           {activeTab === "conectores" && <SettingsConnectorsSection onNotify={addToast} />}
+          {activeTab === "voz" && <SettingsVoiceSection onNotify={addToast} />}
           {activeTab === "perfil" && (
             <SettingsProfileSection
               userEmail={userEmail}
