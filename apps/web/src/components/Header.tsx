@@ -8,6 +8,7 @@ import { UserMenu } from "@/components/UserMenu";
 import { ModeControlModal } from "@/components/ModeControlModal";
 import { ViewModeToggle } from "@/components/ViewModeToggle";
 import { BrandMark } from "@/components/BrandMark";
+import { GuestChatMigrate } from "@/components/GuestChatMigrate";
 
 export interface HeaderProps {
   userEmail?: string;
@@ -28,6 +29,7 @@ export function Header({ userEmail, onNotify, variant = "default", onOpenMenu, o
 
   return (
     <>
+      <GuestChatMigrate email={userEmail} />
       <header className="border-b border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur-md sticky top-0 z-40">
         <div className="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
