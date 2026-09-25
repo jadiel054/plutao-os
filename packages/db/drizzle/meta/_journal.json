@@ -15,6 +15,7 @@
     { "idx": 10, "version": "7", "when": 1727200000000, "tag": "0010_guest_mode", "breakpoints": true },
     { "idx": 11, "version": "7", "when": 1727300000000, "tag": "0011_write_gates", "breakpoints": true },
     { "idx": 12, "version": "7", "when": 1727400000000, "tag": "0012_stripe_billing", "breakpoints": true },
-    { "idx": 13, "version": "7", "when": 1727600000000, "tag": "0015_user_preferences", "breakpoints": true }
+    { "idx": 13, "version": "7", "when": 1727600000000, "tag": "0015_user_preferences", "breakpoints": true },
+    { "idx": 14, "version": "7", "when": 1727700000000, "tag": "0016_conversations", "breakpoints": true }
   ]
 }

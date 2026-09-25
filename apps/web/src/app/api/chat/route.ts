@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, inArray, and } from "drizzle-orm";
-import { agents, artifacts as artifactsTable, users, usageCounters } from "@plutao/db";
+import { agents, artifacts as artifactsTable, users, usageCounters, conversations, messages as messagesTable } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";
@@ -36,6 +36,77 @@ type AttachedArtifactMeta = {
 
 const MAX_MESSAGE_LENGTH = 4000;
 const MAX_TOTAL_HISTORY_LENGTH = 16000;
+
+async function getOrCreateConversation(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  providedConversationId?: string | null,
+  initialText?: string
+): Promise<string | null> {
+  try {
+    if (providedConversationId) {
+      const existing = await db
+        .select({ id: conversations.id, userId: conversations.userId })
+        .from(conversations)
+        .where(eq(conversations.id, providedConversationId))
+        .limit(1);
+
+      if (existing[0] && existing[0].userId === userId) {
+        return existing[0].id;
+      }
+    }
+
+    const title = initialText && initialText.trim() ? initialText.trim().slice(0, 40) : "Nova conversa";
+    const now = new Date();
+    const created = await db
+      .insert(conversations)
+      .values({
+        userId,
+        title,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: conversations.id });
+
+    return created[0]?.id ?? null;
+  } catch (err) {
+    console.error("[getOrCreateConversation error]", err);
+    return null;
+  }
+}
+
+async function persistMessagePair(
+  db: ReturnType<typeof getDb>,
+  conversationId: string | null,
+  userText: string,
+  assistantText: string
+) {
+  if (!conversationId) return;
+  try {
+    const now = new Date();
+    await db.insert(messagesTable).values([
+      {
+        conversationId,
+        role: "user",
+        content: userText,
+        createdAt: now,
+      },
+      {
+        conversationId,
+        role: "assistant",
+        content: assistantText,
+        createdAt: new Date(now.getTime() + 10),
+      },
+    ]);
+
+    await db
+      .update(conversations)
+      .set({ updatedAt: new Date() })
+      .where(eq(conversations.id, conversationId));
+  } catch (err) {
+    console.error("[persistMessagePair error - chat response preserved]", err);
+  }
+}
 
 async function incrementUsageCounter(db: ReturnType<typeof getDb>, userId: string, isPremium: boolean) {
   const todayStr = new Date().toISOString().split("T")[0];
@@ -168,7 +239,21 @@ export async function POST(req: NextRequest) {
         ? body.missionId.trim()
         : null;
 
+    const providedConversationId =
+      typeof body.conversationId === "string" && body.conversationId.trim()
+        ? body.conversationId.trim()
+        : null;
+
+    const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
+    const lastUserText = lastUserMsg?.content || "";
+
     const db = getDb();
+    const activeConversationId = await getOrCreateConversation(
+      db,
+      user.id,
+      providedConversationId,
+      lastUserText
+    );
 
     // 1. Fetch user record for plan & preferred_model
     const userRows = await db
@@ -388,9 +473,6 @@ ${
         "\n\nAVISO RUNTIME: " +
         secretExposureNotice([{ kind: "exposta_no_chat", masked: "****", start: 0, end: 0 }])
       : systemPrompt;
-
-    const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
-    const lastUserText = lastUserMsg?.content || "";
 
     const hasImageOrBinary = validatedArtifacts.some((a) => {
       const meta = a.metadata || {};
@@ -868,12 +950,15 @@ ${
               await incrementUsageCounter(db, user.id, isTargetModelPremium);
             }
 
+            await persistMessagePair(db, activeConversationId, lastUserText, assistantContent);
+
             emit("done", {
               full: assistantContent,
               provider: streamModelConfig.provider,
               model: streamModelConfig.model,
               modelFallback,
               guestSession: updatedGuestSession,
+              conversationId: activeConversationId,
               suggestedPlan: suggestedPlan
                 ? { stepTitles: suggestedPlan.stepTitles }
                 : null,
@@ -1129,6 +1214,8 @@ ${
       await incrementUsageCounter(db, user.id, isTargetModelPremium);
     }
 
+    await persistMessagePair(db, activeConversationId, lastUserText, assistantContent);
+
     return NextResponse.json({
       message: { role: "assistant", content: assistantContent },
       readArtifacts: readArtifactIds,
@@ -1137,6 +1224,7 @@ ${
       model: result.model,
       modelFallback,
       guestSession: updatedGuestSession,
+      conversationId: activeConversationId,
       suggestedPlan: suggestedPlan
         ? { stepTitles: suggestedPlan.stepTitles }
         : null,

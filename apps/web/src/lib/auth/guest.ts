@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 import { eq, and, gte, sql } from "drizzle-orm";
-import { guestSessions, users, missions, artifacts, auditEvents } from "@plutao/db";
+import { guestSessions, users, missions, artifacts, auditEvents, conversations } from "@plutao/db";
 import { getDb } from "@/lib/db";
 
 export const GUEST_COOKIE = "plutao_guest_session";
@@ -233,9 +233,10 @@ export async function migrateGuestSessionToUser(guestToken: string, realUserId: 
     const guestUserId = gs.userId;
     const now = new Date();
 
-    // Reatribuir missões e artefatos
+    // Reatribuir missões, artefatos e conversas
     await db.update(missions).set({ userId: realUserId }).where(eq(missions.userId, guestUserId));
     await db.update(artifacts).set({ userId: realUserId }).where(eq(artifacts.userId, guestUserId));
+    await db.update(conversations).set({ userId: realUserId }).where(eq(conversations.userId, guestUserId));
 
     // Marcar sessão guest como convertida
     await db

@@ -13,7 +13,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 |------|--------|------------------------|
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
-| Guest → conta: transcript chat (BUG-03) | **TORNIQUETE client** | Causa raiz: transcript só em `localStorage` por e-mail (`plutao_chat_guest@plutao.ai` → e-mail real). Migração server só `missions`/`artifacts`. Torniquete: `migrateGuestChatLocalStorage` no register/login + Header. **Correção estrutural (persistência server de mensagens) agendada.** CR4: não deletar user guest na conversão (preserva `guest_sessions.converted_user_id`). |
+| BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO (CÓDIGO/BUILD)** | Migration `0016_conversations.sql` adiciona `conversations` e `messages`. Servidor como fonte de verdade em `/api/conversations` (`GET`, `POST`, `PATCH/[id]`, `DELETE/[id]`, `GET/[id]/messages`, `POST/import`). `/api/chat` persiste mensagens sem bloquear resposta. Guest convert reatribui conversas. Shim único de `localStorage` import em `chat/page.tsx`. |
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
 | **Voz (Kokoro + Piper on-device)** | **IMPLEMENTED** | Engines: `kokoro-en` (kokoro-js@1.2.1, EN) + `piper-pt-br` (`pt_BR-faber-medium`, ~63MB CC0). Aba Configurações → Voz; MessageActions. Preferências `users.preferences` (migration **0015**, SQL manual Neon). **Smoke pendente** (AC1–AC5). pt-BR via Piper — pf_* comentados no kokoro-js 1.2.1. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
@@ -41,7 +41,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; `/share/[token]`; migration 0008 no Neon **VERIFICADA**. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
 | Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml` (mantido; one-shots removidos). |
-| Migrations 0000–0012 + **0015** no repo | **IMPLEMENTED** | 0012 stripe; **0015** `users.preferences` jsonb (SQL manual Neon). |
+| Migrations 0000–0012 + **0015** + **0016** no repo | **IMPLEMENTED** | 0012 stripe; **0015** `users.preferences` jsonb; **0016** `conversations` e `messages` (SQL manual Neon). |
 | Migrations no Neon produção | **VERIFICADO** (até 0010) | 2026-09-21: tabelas 0000–0004/0006/0007/0008/0010 presentes. **0011 write_gates, 0012 stripe_billing e 0015 user_preferences: aplicar SQL manual se ainda não rodado.** 0005 skip deliberado. |
 | Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha de missão ponta a ponta ainda a formalizar. |
 | Durable execution (Inngest etc.) | **DESIGNED** | Fora do fechamento V1. |
