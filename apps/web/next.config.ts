@@ -1,23 +1,18 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Phase 1: no image optimization yet
   images: { unoptimized: true },
-
-  // Monorepo workspace packages consumed by the app
   transpilePackages: ["@plutao/db", "@plutao/domain"],
-
-  // Client-only TTS engines (dynamic import). Keep off the Node server bundle.
-  serverExternalPackages: ["@realtimex/piper-tts-web", "kokoro-js"],
-
-  // Piper WASM glue does require("fs") for the Node path; browser needs empty shim.
-  // NÃO aliasar `path` — quebra path.normalize no prerender (ex. /404).
+  serverExternalPackages: [
+    "@realtimex/piper-tts-web",
+    "kokoro-js",
+    "onnxruntime-web",
+  ],
   turbopack: {
     resolveAlias: {
       fs: "./src/lib/voice/empty-shim.js",
     },
   },
-
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
@@ -29,9 +24,6 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
-
-  // PWA: Service Worker in public/sw.js enables transparent updates
-  // (skipWaiting + clients.claim) so Vercel deploys apply without reinstall.
   headers: async () => [
     {
       source: "/(.*)",
@@ -42,8 +34,6 @@ const nextConfig: NextConfig = {
       ],
     },
   ],
-
-  // Build: warnings de ESLint não bloqueiam; errors (ex: no-explicit-any) ainda falham
   eslint: {
     ignoreDuringBuilds: false,
   },

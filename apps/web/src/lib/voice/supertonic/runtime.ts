@@ -150,7 +150,8 @@ export async function speakSupertonic(
 
   const speed = Math.min(2, Math.max(0.7, opts.speed || 1.05));
   const result = await tts.call(text.slice(0, 2000), "pt", style, 8, speed, 0.3);
-  const wav = result.wav as Float32Array;
+  const raw = result.wav;
+  const wav = raw instanceof Float32Array ? raw : new Float32Array(raw as number[]);
   const sampleRate = (tts.sampleRate as number) || 44100;
   await playFloat32(wav, sampleRate, opts.volume);
 }
