@@ -27,12 +27,8 @@ type ProgressCb = (pct: number, status: PackStatus, detail?: string) => void;
 
 const IDB_KEY = "plutao_voice_pack_ready_v1";
 
-let kokoroInstance: {
-  generate: (
-    text: string,
-    opts: { voice: string; speed?: number }
-  ) => Promise<{ audio?: Float32Array; sampling_rate?: number }>;
-} | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let kokoroInstance: any = null;
 let kokoroLoadPromise: Promise<void> | null = null;
 
 let piperSession: {
@@ -114,7 +110,9 @@ function playFloat32(audio: Float32Array, sampleRate: number, volume: number): P
     try {
       const ctx = new AudioContext({ sampleRate });
       const buffer = ctx.createBuffer(1, audio.length, sampleRate);
-      buffer.copyToChannel(audio, 0);
+      const channel = new Float32Array(audio.length);
+      channel.set(audio);
+      buffer.copyToChannel(channel, 0);
       const src = ctx.createBufferSource();
       src.buffer = buffer;
       const gain = ctx.createGain();
@@ -181,7 +179,7 @@ async function ensureKokoro(onProgress?: ProgressCb): Promise<void> {
       },
     });
 
-    kokoroInstance = tts as typeof kokoroInstance;
+    kokoroInstance = tts;
     markPackReady("kokoro-en");
     onProgress?.(100, "ready", "Pronto");
     console.info("[voice] kokoro ready", { device });
@@ -329,7 +327,6 @@ export async function speakText(
       await ensurePiper(opts?.onProgress);
       const blob = await piperSession!.predict(clean.slice(0, 2000));
       await playBlob(blob, prefs.volume);
-      // Piper não expõe speed nativo de forma estável; volume via HTMLAudioElement.
       return { engine: "piper" };
     }
 
