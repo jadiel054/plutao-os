@@ -1,12 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  defaultVoicePrefs,
-  speakText,
-  stopSpeaking,
-  type VoiceRuntimePrefs,
-} from "@/lib/voice/engine";
+import { loadVoicePrefs, speakText, stopSpeaking } from "@/lib/voice/engine";
 
 type Props = {
   content: string;
@@ -14,37 +9,9 @@ type Props = {
   disabled?: boolean;
 };
 
-let cachedPrefs: VoiceRuntimePrefs | null = null;
-let prefsFetchedAt = 0;
-
-async function loadVoicePrefs(): Promise<VoiceRuntimePrefs> {
-  const now = Date.now();
-  if (cachedPrefs && now - prefsFetchedAt < 60_000) return cachedPrefs;
-  try {
-    const res = await fetch("/api/user/preferences", { cache: "no-store" });
-    if (!res.ok) {
-      cachedPrefs = defaultVoicePrefs();
-      prefsFetchedAt = now;
-      return cachedPrefs;
-    }
-    const data = await res.json();
-    const v = data.preferences?.voice ?? {};
-    cachedPrefs = {
-      enabled: Boolean(v.enabled),
-      packId: typeof v.packId === "string" ? v.packId : defaultVoicePrefs().packId,
-      voiceId: typeof v.voiceId === "string" ? v.voiceId : defaultVoicePrefs().voiceId,
-      speed: typeof v.speed === "number" ? v.speed : 1,
-      volume: typeof v.volume === "number" ? v.volume : 0.9,
-    };
-    prefsFetchedAt = now;
-    return cachedPrefs;
-  } catch {
-    return defaultVoicePrefs();
-  }
-}
-
 /**
  * Barra de ações sob a resposta do assistente — folha discreta (copiar, falar, regenerar, feedback).
+ * BUG-06: loadVoicePrefs({ force: true }) a cada Ouvir — nunca reutiliza voiceId antigo.
  */
 export function MessageActions({ content, onRegenerate, disabled }: Props) {
   const [copied, setCopied] = useState(false);
@@ -81,8 +48,8 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
     }
     setSpeaking(true);
     try {
-      const prefs = await loadVoicePrefs();
-      // Nova mensagem interrompe a anterior (stopSpeaking dentro de speakText)
+      // Sempre prefs frescas do servidor (BUG-06)
+      const prefs = await loadVoicePrefs({ force: true });
       await speakText(content, prefs);
     } finally {
       setSpeaking(false);
@@ -90,13 +57,13 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
   }
 
   const btn =
-    "w-8 h-8 rounded-full flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--base)]/80 transition-colors disabled:opacity-30";
+    "w-8 h-8 rounded-full flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors disabled:opacity-40";
 
   return (
-    <div className="flex items-center gap-0.5 mt-1.5 -ml-1 opacity-80 hover:opacity-100 transition-opacity">
-      <button type="button" className={btn} onClick={() => void handleCopy()} title={copied ? "Copiado" : "Copiar"} aria-label="Copiar">
+    <div className="flex items-center gap-0.5 mt-1.5">
+      <button type="button" className={btn} onClick={() => void handleCopy()} title="Copiar" aria-label="Copiar">
         {copied ? (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" /></svg>
         ) : (
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" strokeLinecap="round" /></svg>
         )}

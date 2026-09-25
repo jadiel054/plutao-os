@@ -1,6 +1,9 @@
 /**
  * Engine de voz Plutão — client-only.
  * Kokoro (en) + Piper (pt-BR) + Supertonic 3 (pt-BR multi-voz) + speechSynthesis.
+ *
+ * BUG-06: a voz ativa SEMPRE vem do argumento `prefs` (ou loadVoicePrefs force).
+ * Não há voiceId congelado na instância do modelo.
  */
 
 import {
@@ -40,6 +43,10 @@ let piperLoadPromise: Promise<void> | null = null;
 let currentAudio: HTMLAudioElement | null = null;
 let _currentUtterance: SpeechSynthesisUtterance | null = null;
 
+/** Cache de prefs — só válido se não forçado; invalidar ao salvar na aba Voz. */
+let cachedPrefs: VoiceRuntimePrefs | null = null;
+let prefsFetchedAt = 0;
+
 export function defaultVoicePrefs(): VoiceRuntimePrefs {
   return {
     enabled: false,
@@ -48,6 +55,49 @@ export function defaultVoicePrefs(): VoiceRuntimePrefs {
     speed: 1,
     volume: 0.9,
   };
+}
+
+/** Invalida cache de preferências (chamar após PATCH bem-sucedido na aba Voz). */
+export function invalidateVoicePrefsCache(): void {
+  cachedPrefs = null;
+  prefsFetchedAt = 0;
+}
+
+/**
+ * Carrega preferências de voz do servidor.
+ * `force: true` — ignora cache (obrigatório no path de fala / amostra).
+ */
+export async function loadVoicePrefs(opts?: {
+  force?: boolean;
+}): Promise<VoiceRuntimePrefs> {
+  const force = Boolean(opts?.force);
+  const now = Date.now();
+  if (!force && cachedPrefs && now - prefsFetchedAt < 5_000) {
+    return cachedPrefs;
+  }
+  try {
+    const res = await fetch("/api/user/preferences", { cache: "no-store" });
+    if (!res.ok) {
+      const fallback = defaultVoicePrefs();
+      cachedPrefs = fallback;
+      prefsFetchedAt = now;
+      return fallback;
+    }
+    const data = await res.json();
+    const v = data.preferences?.voice ?? {};
+    const next: VoiceRuntimePrefs = {
+      enabled: Boolean(v.enabled),
+      packId: typeof v.packId === "string" ? v.packId : DEFAULT_PACK_ID,
+      voiceId: typeof v.voiceId === "string" ? v.voiceId : DEFAULT_VOICE_ID,
+      speed: typeof v.speed === "number" ? v.speed : 1,
+      volume: typeof v.volume === "number" ? v.volume : 0.9,
+    };
+    cachedPrefs = next;
+    prefsFetchedAt = now;
+    return next;
+  } catch {
+    return defaultVoicePrefs();
+  }
 }
 
 export function isPackMarkedReady(packId: string): boolean {
@@ -285,8 +335,9 @@ function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
 }
 
 /**
- * Fala texto com engine do pack ativo. Nova chamada interrompe a anterior.
- * Sem pack / enabled=false → speechSynthesis (AC4).
+ * Fala texto com engine do pack ativo.
+ * A voz é SEMPRE `prefs.voiceId` (BUG-06 — sem estado interno de voz).
+ * Nova chamada interrompe a anterior.
  */
 export async function speakText(
   text: string,
@@ -300,6 +351,7 @@ export async function speakText(
 
   const pack = getPack(prefs.packId);
   const useOnDevice = prefs.enabled && !opts?.preferNative && Boolean(pack);
+  const voiceId = prefs.voiceId || DEFAULT_VOICE_ID;
 
   if (!useOnDevice || !pack) {
     await speakNative(clean, prefs);
@@ -316,8 +368,9 @@ export async function speakText(
         return { engine: "native" };
       }
       await ensureKokoro(opts?.onProgress);
+      console.info("[voice] kokoro generate", { voiceId, packId: prefs.packId });
       const result = await kokoroInstance!.generate(clean.slice(0, 2000), {
-        voice: prefs.voiceId || DEFAULT_VOICE_ID,
+        voice: voiceId,
         speed: prefs.speed,
       });
       if (result.audio && result.sampling_rate) {
@@ -336,7 +389,8 @@ export async function speakText(
         await nativePromise;
         return { engine: "native" };
       }
-      await speakSupertonic(clean, prefs.voiceId || "F1", {
+      console.info("[voice] supertonic speak", { voiceId, packId: prefs.packId });
+      await speakSupertonic(clean, voiceId || "F1", {
         speed: prefs.speed,
         volume: prefs.volume,
         onProgress: (pct, detail) => opts?.onProgress?.(pct, "downloading", detail),
