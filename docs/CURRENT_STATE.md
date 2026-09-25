@@ -1,9 +1,9 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-25 (BUG-03: conversas e histórico persistidos no servidor)
+**Última atualização:** 2026-09-25 (guest VERIFICADO + write gate VERIFICADO + BUG-03 persistência no servidor)
 
 Este documento registra o estado observado no repositório e em produção.
-Capacidade só é **VERIFICADA** with evidência de uso real (não só código no `main`).
+Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
 
 ---
 
@@ -12,7 +12,9 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Área | Status | Evidência / observação |
 |------|--------|------------------------|
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
-| Modo Convidado (Guest Mode) | **IMPLEMENTED** | Landing + `POST /api/auth/guest` + limits. Bug auto-create: fix em produção via PR #56 (2026-09-24). Leitura purificada: `getAuthOrGuestUser` não cria sessão; criação só via POST. Erros de DB em `getGuestSessionByToken` propagam. Pill server-driven. Reatribuição de `conversations` e `messages` no `migrateGuestSessionToUser`. **Smoke dos ACs pendente do operador — não VERIFICADO.** |
+| Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. Reatribuição de `conversations` e `messages` no `migrateGuestSessionToUser`. |
+| Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
+| BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO (CÓDIGO/BUILD)** | Migration `0014_conversations.sql` adiciona `conversations` e `messages`. Servidor como fonte de verdade em `/api/conversations` (`GET`, `POST`, `PATCH/[id]`, `DELETE/[id]`, `GET/[id]/messages`, `POST/import`). `/api/chat` persiste mensagens sem bloquear resposta. Guest convert reatribui conversas. Shim único de `localStorage` import em `chat/page.tsx`. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
@@ -36,11 +38,10 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
 | Billing Stripe (checkout/webhook) | **IMPLEMENTED** | 6/6 ACs verdes em modo **TEST** em 2026-09-25 (checkout, webhook, idempotência, cancelamento). Checkout hospedado + webhook com assinatura + idempotência `billing_events` (pre-check SELECT). Price IDs só via env. `users.plan` → `caronte` / `orbita_livre`. Migration 0012 (SQL manual Neon). **LIVE pendente** (ativação da conta Stripe pelo operador). **Não VERIFICADO em LIVE.** |
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; `/share/[token]`; migration 0008 no Neon **VERIFICADA**. |
-| BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO (CÓDIGO/BUILD)** | Migration `0014_conversations.sql` adiciona `conversations` e `messages`. Servidor como fonte de verdade em `/api/conversations` (`GET`, `POST`, `PATCH/[id]`, `DELETE/[id]`, `GET/[id]/messages`, `POST/import`). `/api/chat` persiste mensagens sem bloquear resposta. Guest convert reatribui conversas. Shim único de `localStorage` import em `chat/page.tsx`. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
 | Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml` (mantido; one-shots removidos). |
-| Migrations 0000–0012 no repo | **IMPLEMENTED** | Journal com 0012_stripe_billing.sql (aplicar manual no Neon). |
-| Migrations no Neon produção | **VERIFICADO** (até 0010) | 2026-09-21: tabelas 0000–0004/0006/0007/0008/0010 presentes. **0011 write_gates e 0012 stripe_billing: aplicar SQL manual se ainda não rodado.** 0005 skip deliberado. |
+| Migrations 0000–0014 no repo | **IMPLEMENTED** | Journal com 0014_conversations.sql (aplicar manual no Neon). |
+| Migrations no Neon produção | **VERIFICADO** (até 0010) | 2026-09-21: tabelas 0000–0004/0006/0007/0008/0010 presentes. **0011 write_gates, 0012 stripe_billing e 0014 conversations: aplicar SQL manual se ainda não rodado.** 0005 skip deliberado. |
 | Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha de missão ponta a ponta ainda a formalizar. |
 | Durable execution (Inngest etc.) | **DESIGNED** | Fora do fechamento V1. |
 | Identidade “Cockpit” | **PROVISÓRIA** | Revisar pós-estabilização. |
@@ -53,10 +54,13 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 - Botão "Explorar como convidado" renderizado na Landing page (`apps/web/src/app/page.tsx`) abaixo de "Já tenho conta"
 - Endpoint REST `POST /api/auth/guest` cria sessões de convidado e define cookie `plutao_guest_session`
 - Limite de sessão de convidado (10 mensagens OU 15 minutos) + Rate limit (máximo 3 sessões por IP por dia)
+- Pós-conversão guest→user: `handleGuestMigrationOnAuth` reatribui missions/artifacts/conversations; **não** apaga user guest (CR4)
+- Persistência server-side de conversas e mensagens: `/api/conversations` + auto-save em `/api/chat` + shim de importação do `localStorage` antigo
 - Estados de conector: `disconnected → authorizing → connected → reconnecting → error`
 - Tokens cifrados (AES) em `connectors.access_token_enc`
 - Runtime carrega catálogo + status real + capabilities no system prompt
 - Tools só executam se o conector estiver **conectado**
+- Write gate GitHub: aprovação humana via WriteGateCard antes de create/push
 - `resolveCloudModelConfig(id)` mapeia catálogo → `provider` + `apiModel` + `baseUrl` + env keys
 - Default nuvem: `MODEL_PROVIDER=xai` → modelo `grok-4.6`
 - Fila de mensagens, FollowUpChips, card de conector sugerido
@@ -69,7 +73,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 ### Operação
 
 - [x] Confirmar no Neon: migrations **0004–0010** (0005 skip deliberado)
-- [ ] Neon: aplicar **0011_write_gates** + **0012_stripe_billing** (SQL Editor, manual) se ainda pendente
+- [ ] Neon: aplicar **0011_write_gates** + **0012_stripe_billing** + **0014_conversations** (SQL Editor, manual) se ainda pendente
 - [ ] Vercel env modelos: `MODEL_PROVIDER`, `MODEL_API_KEY` ou `XAI_API_KEY`, opcional `MODEL_NAME=grok-4.6`, `MODEL_BASE_URL=https://api.x.ai/v1`
 - [ ] Vercel env Stripe LIVE (após ativação da conta): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_FOUNDER19`, `STRIPE_PRICE_FOUNDER29`, `STRIPE_PRICE_FOUNDER39`
 - [ ] Stripe Dashboard LIVE: Products founder + webhook endpoint `https://plutao-os.vercel.app/api/billing/webhook`
@@ -77,9 +81,11 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 - [ ] Smoke modelos: chat default + teste em Configurações → Modelos (só cards com chave)
 - [ ] Smoke conectores: GitHub list repos + Vercel list projects + desconectar/reconectar (já feito em parte; revalidar após deploys)
 - [ ] Smoke B2: pin conversa + gerar link `/share/[token]` (usa colunas 0008)
-- [ ] Smoke guest ACs em produção (PR #56 deployado; ACs ainda pendentes do operador)
+- [x] Smoke guest AC3/AC4 (pill + LimitModal/cadastro) — 2026-09-25
+- [ ] Smoke BUG-03 AC1/AC2/AC3 (conversas server + guest_sessions preservada)
 - [x] Smoke billing AC1–AC6 em **TEST** (2026-09-25)
 - [ ] Smoke billing em **LIVE** após ativação Stripe
+- [x] Smoke write gate (GATE_PENDING → aprovação → repo) — 2026-09-25; feedback no chat pendente
 
 ### Produto (próximo ciclo)
 

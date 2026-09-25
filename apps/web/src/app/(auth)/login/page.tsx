@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
+import { migrateGuestChatLocalStorage } from "@/lib/auth/migrateGuestChatLocalStorage";
 
 function safeNextPath(raw: string | null): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/cockpit";
@@ -41,6 +42,9 @@ function LoginForm() {
         setError(data.error ?? "Falha no login");
         return;
       }
+      const realEmail =
+        typeof data.user?.email === "string" ? data.user.email : email;
+      migrateGuestChatLocalStorage(realEmail);
       router.push(nextPath);
       router.refresh();
     } catch {

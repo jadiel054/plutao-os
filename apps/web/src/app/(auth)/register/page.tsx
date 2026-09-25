@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
+import { migrateGuestChatLocalStorage } from "@/lib/auth/migrateGuestChatLocalStorage";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -28,6 +29,9 @@ export default function RegisterPage() {
         setError(data.error ?? "Falha no cadastro");
         return;
       }
+      const realEmail =
+        typeof data.user?.email === "string" ? data.user.email : email;
+      migrateGuestChatLocalStorage(realEmail);
       router.push("/cockpit");
       router.refresh();
     } catch {
