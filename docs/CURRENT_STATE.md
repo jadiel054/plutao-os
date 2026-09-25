@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-25 (voz on-device IMPLEMENTED — smoke pendente)
+**Última atualização:** 2026-09-25 (voz + Supertonic 3 IMPLEMENTED — smoke pendente)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** with evidência de uso real (não só código no `main`).
@@ -15,7 +15,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
 | Guest → conta: transcript chat (BUG-03) | **TORNIQUETE client** | Causa raiz: transcript só em `localStorage` por e-mail (`plutao_chat_guest@plutao.ai` → e-mail real). Migração server só `missions`/`artifacts`. Torniquete: `migrateGuestChatLocalStorage` no register/login + Header. **Correção estrutural (persistência server de mensagens) agendada.** CR4: não deletar user guest na conversão (preserva `guest_sessions.converted_user_id`). |
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
-| **Voz (Kokoro + Piper on-device)** | **IMPLEMENTED** | Engines: `kokoro-en` (kokoro-js@1.2.1, EN) + `piper-pt-br` (`pt_BR-faber-medium`, ~63MB CC0). Aba Configurações → Voz; MessageActions. Preferências `users.preferences` (migration **0015**, SQL manual Neon). **Smoke pendente** (AC1–AC5). pt-BR via Piper — pf_* comentados no kokoro-js 1.2.1. |
+| **Voz (Kokoro + Piper + Supertonic on-device)** | **IMPLEMENTED** | Engines: `kokoro-en` (EN) + `supertonic-pt-br` (Supertonic 3 MIT, 10 vozes M1–M5/F1–F5, ~263 MB ONNX medidos, HF Supertone/supertonic, WebGPU→WASM) + `piper-pt-br` (leve 63 MB). Aba Voz; BUG-05 seletor só packs baixados. Preferências 0015. **Smoke pendente**. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
@@ -64,7 +64,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 - `resolveCloudModelConfig(id)` mapeia catálogo → `provider` + `apiModel` + `baseUrl` + env keys
 - Default nuvem: `MODEL_PROVIDER=xai` → modelo `grok-4.6`
 - Fila de mensagens, FollowUpChips, card de conector sugerido
-- Voz on-device: packs `kokoro-en` + `piper-pt-br`; API `/api/user/preferences`; aba Configurações → Voz
+- Voz on-device: packs `kokoro-en` + `supertonic-pt-br` + `piper-pt-br`; API `/api/user/preferences`; aba Configurações → Voz
 - Billing: `POST /api/billing/checkout` (requireUser, planSlug server-side) → Stripe Checkout Session; `POST /api/billing/webhook` (assinatura + idempotência pre-check); UI `/planos` com 3 CTAs fundador; `/planos/sucesso`
 
 ---
@@ -87,7 +87,7 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 - [x] Smoke billing AC1–AC6 em **TEST** (2026-09-25)
 - [ ] Smoke billing em **LIVE** após ativação Stripe
 - [x] Smoke write gate (GATE_PENDING → aprovação → repo) — 2026-09-25; feedback no chat pendente
-- [ ] Smoke voz AC1–AC5 (packs kokoro-en + piper-pt-br) em produção
+- [ ] Smoke voz AC1–AC5 (packs kokoro-en + supertonic-pt-br + piper-pt-br) em produção
 
 ### Produto (próximo ciclo)
 
