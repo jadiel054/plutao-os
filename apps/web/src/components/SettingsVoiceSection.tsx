@@ -25,6 +25,15 @@ type Props = {
   onNotify?: (message: string, type: "success" | "info" | "warning" | "error") => void;
 };
 
+function formatDownloadError(e: unknown): string {
+  if (e instanceof Error) {
+    const msg = e.message || e.name || "erro desconhecido";
+    // toast curto: max ~160 chars
+    return msg.length > 160 ? `${msg.slice(0, 157)}…` : msg;
+  }
+  return String(e);
+}
+
 export function SettingsVoiceSection({ onNotify }: Props) {
   const [prefs, setPrefs] = useState<VoiceRuntimePrefs>(defaultVoicePrefs());
   const [loading, setLoading] = useState(true);
@@ -97,9 +106,17 @@ export function SettingsVoiceSection({ onNotify }: Props) {
       });
       setPackStatuses((s) => ({ ...s, [packId]: "ready" }));
       onNotify?.(`Pack ${packId} pronto neste dispositivo`, "success");
-    } catch {
+    } catch (e) {
       setPackStatuses((s) => ({ ...s, [packId]: "error" }));
-      onNotify?.("Falha ao baixar o modelo. Verifique a rede e tente de novo.", "error");
+      const short = formatDownloadError(e);
+      console.error("[voice] download pack failed", {
+        packId,
+        error: e,
+        message: e instanceof Error ? e.message : String(e),
+        name: e instanceof Error ? e.name : typeof e,
+        stack: e instanceof Error ? e.stack : undefined,
+      });
+      onNotify?.(`Falha no download: ${short}`, "error");
     }
   }
 
@@ -115,7 +132,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
     try {
       const pack = getPack(prefs.packId);
       const phrase =
-        pack?.engine === "piper" || pack?.id === "piper-pt-br"
+        pack?.id === "piper-pt-br" || pack?.id === "supertonic-pt-br"
           ? SAMPLE_PHRASE_PT
           : SAMPLE_PHRASE;
       const result = await speakText(phrase, prefs, {
@@ -154,9 +171,8 @@ export function SettingsVoiceSection({ onNotify }: Props) {
       <div className="space-y-1">
         <h2 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Voz</h2>
         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-          Síntese on-device. O texto não é enviado a servidores de TTS. Kokoro cobre inglês; Piper cobre
-          pt-BR (faber-medium). Vozes pf_dora do Kokoro não estão ativas no kokoro-js 1.2.1 (comentadas
-          na lib oficial).
+          Síntese on-device. O texto não sai do navegador. Kokoro (EN); Supertonic 3 (pt-BR, 10 vozes);
+          Piper (pt-BR leve, 1 voz). Packs grandes exigem Wi-Fi.
         </p>
       </div>
 
@@ -216,7 +232,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
                   <div className="text-[10px] font-mono text-[var(--text-muted)] mt-2">
                     ~{pack.approxSizeMb} MB · {pack.languages.join(", ")} · {statusLabel}
                   </div>
-                  {detail[pack.id] && st === "downloading" ? (
+                  {detail[pack.id] && (st === "downloading" || st === "error") ? (
                     <div className="text-[10px] text-[var(--text-secondary)] mt-1">{detail[pack.id]}</div>
                   ) : null}
                 </button>
@@ -294,12 +310,6 @@ export function SettingsVoiceSection({ onNotify }: Props) {
           onTouchEnd={() => void persist(prefs)}
           className="w-full accent-[var(--selo)]"
         />
-        {activePack.engine === "piper" ? (
-          <p className="text-[10px] text-[var(--text-muted)]">
-            Velocidade aplica-se de forma plena no Kokoro e no fallback nativo; no Piper o controle é
-            limitado pelo runtime WASM.
-          </p>
-        ) : null}
       </label>
 
       <label className="block space-y-2">
