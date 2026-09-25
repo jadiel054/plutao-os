@@ -34,24 +34,23 @@ export async function POST(req: NextRequest) {
 
   const db = getDb();
 
-  // Idempotência: grava evento; se já existe, 200 sem reprocessar
+  // Idempotência: pre-check antes de processar.
+  // Duplicata → 200 sem reprocessar.
+  // Processamento só grava o evento no final; falha → 500 SEM gravar
+  // para o retry do Stripe reprocessar de verdade.
   try {
-    const inserted = await db
-      .insert(billingEvents)
-      .values({
-        stripeEventId: event.id,
-        type: event.type,
-        payload: event as unknown as Record<string, unknown>,
-      })
-      .onConflictDoNothing({ target: billingEvents.stripeEventId })
-      .returning({ id: billingEvents.id });
+    const existing = await db
+      .select({ id: billingEvents.id })
+      .from(billingEvents)
+      .where(eq(billingEvents.stripeEventId, event.id))
+      .limit(1);
 
-    if (inserted.length === 0) {
+    if (existing.length > 0) {
       return NextResponse.json({ received: true, duplicate: true });
     }
   } catch (err) {
-    console.error("[billing/webhook] idempotency insert", err);
-    return NextResponse.json({ error: "Falha ao registrar evento." }, { status: 500 });
+    console.error("[billing/webhook] idempotency pre-check", err);
+    return NextResponse.json({ error: "Falha ao verificar evento." }, { status: 500 });
   }
 
   try {
@@ -179,7 +178,28 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error("[billing/webhook] process error", event.type, err);
+    // Não grava o evento: Stripe reenvia e reprocessamos.
     return NextResponse.json({ error: "Falha ao processar evento." }, { status: 500 });
+  }
+
+  // Só grava após processamento bem-sucedido.
+  try {
+    await db.insert(billingEvents).values({
+      stripeEventId: event.id,
+      type: event.type,
+      payload: event as unknown as Record<string, unknown>,
+    });
+  } catch (err) {
+    // Race: outro worker pode ter inserido entre o pre-check e aqui.
+    // Se UNIQUE violou, tratar como duplicata já processada.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("unique") || msg.includes("duplicate") || msg.includes("billing_events_stripe_event_id")) {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+    console.error("[billing/webhook] insert after process", err);
+    // Processamento já ocorreu; devolver 200 para não reprocessar side-effects.
+    // O evento ficará sem registro até próximo ciclo manual se necessário.
+    return NextResponse.json({ received: true, recorded: false });
   }
 
   return NextResponse.json({ received: true });

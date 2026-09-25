@@ -8,9 +8,9 @@ export function getStripe(): Stripe {
   if (!key) {
     throw new Error("STRIPE_SECRET_KEY não configurada.");
   }
-  // API version pinned for stable webhook/event shapes
+  // API version pinned for stable webhook/event shapes (must match stripe package types)
   _stripe = new Stripe(key, {
-    apiVersion: "2024-11-20.acacia",
+    apiVersion: "2025-02-24.acacia",
     typescript: true,
   });
   return _stripe;
