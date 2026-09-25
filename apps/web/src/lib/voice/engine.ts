@@ -1,6 +1,6 @@
 /**
  * Engine de voz Plutão — client-only.
- * Kokoro (en) + Piper (pt-BR) + speechSynthesis (fallback).
+ * Kokoro (en) + Piper (pt-BR) + Supertonic 3 (pt-BR multi-voz) + speechSynthesis.
  */
 
 import {
@@ -90,6 +90,11 @@ export function clearPackReady(packId: string) {
   if (packId === "piper-pt-br") {
     piperSession = null;
     piperLoadPromise = null;
+  }
+  if (packId === "supertonic-pt-br") {
+    void import("./supertonic/runtime")
+      .then((m) => m.clearSupertonic())
+      .catch(() => undefined);
   }
 }
 
@@ -232,6 +237,29 @@ async function ensurePiper(onProgress?: ProgressCb): Promise<void> {
   }
 }
 
+async function ensureSupertonic(onProgress?: ProgressCb): Promise<void> {
+  const { downloadSupertonic, isSupertonicReady } = await import("./supertonic/runtime");
+  const ready = await isSupertonicReady();
+  if (ready) {
+    markPackReady("supertonic-pt-br");
+    onProgress?.(100, "ready", "Pronto");
+    return;
+  }
+  onProgress?.(0, "downloading", "Baixando Supertonic 3…");
+  try {
+    await downloadSupertonic((pct, detail) => {
+      onProgress?.(pct, "downloading", detail);
+    });
+    markPackReady("supertonic-pt-br");
+    onProgress?.(100, "ready", "Pronto");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[voice][supertonic] download failed", e);
+    onProgress?.(0, "error", msg);
+    throw e;
+  }
+}
+
 export async function downloadPack(
   packId: VoicePackId,
   onProgress?: ProgressCb
@@ -244,7 +272,11 @@ export async function downloadPack(
     await ensurePiper(onProgress);
     return;
   }
-  throw new Error("Pack não suportado");
+  if (packId === "supertonic-pt-br") {
+    await ensureSupertonic(onProgress);
+    return;
+  }
+  throw new Error(`Pack não suportado: ${packId}`);
 }
 
 function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
@@ -276,13 +308,13 @@ function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
 
 /**
  * Fala texto com engine do pack ativo. Nova chamada interrompe a anterior.
- * Sem pack / enabled=false → speechSynthesis (AC4).
+ * Sem pack / enabled=false → speechSynthesis.
  */
 export async function speakText(
   text: string,
   prefs: VoiceRuntimePrefs,
   opts?: { onProgress?: ProgressCb; preferNative?: boolean }
-): Promise<{ engine: "kokoro" | "piper" | "native" }> {
+): Promise<{ engine: "kokoro" | "piper" | "supertonic" | "native" }> {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return { engine: "native" };
 
@@ -328,6 +360,24 @@ export async function speakText(
       const blob = await piperSession!.predict(clean.slice(0, 2000));
       await playBlob(blob, prefs.volume);
       return { engine: "piper" };
+    }
+
+    if (pack.engine === "supertonic") {
+      const { isSupertonicReady, speakSupertonic } = await import("./supertonic/runtime");
+      const ready = await isSupertonicReady();
+      if (!ready && !isPackMarkedReady("supertonic-pt-br")) {
+        opts?.onProgress?.(0, "downloading", "Baixando Supertonic…");
+        const nativePromise = speakNative(clean, prefs);
+        void ensureSupertonic(opts?.onProgress).catch(() => undefined);
+        await nativePromise;
+        return { engine: "native" };
+      }
+      await speakSupertonic(clean, prefs.voiceId || "F1", {
+        speed: prefs.speed,
+        volume: prefs.volume,
+        onProgress: (pct, detail) => opts?.onProgress?.(pct, "downloading", detail),
+      });
+      return { engine: "supertonic" };
     }
 
     await speakNative(clean, prefs);
