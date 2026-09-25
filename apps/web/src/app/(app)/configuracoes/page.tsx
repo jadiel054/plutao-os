@@ -49,7 +49,6 @@ export default function SettingsPage() {
   const dismissToast = useCallback((id: string) => setToasts((prev) => prev.filter((t) => t.id !== id)), []);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
     try {
       const me = await fetch("/api/auth/me", { cache: "no-store" });
       if (!me.ok) {
@@ -121,36 +120,59 @@ export default function SettingsPage() {
         body: JSON.stringify({ name: agentName, identity: agentIdentity, personality: agentPersonality }),
       });
       if (!res.ok) {
-        addToast("Falha ao salvar agente", "error");
+        addToast("Erro ao salvar configurações do agente", "error");
         return;
       }
-      try {
+      if (typeof window !== "undefined") {
         localStorage.setItem(
           "plutao_pref_notifications",
-          JSON.stringify({
-            missions: notifyMissions,
-            tasks: notifyTasks,
-            alerts: notifyAlerts,
-            sounds: notifySounds,
-          })
+          JSON.stringify({ missions: notifyMissions, tasks: notifyTasks, alerts: notifyAlerts, sounds: notifySounds })
         );
         localStorage.setItem(
           "plutao_pref_appearance",
           JSON.stringify({ theme: themeMode, density: densityMode, language })
         );
-      } catch {
-        /* ignore */
       }
-      addToast("Configurações salvas", "success");
+      addToast("Configurações salvas com sucesso!", "success", "Salvo");
     } catch {
-      addToast("Erro de rede ao salvar", "error");
+      addToast("Erro ao salvar algumas configurações", "error");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleExportData = async () => {
-    addToast("Exportação iniciada", "info");
+  const handleExportData = () => {
+    try {
+      const exportObject = {
+        userEmail,
+        agent: { name: agentName, identity: agentIdentity, personality: agentPersonality },
+        notifications: { notifyMissions, notifyTasks, notifyAlerts, notifySounds },
+        appearance: { themeMode, densityMode, language },
+        mode,
+        exportedAt: new Date().toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(exportObject, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `plutao_user_data_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      addToast("Dados exportados com sucesso!", "success");
+    } catch {
+      addToast("Erro ao exportar dados", "error");
+    }
+  };
+
+  const handleClearData = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(`plutao_chat_${userEmail}`);
+      localStorage.removeItem("plutao_pref_notifications");
+      localStorage.removeItem("plutao_pref_appearance");
+      localStorage.removeItem("plutao_pref_privacy");
+    }
+    setIsClearModalOpen(false);
+    addToast("Cache e dados locais foram limpos", "warning");
   };
 
   if (loading) {
@@ -186,7 +208,21 @@ export default function SettingsPage() {
             onClick={() => void handleSaveAll()}
             className="self-start sm:self-auto px-5 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:bg-[var(--nucleo)] transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
           >
-            {saving ? "Salvando…" : "Salvar alterações"}
+            {saving ? (
+              <>
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--base)]/30 border-t-[var(--base)] animate-spin" />
+                Salvando…
+              </>
+            ) : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                  <polyline points="17 21 17 13 7 13 7 21" />
+                  <polyline points="7 3 7 8 15 8" />
+                </svg>
+                Salvar alterações
+              </>
+            )}
           </button>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 border-b border-[var(--border)] pb-3">
@@ -208,9 +244,7 @@ export default function SettingsPage() {
         <div className="space-y-6">
           {activeTab === "ia" && <SettingsModelsSection onNotify={addToast} />}
           {activeTab === "conectores" && <SettingsConnectorsSection onNotify={addToast} />}
-          {activeTab === "voz" && (
-            <SettingsVoiceSection onNotify={(msg, type) => addToast(msg, type)} />
-          )}
+          {activeTab === "voz" && <SettingsVoiceSection onNotify={addToast} />}
           {activeTab === "perfil" && (
             <SettingsProfileSection
               userEmail={userEmail}
@@ -250,31 +284,36 @@ export default function SettingsPage() {
         </div>
       </main>
       <MobileNav />
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <ConfirmModal
-        open={isClearModalOpen}
-        title="Limpar dados locais"
-        description="Remove preferências e rascunhos deste dispositivo. Não apaga a conta."
-        confirmLabel="Limpar"
-        onConfirm={() => {
-          try {
-            localStorage.clear();
-          } catch {
-            /* ignore */
-          }
-          setIsClearModalOpen(false);
-          addToast("Dados locais limpos", "success");
-        }}
+        isOpen={isClearModalOpen}
+        title="Limpar cache e preferências?"
+        message="Remove histórico de chat e preferências neste navegador. Missões e arquivos no servidor não são apagados."
+        confirmLabel="Sim, limpar"
+        cancelLabel="Cancelar"
+        isDanger={true}
+        onConfirm={handleClearData}
         onCancel={() => setIsClearModalOpen(false)}
       />
       <ConfirmModal
-        open={isDeleteAccountModalOpen}
-        title="Excluir conta"
-        description="Ação irreversível. Contate o suporte se precisar."
-        confirmLabel="Entendi"
-        onConfirm={() => setIsDeleteAccountModalOpen(false)}
+        isOpen={isDeleteAccountModalOpen}
+        title="Excluir conta?"
+        message="Limpa dados locais e encerra a sessão. Exclusão completa no servidor virá em versão futura."
+        confirmLabel="Sair e limpar este dispositivo"
+        cancelLabel="Cancelar"
+        isDanger={true}
+        onConfirm={async () => {
+          setIsDeleteAccountModalOpen(false);
+          handleClearData();
+          try {
+            await fetch("/api/auth/logout", { method: "POST" });
+          } catch {
+            /* ignore */
+          }
+          window.location.href = "/login";
+        }}
         onCancel={() => setIsDeleteAccountModalOpen(false)}
       />
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
