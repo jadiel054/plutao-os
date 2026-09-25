@@ -21,7 +21,7 @@ export const SUPERTONIC_HF_REVISION = "main";
 /**
  * Soma Content-Length (bytes→MB decimal) dos assets de download:
  * duration_predictor + text_encoder + vector_estimator + vocoder +
- * tts.json + unicode_indexer.json ≈ 398 361 202 B → 398 MB.
+ * tts.json + unicode_indexer.json ≈ 398361202 B → 398 MB.
  * (Não é o ~400 MB de marketing; é medição HEAD real.)
  */
 export const SUPERTONIC_PACK_SIZE_MB = 398;
