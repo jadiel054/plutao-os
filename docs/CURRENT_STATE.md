@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-25 (higiene CI + status billing TEST / guest fix)
+**Última atualização:** 2026-09-25 (guest VERIFICADO + write gate VERIFICADO + BUG-03 torniquete)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** with evidência de uso real (não só código no `main`).
@@ -12,7 +12,9 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Área | Status | Evidência / observação |
 |------|--------|------------------------|
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
-| Modo Convidado (Guest Mode) | **IMPLEMENTED** | Landing + `POST /api/auth/guest` + limits. Bug auto-create: fix em produção via PR #56 (2026-09-24). Leitura purificada: `getAuthOrGuestUser` não cria sessão; criação só via POST. Erros de DB em `getGuestSessionByToken` propagam. Pill server-driven. **Smoke dos ACs pendente do operador — não VERIFICADO.** |
+| Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
+| Guest → conta: transcript chat (BUG-03) | **TORNIQUETE client** | Causa raiz: transcript só em `localStorage` por e-mail (`plutao_chat_guest@plutao.ai` → e-mail real). Migração server só `missions`/`artifacts`. Torniquete: `migrateGuestChatLocalStorage` no register/login + Header. **Correção estrutural (persistência server de mensagens) agendada.** CR4: não deletar user guest na conversão (preserva `guest_sessions.converted_user_id`). |
+| Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
@@ -52,10 +54,12 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 - Botão "Explorar como convidado" renderizado na Landing page (`apps/web/src/app/page.tsx`) abaixo de "Já tenho conta"
 - Endpoint REST `POST /api/auth/guest` cria sessões de convidado e define cookie `plutao_guest_session`
 - Limite de sessão de convidado (10 mensagens OU 15 minutos) + Rate limit (máximo 3 sessões por IP por dia)
+- Pós-conversão guest→user: `handleGuestMigrationOnAuth` reatribui missions/artifacts; **não** apaga user guest (CR4); transcript chat migrado no client (`migrateGuestChatLocalStorage`)
 - Estados de conector: `disconnected → authorizing → connected → reconnecting → error`
 - Tokens cifrados (AES) em `connectors.access_token_enc`
 - Runtime carrega catálogo + status real + capabilities no system prompt
 - Tools só executam se o conector estiver **conectado**
+- Write gate GitHub: aprovação humana via WriteGateCard antes de create/push
 - `resolveCloudModelConfig(id)` mapeia catálogo → `provider` + `apiModel` + `baseUrl` + env keys
 - Default nuvem: `MODEL_PROVIDER=xai` → modelo `grok-4.6`
 - Fila de mensagens, FollowUpChips, card de conector sugerido
@@ -76,12 +80,15 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 - [ ] Smoke modelos: chat default + teste em Configurações → Modelos (só cards com chave)
 - [ ] Smoke conectores: GitHub list repos + Vercel list projects + desconectar/reconectar (já feito em parte; revalidar após deploys)
 - [ ] Smoke B2: pin conversa + gerar link `/share/[token]` (usa colunas 0008)
-- [ ] Smoke guest ACs em produção (PR #56 deployado; ACs ainda pendentes do operador)
+- [x] Smoke guest AC3/AC4 (pill + LimitModal/cadastro) — 2026-09-25
+- [ ] Smoke BUG-03 AC1/AC2/AC3 (transcript guest→conta + guest_sessions preservada) após merge do torniquete
 - [x] Smoke billing AC1–AC6 em **TEST** (2026-09-25)
 - [ ] Smoke billing em **LIVE** após ativação Stripe
+- [x] Smoke write gate (GATE_PENDING → aprovação → repo) — 2026-09-25; feedback no chat pendente
 
 ### Produto (próximo ciclo)
 
+- [ ] Persistência server de mensagens de chat + migração guest estrutural (substitui torniquete BUG-03)
 - [ ] Neon conector: token/OAuth + tool no chat (igual Wave A)
 - [ ] Stripe **conector** (manifest OAuth/token) — distinto do billing de planos
 - [ ] Seletor AUTO / preferredModel: só ids com rota + chave; UI marca “sem chave”
