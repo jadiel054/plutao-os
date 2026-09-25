@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   VOICE_PACKS,
   DEFAULT_PACK_ID,
@@ -28,10 +28,38 @@ type Props = {
 function formatDownloadError(e: unknown): string {
   if (e instanceof Error) {
     const msg = e.message || e.name || "erro desconhecido";
-    // toast curto: max ~160 chars
     return msg.length > 160 ? `${msg.slice(0, 157)}…` : msg;
   }
   return String(e);
+}
+
+/** Beep curto se toggle de sons estiver ligado (localStorage). */
+function playSuccessToneIfEnabled() {
+  try {
+    if (typeof window === "undefined") return;
+    const raw =
+      localStorage.getItem("plutao_sounds_enabled") ??
+      localStorage.getItem("plutao_ui_sounds") ??
+      localStorage.getItem("sounds");
+    if (raw === "0" || raw === "false" || raw === "off") return;
+    // default: toca se chave ausente ou truthy
+    if (raw === null || raw === "1" || raw === "true" || raw === "on" || raw === "") {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.value = 0.08;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+      osc.stop(ctx.currentTime + 0.2);
+      void ctx.close().catch(() => undefined);
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export function SettingsVoiceSection({ onNotify }: Props) {
@@ -42,6 +70,8 @@ export function SettingsVoiceSection({ onNotify }: Props) {
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [detail, setDetail] = useState<Record<string, string>>({});
   const [sampleBusy, setSampleBusy] = useState(false);
+  const downloadingRef = useRef<Set<string>>(new Set());
+  const resumeAttemptedRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,6 +107,81 @@ export function SettingsVoiceSection({ onNotify }: Props) {
     void load();
   }, [load]);
 
+  const runDownload = useCallback(
+    async (packId: VoicePackId, opts?: { silentResume?: boolean }) => {
+      if (downloadingRef.current.has(packId)) return;
+      downloadingRef.current.add(packId);
+      setPackStatuses((s) => ({ ...s, [packId]: "downloading" }));
+      setProgress((p) => ({ ...p, [packId]: opts?.silentResume ? p[packId] ?? 0 : 0 }));
+      try {
+        await downloadPack(packId, (pct, status, d) => {
+          setProgress((p) => ({ ...p, [packId]: pct }));
+          setPackStatuses((s) => ({ ...s, [packId]: status }));
+          if (d) setDetail((x) => ({ ...x, [packId]: d }));
+        });
+        setPackStatuses((s) => ({ ...s, [packId]: "ready" }));
+        if (packId === "supertonic-pt-br") {
+          onNotify?.("Pack pronto — voz Supertonic disponível", "success");
+          playSuccessToneIfEnabled();
+        } else {
+          onNotify?.(`Pack ${packId} pronto neste dispositivo`, "success");
+        }
+      } catch (e) {
+        setPackStatuses((s) => ({ ...s, [packId]: "error" }));
+        const short = formatDownloadError(e);
+        console.error("[voice] download pack failed", {
+          packId,
+          error: e,
+          message: e instanceof Error ? e.message : String(e),
+          name: e instanceof Error ? e.name : typeof e,
+          stack: e instanceof Error ? e.stack : undefined,
+        });
+        onNotify?.(`Falha no download: ${short}`, "error");
+      } finally {
+        downloadingRef.current.delete(packId);
+      }
+    },
+    [onNotify]
+  );
+
+  // Retomada automática: partial IDB + visibilitychange / mount
+  useEffect(() => {
+    let cancelled = false;
+
+    async function tryResume() {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (isPackMarkedReady("supertonic-pt-br")) return;
+      if (downloadingRef.current.has("supertonic-pt-br")) return;
+
+      try {
+        const { hasPartialDownload } = await import("@/lib/voice/supertonic/download");
+        const has = await hasPartialDownload();
+        if (!has || cancelled) return;
+        if (!resumeAttemptedRef.current) {
+          resumeAttemptedRef.current = true;
+          onNotify?.("Retomando download Supertonic de onde parou…", "info");
+        }
+        await runDownload("supertonic-pt-br", { silentResume: true });
+      } catch (e) {
+        console.warn("[voice] resume check failed", e);
+      }
+    }
+
+    void tryResume();
+
+    function onVis() {
+      if (document.visibilityState === "visible") {
+        void tryResume();
+      }
+    }
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [onNotify, runDownload]);
+
   async function persist(next: VoiceRuntimePrefs) {
     setSaving(true);
     try {
@@ -92,31 +197,6 @@ export function SettingsVoiceSection({ onNotify }: Props) {
       setPrefs(next);
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleDownload(packId: VoicePackId) {
-    setPackStatuses((s) => ({ ...s, [packId]: "downloading" }));
-    setProgress((p) => ({ ...p, [packId]: 0 }));
-    try {
-      await downloadPack(packId, (pct, status, d) => {
-        setProgress((p) => ({ ...p, [packId]: pct }));
-        setPackStatuses((s) => ({ ...s, [packId]: status }));
-        if (d) setDetail((x) => ({ ...x, [packId]: d }));
-      });
-      setPackStatuses((s) => ({ ...s, [packId]: "ready" }));
-      onNotify?.(`Pack ${packId} pronto neste dispositivo`, "success");
-    } catch (e) {
-      setPackStatuses((s) => ({ ...s, [packId]: "error" }));
-      const short = formatDownloadError(e);
-      console.error("[voice] download pack failed", {
-        packId,
-        error: e,
-        message: e instanceof Error ? e.message : String(e),
-        name: e instanceof Error ? e.name : typeof e,
-        stack: e instanceof Error ? e.stack : undefined,
-      });
-      onNotify?.(`Falha no download: ${short}`, "error");
     }
   }
 
@@ -172,7 +252,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
         <h2 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Voz</h2>
         <p className="text-xs text-[var(--text-muted)] leading-relaxed">
           Síntese on-device. O texto não sai do navegador. Kokoro (EN); Supertonic 3 (pt-BR, 10 vozes);
-          Piper (pt-BR leve, 1 voz). Packs grandes exigem Wi-Fi.
+          Piper (pt-BR leve, 1 voz). Packs grandes usam download em partes com retomada.
         </p>
       </div>
 
@@ -249,7 +329,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
                 <button
                   type="button"
                   disabled={st === "downloading" || st === "ready"}
-                  onClick={() => void handleDownload(pack.id)}
+                  onClick={() => void runDownload(pack.id)}
                   className="rounded-lg bg-[var(--selo)] text-[var(--base)] text-xs font-semibold px-3 py-2 disabled:opacity-40"
                 >
                   {st === "ready" ? "Já baixado" : "Baixar pack"}
