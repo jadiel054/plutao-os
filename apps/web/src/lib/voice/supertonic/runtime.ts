@@ -1,5 +1,5 @@
 /**
- * Runtime Supertonic 3 — assets HF + Cache API + helper oficial (MIT).
+ * Runtime Supertonic 3 — assets HF + Cache API/IDB + helper oficial (MIT).
  * WebGPU → WASM via onnxruntime-web.
  * Speed: parâmetro nativo (duration /= speed), faixa 0.7–2.0.
  */
@@ -58,7 +58,7 @@ async function ensureLoaded(onProgress?: SupertonicProgress): Promise<void> {
   loadPromise = (async () => {
     onProgress?.(5, "Verificando cache…");
     if (!(await isSupertonicCached())) {
-      onProgress?.(10, "Baixando modelos Supertonic (~263 MB)…");
+      onProgress?.(10, "Baixando modelos Supertonic (~398 MB)…");
       await downloadSupertonicPack((p) =>
         onProgress?.(Math.min(80, 10 + Math.round(p.pct * 0.7)), p.detail)
       );
