@@ -3,6 +3,7 @@
  *
  * Neon — DATABASE_URL (pooled) / DATABASE_URL_UNPOOLED (migrations)
  * Additive: 0001_executions, 0002_missions_idempotency_key, 0003_artifacts, 0004_connectors.
+ * 0012: stripe_customer_id, stripe_subscription_id, billing_events.
  */
 
 import {
@@ -26,6 +27,10 @@ export const users = pgTable("users", {
   preferredModel: text("preferred_model"),
   isGuest: boolean("is_guest").notNull().default(false),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  /** Stripe Customer ID (cus_...) — preenchido no primeiro checkout */
+  stripeCustomerId: text("stripe_customer_id"),
+  /** Stripe Subscription ID (sub_...) — ativo quando plan pago */
+  stripeSubscriptionId: text("stripe_subscription_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -68,6 +73,22 @@ export const founderWaitlist = pgTable("founder_waitlist", {
   position: integer("position").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Log idempotente de eventos Stripe.
+ * UNIQUE(stripe_event_id) — replay do mesmo evento não reprocessa efeito.
+ */
+export const billingEvents = pgTable(
+  "billing_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    stripeEventId: text("stripe_event_id").notNull().unique(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("billing_events_stripe_event_id_uidx").on(t.stripeEventId)]
+);
 
 export const sessions = pgTable(
   "sessions",
