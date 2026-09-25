@@ -1,17 +1,10 @@
 /**
  * Catálogo de packs de voz on-device.
  *
- * Kokoro (kokoro-js@1.2.1):
- *   - Modelo: onnx-community/Kokoro-82M-v1.0-ONNX
- *   - VOICES ativos no package: só en-us / en-gb
- *   - pf_dora, pm_alex, pm_santa EXISTEM no HF e no voices.js mas estão
- *     COMENTADOS; KokoroTTS._validate_voice rejeita se usados.
- *   Conclusão FEAT-01b: NÃO habilitar pack kokoro-pt via kokoro-js 1.2.1.
- *
- * Piper (pt-BR):
- *   - @realtimex/piper-tts-web@1.1.1
- *   - voz: pt_BR-faber-medium (~63 MB ONNX, CC0)
- *   - NÃO usar pt_BR-edresson-low (falha OrtRun em builds conhecidos)
+ * Kokoro (kokoro-js@1.2.1): en-US / en-GB apenas (pf_* comentados na lib).
+ * Piper: pt_BR-faber-medium leve (~63 MB).
+ * Supertonic 3: oficial web/ (MIT) + HF Supertone/supertonic ONNX;
+ *   10 vozes M1–M5 / F1–F5, lang=pt, ~263 MB medidos (fp32).
  */
 
 export const KOKORO_MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
@@ -19,9 +12,15 @@ export const KOKORO_DTYPE = "q8" as const;
 
 export const PIPER_VOICE_ID = "pt_BR-faber-medium" as const;
 
-export type VoicePackId = "kokoro-en" | "piper-pt-br";
+/** HF repo + revision usados no download runtime (versionado). */
+export const SUPERTONIC_HF_REPO = "Supertone/supertonic";
+export const SUPERTONIC_HF_REVISION = "main";
+/** Tamanho medido (soma Content-Length dos 4 ONNX + JSON), não o ~400 MB de marketing. */
+export const SUPERTONIC_PACK_SIZE_MB = 263;
 
-export type VoiceEngine = "kokoro" | "piper" | "native";
+export type VoicePackId = "kokoro-en" | "piper-pt-br" | "supertonic-pt-br";
+
+export type VoiceEngine = "kokoro" | "piper" | "supertonic" | "native";
 
 export type VoiceEntry = {
   id: string;
@@ -39,9 +38,21 @@ export type VoicePackMeta = {
   approxSizeMb: number;
   languages: string[];
   voices: VoiceEntry[];
-  /** ID de modelo/voz na engine (HF ou Piper voiceId). */
   modelId: string;
 };
+
+const SUPERTONIC_VOICES: VoiceEntry[] = [
+  { id: "F1", name: "Supertonic F1", language: "pt-BR", gender: "Female", grade: "Sarah" },
+  { id: "F2", name: "Supertonic F2", language: "pt-BR", gender: "Female", grade: "Lily" },
+  { id: "F3", name: "Supertonic F3", language: "pt-BR", gender: "Female", grade: "Jessica" },
+  { id: "F4", name: "Supertonic F4", language: "pt-BR", gender: "Female", grade: "Olivia" },
+  { id: "F5", name: "Supertonic F5", language: "pt-BR", gender: "Female", grade: "Emily" },
+  { id: "M1", name: "Supertonic M1", language: "pt-BR", gender: "Male", grade: "Alex" },
+  { id: "M2", name: "Supertonic M2", language: "pt-BR", gender: "Male", grade: "James" },
+  { id: "M3", name: "Supertonic M3", language: "pt-BR", gender: "Male", grade: "Robert" },
+  { id: "M4", name: "Supertonic M4", language: "pt-BR", gender: "Male", grade: "Sam" },
+  { id: "M5", name: "Supertonic M5", language: "pt-BR", gender: "Male", grade: "Daniel" },
+];
 
 export const VOICE_PACKS: VoicePackMeta[] = [
   {
@@ -67,11 +78,22 @@ export const VOICE_PACKS: VoicePackMeta[] = [
     ],
   },
   {
+    id: "supertonic-pt-br",
+    engine: "supertonic",
+    name: "Português BR (Supertonic)",
+    description:
+      `Supertonic 3 on-device (ONNX · WebGPU/WASM). 10 vozes M1–M5 / F1–F5 em pt-BR. ~${SUPERTONIC_PACK_SIZE_MB} MB — Wi-Fi recomendado. Licença MIT (Supertone).`,
+    approxSizeMb: SUPERTONIC_PACK_SIZE_MB,
+    languages: ["pt-BR"],
+    modelId: SUPERTONIC_HF_REPO,
+    voices: SUPERTONIC_VOICES,
+  },
+  {
     id: "piper-pt-br",
     engine: "piper",
-    name: "Português BR (Piper)",
+    name: "Português BR (Piper · leve · 63 MB)",
     description:
-      "Piper WASM on-device — voz pt_BR-faber-medium (CC0, ~63 MB). Preferida para pt-BR. Não usa edresson-low.",
+      "Piper WASM — voz única pt_BR-faber-medium (CC0, ~63 MB). Opção para aparelhos fracos. Não usa edresson-low.",
     approxSizeMb: 63,
     languages: ["pt-BR"],
     modelId: PIPER_VOICE_ID,
@@ -93,5 +115,4 @@ export function getPack(id: string | undefined): VoicePackMeta | undefined {
 
 export const DEFAULT_VOICE_ID = "af_heart";
 export const DEFAULT_PACK_ID: VoicePackId = "kokoro-en";
-/** Pack padrão quando o produto fala em pt-BR. */
-export const DEFAULT_PT_PACK_ID: VoicePackId = "piper-pt-br";
+export const DEFAULT_PT_PACK_ID: VoicePackId = "supertonic-pt-br";
