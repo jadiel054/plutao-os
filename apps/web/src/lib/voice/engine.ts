@@ -1,6 +1,6 @@
 /**
  * Engine de voz Plutão — client-only.
- * Kokoro on-device (lazy) + speechSynthesis (pt-BR e fallback).
+ * Kokoro (en) + Piper (pt-BR) + speechSynthesis fallback.
  */
 
 import {
@@ -8,6 +8,7 @@ import {
   KOKORO_MODEL_ID,
   DEFAULT_PACK_ID,
   DEFAULT_VOICE_ID,
+  PIPER_PT_BR_VOICE_ID,
   getPack,
   type VoicePackId,
 } from "./packs";
@@ -24,13 +25,17 @@ export type PackStatus = "idle" | "downloading" | "ready" | "error";
 
 type ProgressCb = (pct: number, status: PackStatus, detail?: string) => void;
 
-const IDB_KEY = "plutao_voice_pack_ready_v1";
+const IDB_KEY = "plutao_voice_pack_ready_v2";
 
-let kokoroInstance: {
-  generate: (text: string, opts: { voice: string; speed?: number }) => Promise<{ audio: Float32Array; sampling_rate: number } | { save: (n: string) => void }>;
-} | null = null;
-let loadPromise: Promise<void> | null = null;
-let currentAudio: HTMLAudioElement | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let kokoroInstance: any = null;
+let kokoroLoadPromise: Promise<void> | null = null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let piperSession: any = null;
+let piperLoadPromise: Promise<void> | null = null;
+let piperVoiceLoaded: string | null = null;
+
 let currentUtterance: SpeechSynthesisUtterance | null = null;
 
 export function defaultVoicePrefs(): VoiceRuntimePrefs {
@@ -76,8 +81,15 @@ export function clearPackReady(packId: string) {
   } catch {
     /* ignore */
   }
-  kokoroInstance = null;
-  loadPromise = null;
+  if (packId === "kokoro-en") {
+    kokoroInstance = null;
+    kokoroLoadPromise = null;
+  }
+  if (packId === "piper-pt-br") {
+    piperSession = null;
+    piperLoadPromise = null;
+    piperVoiceLoaded = null;
+  }
 }
 
 export function stopSpeaking() {
@@ -85,11 +97,6 @@ export function stopSpeaking() {
     window.speechSynthesis.cancel();
   }
   currentUtterance = null;
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.src = "";
-    currentAudio = null;
-  }
 }
 
 function playFloat32(audio: Float32Array, sampleRate: number, volume: number): Promise<void> {
@@ -115,20 +122,33 @@ function playFloat32(audio: Float32Array, sampleRate: number, volume: number): P
   });
 }
 
+function playBlob(blob: Blob, volume: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.volume = Math.min(1, Math.max(0, volume));
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      resolve();
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Falha ao reproduzir áudio Piper"));
+    };
+    void audio.play().catch(reject);
+  });
+}
+
 async function ensureKokoro(onProgress?: ProgressCb): Promise<void> {
   if (kokoroInstance) return;
-  if (loadPromise) return loadPromise;
+  if (kokoroLoadPromise) return kokoroLoadPromise;
 
-  loadPromise = (async () => {
-    onProgress?.(0, "downloading", "Carregando modelo Kokoro…");
-    console.info("[voice] downloading", KOKORO_MODEL_ID, KOKORO_DTYPE);
-
+  kokoroLoadPromise = (async () => {
+    onProgress?.(0, "downloading", "Carregando Kokoro…");
+    console.info("[voice] kokoro download", KOKORO_MODEL_ID);
     const device =
       typeof navigator !== "undefined" && "gpu" in navigator ? "webgpu" : "wasm";
-
-    // Dynamic import — never on first paint of the app shell
     const { KokoroTTS } = await import("kokoro-js");
-
     const tts = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
       dtype: device === "webgpu" ? "fp32" : KOKORO_DTYPE,
       device,
@@ -140,18 +160,54 @@ async function ensureKokoro(onProgress?: ProgressCb): Promise<void> {
         onProgress?.(pct, "downloading", p.status ?? "download");
       },
     });
-
-    kokoroInstance = tts as typeof kokoroInstance;
-    markPackReady(DEFAULT_PACK_ID);
+    kokoroInstance = tts;
+    markPackReady("kokoro-en");
     onProgress?.(100, "ready", "Pronto");
     console.info("[voice] kokoro ready", { device });
   })();
 
   try {
-    await loadPromise;
+    await kokoroLoadPromise;
   } catch (e) {
-    loadPromise = null;
-    onProgress?.(0, "error", e instanceof Error ? e.message : "Falha no download");
+    kokoroLoadPromise = null;
+    onProgress?.(0, "error", e instanceof Error ? e.message : "Falha Kokoro");
+    throw e;
+  }
+}
+
+async function ensurePiper(onProgress?: ProgressCb): Promise<void> {
+  if (piperSession && piperVoiceLoaded === PIPER_PT_BR_VOICE_ID) return;
+  if (piperLoadPromise) return piperLoadPromise;
+
+  piperLoadPromise = (async () => {
+    onProgress?.(0, "downloading", "Carregando Piper pt-BR…");
+    console.info("[voice] piper download", PIPER_PT_BR_VOICE_ID);
+    const { TtsSession } = await import("@realtimex/piper-tts-web");
+    const session = new TtsSession({
+      voiceId: PIPER_PT_BR_VOICE_ID,
+      progress: (progress: { loaded?: number; total?: number }) => {
+        const loaded = progress.loaded ?? 0;
+        const total = progress.total ?? 1;
+        const pct = Math.min(99, Math.round((loaded / Math.max(total, 1)) * 100));
+        onProgress?.(pct, "downloading", "piper");
+      },
+      logger: (msg: string) => console.info("[voice/piper]", msg),
+    });
+    // Warm-up / force model fetch with a short utterance path if API requires
+    piperSession = session;
+    piperVoiceLoaded = PIPER_PT_BR_VOICE_ID;
+    markPackReady("piper-pt-br");
+    onProgress?.(100, "ready", "Pronto");
+    console.info("[voice] piper ready");
+  })();
+
+  try {
+    await piperLoadPromise;
+  } catch (e) {
+    piperLoadPromise = null;
+    piperSession = null;
+    piperVoiceLoaded = null;
+    onProgress?.(0, "error", e instanceof Error ? e.message : "Falha Piper");
     throw e;
   }
 }
@@ -160,10 +216,15 @@ export async function downloadPack(
   packId: VoicePackId,
   onProgress?: ProgressCb
 ): Promise<void> {
-  if (packId !== "kokoro-en") {
-    throw new Error("Pack não suportado");
+  if (packId === "kokoro-en") {
+    await ensureKokoro(onProgress);
+    return;
   }
-  await ensureKokoro(onProgress);
+  if (packId === "piper-pt-br") {
+    await ensurePiper(onProgress);
+    return;
+  }
+  throw new Error("Pack não suportado");
 }
 
 function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
@@ -193,58 +254,80 @@ function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
   });
 }
 
-/**
- * Fala texto com engine ativa. Nova chamada interrompe a anterior.
- * Sem pack / enabled=false → speechSynthesis (AC4).
- */
 export async function speakText(
   text: string,
   prefs: VoiceRuntimePrefs,
   opts?: { onProgress?: ProgressCb; preferNative?: boolean }
-): Promise<{ engine: "kokoro" | "native" }> {
+): Promise<{ engine: "kokoro" | "piper" | "native" }> {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return { engine: "native" };
 
   stopSpeaking();
 
-  const useKokoro =
-    prefs.enabled &&
-    !opts?.preferNative &&
-    Boolean(getPack(prefs.packId));
+  const pack = getPack(prefs.packId);
+  const useOnDevice = prefs.enabled && !opts?.preferNative && Boolean(pack);
 
-  if (!useKokoro) {
+  if (!useOnDevice || !pack) {
     await speakNative(clean, prefs);
     return { engine: "native" };
   }
 
   try {
-    if (!kokoroInstance) {
-      // Fallback enquanto baixa (AC4 + aviso discreto)
-      opts?.onProgress?.(0, "downloading", "Baixando voz on-device…");
-      const nativePromise = speakNative(clean, prefs);
-      void ensureKokoro(opts?.onProgress).catch(() => undefined);
-      await nativePromise;
-      return { engine: "native" };
+    if (pack.engine === "kokoro") {
+      if (!kokoroInstance) {
+        opts?.onProgress?.(0, "downloading", "Baixando Kokoro…");
+        const nativePromise = speakNative(clean, prefs);
+        void ensureKokoro(opts?.onProgress).catch(() => undefined);
+        await nativePromise;
+        return { engine: "native" };
+      }
+      await ensureKokoro(opts?.onProgress);
+      const result = await kokoroInstance.generate(clean.slice(0, 2000), {
+        voice: prefs.voiceId || "af_heart",
+        speed: prefs.speed,
+      });
+      if (result?.audio && result?.sampling_rate) {
+        await playFloat32(result.audio, result.sampling_rate, prefs.volume);
+      }
+      return { engine: "kokoro" };
     }
 
-    await ensureKokoro(opts?.onProgress);
-    const tts = kokoroInstance!;
-    const result = await tts.generate(clean.slice(0, 2000), {
-      voice: prefs.voiceId || DEFAULT_VOICE_ID,
-      speed: prefs.speed,
-    });
-
-    // kokoro-js RawAudio: { audio: Float32Array, sampling_rate }
-    const raw = result as { audio?: Float32Array; sampling_rate?: number };
-    if (raw.audio && raw.sampling_rate) {
-      await playFloat32(raw.audio, raw.sampling_rate, prefs.volume);
+    if (pack.engine === "piper") {
+      if (!piperSession) {
+        opts?.onProgress?.(0, "downloading", "Baixando Piper pt-BR…");
+        const nativePromise = speakNative(clean, prefs);
+        void ensurePiper(opts?.onProgress).catch(() => undefined);
+        await nativePromise;
+        return { engine: "native" };
+      }
+      await ensurePiper(opts?.onProgress);
+      const blob: Blob = await piperSession.predict(clean.slice(0, 2000));
+      // speed: HTMLAudioElement playbackRate
+      const url = URL.createObjectURL(blob);
+      await new Promise<void>((resolve, reject) => {
+        const audio = new Audio(url);
+        audio.volume = Math.min(1, Math.max(0, prefs.volume));
+        audio.playbackRate = Math.min(2, Math.max(0.5, prefs.speed));
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("Piper playback error"));
+        };
+        void audio.play().catch(reject);
+      });
+      return { engine: "piper" };
     }
-    return { engine: "kokoro" };
   } catch (e) {
-    console.warn("[voice] kokoro failed, native fallback", e);
+    console.warn("[voice] on-device failed, native fallback", e);
     await speakNative(clean, prefs);
     return { engine: "native" };
   }
+
+  await speakNative(clean, prefs);
+  return { engine: "native" };
 }
 
 export const SAMPLE_PHRASE =

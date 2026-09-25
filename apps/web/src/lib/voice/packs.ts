@@ -1,45 +1,57 @@
 /**
- * Catálogo de packs de voz on-device (Kokoro).
- * Fonte: https://github.com/hexgrad/kokoro/blob/main/kokoro.js/README.md
- * npm: kokoro-js@1.2.1 — VOICES oficiais = en-us + en-gb apenas.
- * pt-BR: NÃO suportado pelo kokoro-js browser; usar speechSynthesis.
+ * Catálogo de packs de voz on-device.
+ *
+ * Kokoro (kokoro-js@1.2.1):
+ *   - VOICES oficiais ativas = só en-us / en-gb
+ *   - pf_dora / pm_alex / pm_santa EXISTEM no modelo HF, mas estão
+ *     COMENTADOS em kokoro.js/src/voices.js e _validate_voice rejeita.
+ *   - Não inventar suporte pt-BR via kokoro-js sem fork.
+ *
+ * Piper (pt-BR):
+ *   - @realtimex/piper-tts-web + voiceId pt_BR-faber-medium (CC0, ~63MB)
+ *   - NÃO usar pt_BR-edresson-low (falhas de inferência conhecidas)
  */
 
 export const KOKORO_MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
-/** q8 ~80–100 MB na prática (Transformers.js + pesos quantizados). */
 export const KOKORO_DTYPE = "q8" as const;
 
-export type VoicePackId = "kokoro-en";
+/** Voice ID Piper oficial (HF / CDN do piper-tts-web). */
+export const PIPER_PT_BR_VOICE_ID = "pt_BR-faber-medium";
+
+export type VoicePackId = "kokoro-en" | "piper-pt-br";
 
 export type VoiceEntry = {
   id: string;
   name: string;
-  language: "en-us" | "en-gb";
+  language: string;
   gender: "Female" | "Male";
   grade?: string;
 };
 
+export type VoiceEngine = "kokoro" | "piper";
+
 export type VoicePackMeta = {
   id: VoicePackId;
+  engine: VoiceEngine;
   name: string;
   description: string;
-  /** Tamanho aproximado do download (modelo q8 + tokenizer). */
   approxSizeMb: number;
   languages: string[];
   voices: VoiceEntry[];
-  modelId: string;
+  /** Modelo / voiceId de download runtime */
+  downloadRef: string;
 };
 
-/** Pack único: um modelo cobre todas as vozes EN listadas no README oficial. */
 export const VOICE_PACKS: VoicePackMeta[] = [
   {
     id: "kokoro-en",
+    engine: "kokoro",
     name: "Inglês (Kokoro)",
     description:
-      "Modelo on-device Kokoro-82M (WASM/WebGPU). Vozes americanas e britânicas. Texto não sai do navegador.",
+      "Kokoro-82M on-device (WASM/WebGPU). Vozes americanas e britânicas. Texto não sai do navegador.",
     approxSizeMb: 90,
     languages: ["en-US", "en-GB"],
-    modelId: KOKORO_MODEL_ID,
+    downloadRef: KOKORO_MODEL_ID,
     voices: [
       { id: "af_heart", name: "Heart", language: "en-us", gender: "Female", grade: "A" },
       { id: "af_bella", name: "Bella", language: "en-us", gender: "Female", grade: "A-" },
@@ -53,11 +65,30 @@ export const VOICE_PACKS: VoicePackMeta[] = [
       { id: "bm_lewis", name: "Lewis", language: "en-gb", gender: "Male", grade: "D+" },
     ],
   },
+  {
+    id: "piper-pt-br",
+    engine: "piper",
+    name: "Português BR (Piper)",
+    description:
+      "Piper WASM on-device — voz pt_BR-faber-medium (CC0, ~63 MB). Qualidade estável. Texto não sai do navegador.",
+    approxSizeMb: 63,
+    languages: ["pt-BR"],
+    downloadRef: PIPER_PT_BR_VOICE_ID,
+    voices: [
+      {
+        id: PIPER_PT_BR_VOICE_ID,
+        name: "Faber (medium)",
+        language: "pt-BR",
+        gender: "Male",
+        grade: "medium",
+      },
+    ],
+  },
 ];
 
 export function getPack(id: string | undefined): VoicePackMeta | undefined {
   return VOICE_PACKS.find((p) => p.id === id);
 }
 
-export const DEFAULT_VOICE_ID = "af_heart";
-export const DEFAULT_PACK_ID: VoicePackId = "kokoro-en";
+export const DEFAULT_PACK_ID: VoicePackId = "piper-pt-br";
+export const DEFAULT_VOICE_ID = PIPER_PT_BR_VOICE_ID;
