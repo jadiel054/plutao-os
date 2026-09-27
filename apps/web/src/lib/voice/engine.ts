@@ -12,6 +12,7 @@ import {
   getPack,
   type VoicePackId,
 } from "./packs";
+import { playFloat32, stopActiveFloat32Playback } from "./audioPlayback";
 
 export type VoiceRuntimePrefs = {
   enabled: boolean;
@@ -108,31 +109,7 @@ export function stopSpeaking() {
     currentAudio.src = "";
     currentAudio = null;
   }
-}
-
-function playFloat32(audio: Float32Array, sampleRate: number, volume: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    try {
-      const ctx = new AudioContext({ sampleRate });
-      const buffer = ctx.createBuffer(1, audio.length, sampleRate);
-      const channel = new Float32Array(audio.length);
-      channel.set(audio);
-      buffer.copyToChannel(channel, 0);
-      const src = ctx.createBufferSource();
-      src.buffer = buffer;
-      const gain = ctx.createGain();
-      gain.gain.value = Math.min(1, Math.max(0, volume));
-      src.connect(gain);
-      gain.connect(ctx.destination);
-      src.onended = () => {
-        void ctx.close();
-        resolve();
-      };
-      src.start();
-    } catch (e) {
-      reject(e);
-    }
-  });
+  stopActiveFloat32Playback();
 }
 
 function playBlob(blob: Blob, volume: number): Promise<void> {
