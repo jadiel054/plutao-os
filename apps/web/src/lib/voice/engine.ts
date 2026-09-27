@@ -12,7 +12,7 @@ import {
   getPack,
   type VoicePackId,
 } from "./packs";
-import { playFloat32, stopActiveFloat32Playback } from "./audioPlayback";
+import { playFloat32, stopActiveFloat32Playback, type PlaybackTick } from "./audioPlayback";
 
 export type VoiceRuntimePrefs = {
   enabled: boolean;
@@ -25,6 +25,14 @@ export type VoiceRuntimePrefs = {
 export type PackStatus = "idle" | "downloading" | "ready" | "error";
 
 type ProgressCb = (pct: number, status: PackStatus, detail?: string) => void;
+
+/** Options for speakText — download progress + playback position ticks. */
+export type SpeakOptions = {
+  onProgress?: ProgressCb;
+  preferNative?: boolean;
+  /** ~4×/s during on-device playback. totalMs null for native (indeterminate). */
+  onPlaybackTick?: PlaybackTick;
+};
 
 const IDB_KEY = "plutao_voice_pack_ready_v1";
 
@@ -112,21 +120,52 @@ export function stopSpeaking() {
   stopActiveFloat32Playback();
 }
 
-function playBlob(blob: Blob, volume: number): Promise<void> {
+function playBlob(blob: Blob, volume: number, onTick?: PlaybackTick): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       currentAudio = audio;
       audio.volume = Math.min(1, Math.max(0, volume));
+
+      const emit = () => {
+        if (!onTick) return;
+        const total =
+          Number.isFinite(audio.duration) && audio.duration > 0
+            ? audio.duration * 1000
+            : null;
+        const elapsed = (audio.currentTime || 0) * 1000;
+        try {
+          onTick(elapsed, total);
+        } catch {
+          /* ignore */
+        }
+      };
+
+      if (onTick) {
+        audio.addEventListener("timeupdate", emit);
+        audio.addEventListener("loadedmetadata", emit);
+      }
+
       audio.onended = () => {
+        if (onTick) {
+          const total =
+            Number.isFinite(audio.duration) && audio.duration > 0
+              ? audio.duration * 1000
+              : (audio.currentTime || 0) * 1000;
+          try {
+            onTick(total, total);
+          } catch {
+            /* ignore */
+          }
+        }
         URL.revokeObjectURL(url);
-        currentAudio = null;
+        if (currentAudio === audio) currentAudio = null;
         resolve();
       };
       audio.onerror = () => {
         URL.revokeObjectURL(url);
-        currentAudio = null;
+        if (currentAudio === audio) currentAudio = null;
         reject(new Error("Falha ao reproduzir áudio Piper"));
       };
       void audio.play().catch(reject);
@@ -294,7 +333,7 @@ function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
 export async function speakText(
   text: string,
   prefs: VoiceRuntimePrefs,
-  opts?: { onProgress?: ProgressCb; preferNative?: boolean }
+  opts?: SpeakOptions
 ): Promise<{ engine: "kokoro" | "piper" | "supertonic" | "native" }> {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return { engine: "native" };
@@ -324,7 +363,9 @@ export async function speakText(
         speed: prefs.speed,
       });
       if (result.audio && result.sampling_rate) {
-        await playFloat32(result.audio, result.sampling_rate, prefs.volume);
+        await playFloat32(result.audio, result.sampling_rate, prefs.volume, {
+          onTick: opts?.onPlaybackTick,
+        });
       }
       return { engine: "kokoro" };
     }
@@ -339,7 +380,7 @@ export async function speakText(
       }
       await ensurePiper(opts?.onProgress);
       const blob = await piperSession!.predict(clean.slice(0, 2000));
-      await playBlob(blob, prefs.volume);
+      await playBlob(blob, prefs.volume, opts?.onPlaybackTick);
       return { engine: "piper" };
     }
 
@@ -348,8 +389,6 @@ export async function speakText(
       const assetsReady = await isSupertonicReady();
 
       if (!assetsReady) {
-        // Marca localStorage pode estar stale (eviction de Cache/IDB sem passar pela UI).
-        // Autoridade = assets reais. Limpa marca e segue native + download em background.
         if (isPackMarkedReady("supertonic-pt-br")) {
           console.info(
             "[voice][supertonic] marca pronta stale — assets ausentes; limpando marca e re-baixando em background"
@@ -367,6 +406,7 @@ export async function speakText(
         speed: prefs.speed,
         volume: prefs.volume,
         onProgress: (pct, detail) => opts?.onProgress?.(pct, "downloading", detail),
+        onPlaybackTick: opts?.onPlaybackTick,
       });
       return { engine: "supertonic" };
     }
