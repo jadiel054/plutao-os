@@ -1,22 +1,32 @@
 /**
- * Tools MCP do Plutão — Fase 1 (somente leitura / diagnóstico).
- * Writes (send_message, run_test) entram depois com gate de confirmação.
+ * Tools MCP do Plutão.
+ * Read: mcp:read. Write (send_message): mcp:write no call time.
+ * Tokens de conectores nunca saem nas respostas.
  */
 
 import { and, desc, eq } from "drizzle-orm";
-import { missions } from "@plutao/db";
+import { conversations, messages as messagesTable, missions, auditEvents } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { listConnectorsForUser } from "@/lib/connectors/service";
+import { getModelConfig } from "@/lib/runtime/model/config";
+import { chatCompletion } from "@/lib/runtime/model/client";
+import type { ModelMessage } from "@/lib/runtime/model/types";
+import { hasMcpScope, getMcpAuth } from "./auth";
+import { checkMcpRateLimit, writeMcpAudit } from "./audit";
 
-function textResult(payload: unknown) {
+const MAX_CONTENT = 4000;
+
+function textResult(payload: unknown, isError = false) {
   const text = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-  return { content: [{ type: "text" as const, text }] };
+  return { content: [{ type: "text" as const, text }], ...(isError ? { isError: true } : {}) };
 }
 
 export async function toolSystemStatus(userId: string, authMethod?: "oauth" | "ops_key") {
-  const modelProvider = process.env.MODEL_PROVIDER || "(default xai)";
-  const modelName = process.env.MODEL_NAME || "(default por provider)";
-  const hasModelKey = Boolean(process.env.MODEL_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || process.env.XAI_API_KEY?.trim());
+  const hasModelKey = Boolean(
+    process.env.MODEL_API_KEY?.trim() ||
+      process.env.OPENAI_API_KEY?.trim() ||
+      process.env.XAI_API_KEY?.trim()
+  );
   const appUrl = process.env.APP_URL || "(não definido)";
 
   let connectorsSummary: { provider: string; status: string; account: string | null }[] = [];
@@ -28,7 +38,13 @@ export async function toolSystemStatus(userId: string, authMethod?: "oauth" | "o
       account: c.accountLogin || c.accountLabel || null,
     }));
   } catch (e) {
-    connectorsSummary = [{ provider: "_", status: `error: ${e instanceof Error ? e.message : String(e)}`, account: null }];
+    connectorsSummary = [
+      {
+        provider: "_",
+        status: `error: ${e instanceof Error ? e.message : String(e)}`,
+        account: null,
+      },
+    ];
   }
 
   const authLabel =
@@ -40,18 +56,16 @@ export async function toolSystemStatus(userId: string, authMethod?: "oauth" | "o
 
   return textResult({
     product: "Plutão",
-    role: "MCP audit surface (Phase 1 read-only)",
+    role: "MCP surface",
     appUrl,
-    model: {
-      providerEnv: modelProvider,
-      nameEnv: modelName,
-      apiKeyConfigured: hasModelKey,
-      // nunca expõe a chave
-    },
+    // Decisão de produto: não vazar provider/model internos
+    model: "plutao-primary",
+    modelConfigured: hasModelKey,
     mcp: {
-      phase: 1,
+      phase: 2,
       auth: authLabel,
-      writeTools: false,
+      writeTools: true,
+      scopesSupported: ["mcp:read", "mcp:write"],
     },
     connectors: connectorsSummary,
     userIdBound: true,
@@ -81,32 +95,32 @@ export async function toolListConnectors(userId: string) {
   });
 }
 
+/**
+ * Lista conversas do chat (tabela conversations) — persistência real do produto.
+ * Missões legadas permanecem acessíveis via plutao_get_mission quando o id for conhecido.
+ */
 export async function toolListConversations(userId: string, limit = 20) {
   const safeLimit = Math.min(Math.max(1, limit), 50);
   const db = getDb();
   const rows = await db
     .select({
-      id: missions.id,
-      objective: missions.objective,
-      status: missions.status,
-      currentState: missions.currentState,
-      isPinned: missions.isPinned,
-      projectId: missions.projectId,
-      createdAt: missions.createdAt,
-      updatedAt: missions.updatedAt,
+      id: conversations.id,
+      title: conversations.title,
+      isPinned: conversations.isPinned,
+      projectId: conversations.projectId,
+      createdAt: conversations.createdAt,
+      updatedAt: conversations.updatedAt,
     })
-    .from(missions)
-    .where(eq(missions.userId, userId))
-    .orderBy(desc(missions.isPinned), desc(missions.updatedAt))
+    .from(conversations)
+    .where(eq(conversations.userId, userId))
+    .orderBy(desc(conversations.isPinned), desc(conversations.updatedAt))
     .limit(safeLimit);
 
   return textResult({
     count: rows.length,
     conversations: rows.map((r) => ({
       id: r.id,
-      objective: r.objective,
-      status: r.status,
-      currentState: r.currentState,
+      title: r.title,
       isPinned: r.isPinned,
       projectId: r.projectId,
       createdAt: r.createdAt?.toISOString?.() ?? r.createdAt,
@@ -118,7 +132,7 @@ export async function toolListConversations(userId: string, limit = 20) {
 export async function toolGetMission(userId: string, missionId: string) {
   const id = missionId.trim();
   if (!id) {
-    return textResult({ error: "missionId obrigatório" });
+    return textResult({ error: "missionId obrigatório" }, true);
   }
 
   const db = getDb();
@@ -130,7 +144,7 @@ export async function toolGetMission(userId: string, missionId: string) {
 
   const row = rows[0];
   if (!row) {
-    return textResult({ error: "Missão não encontrada ou sem permissão." });
+    return textResult({ error: "Missão não encontrada ou sem permissão." }, true);
   }
 
   return textResult({
@@ -154,3 +168,214 @@ export async function toolGetMission(userId: string, missionId: string) {
     updatedAt: row.updatedAt?.toISOString?.() ?? row.updatedAt,
   });
 }
+
+export type SendMessageInput = {
+  content: string;
+  conversationId?: string;
+};
+
+/**
+ * Envia mensagem no pipeline de chat (conversas + messages).
+ * Requer scope mcp:write. Sem conversationId cria conversa com source mcp.
+ */
+export async function toolSendMessage(userId: string, input: SendMessageInput) {
+  const auth = getMcpAuth();
+  if (!hasMcpScope("mcp:write")) {
+    return textResult(
+      {
+        error: "forbidden",
+        message:
+          "Scope mcp:write ausente. Re-autorize o cliente incluindo mcp:write no consent OAuth.",
+        hint: "scopes_supported: mcp:read mcp:write",
+      },
+      true
+    );
+  }
+
+  const grantKey = auth.grantId || auth.clientId || userId;
+  const rl = checkMcpRateLimit(grantKey);
+  if (!rl.ok) {
+    return textResult(
+      {
+        error: "rate_limited",
+        message: `Limite de 30 calls/min por grant. Tente em ~${rl.retryAfterSec}s.`,
+        retryAfterSec: rl.retryAfterSec,
+      },
+      true
+    );
+  }
+
+  const content = String(input.content ?? "").trim();
+  if (!content) {
+    return textResult({ error: "content obrigatório" }, true);
+  }
+  if (content.length > MAX_CONTENT) {
+    return textResult(
+      { error: "content_too_long", message: `Máximo ${MAX_CONTENT} caracteres.` },
+      true
+    );
+  }
+
+  const db = getDb();
+  let conversationId: string | null = null;
+  const provided = input.conversationId?.trim() || null;
+
+  if (provided) {
+    const existing = await db
+      .select({ id: conversations.id, userId: conversations.userId })
+      .from(conversations)
+      .where(eq(conversations.id, provided))
+      .limit(1);
+    if (!existing[0]) {
+      return textResult({ error: "conversation_not_found" }, true);
+    }
+    if (existing[0].userId !== userId) {
+      return textResult({ error: "forbidden", message: "Conversa de outro usuário." }, true);
+    }
+    conversationId = existing[0].id;
+  } else {
+    const title = content.slice(0, 40) || "MCP";
+    const now = new Date();
+    const created = await db
+      .insert(conversations)
+      .values({
+        userId,
+        title,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: conversations.id });
+    conversationId = created[0]?.id ?? null;
+    if (!conversationId) {
+      return textResult({ error: "failed_to_create_conversation" }, true);
+    }
+  }
+
+  // Histórico recente para contexto
+  const historyRows = await db
+    .select({
+      role: messagesTable.role,
+      content: messagesTable.content,
+    })
+    .from(messagesTable)
+    .where(eq(messagesTable.conversationId, conversationId))
+    .orderBy(desc(messagesTable.createdAt))
+    .limit(20);
+
+  const historyChrono = [...historyRows].reverse().filter(
+    (m) => m.role === "user" || m.role === "assistant"
+  );
+
+  const modelConfig = getModelConfig();
+  if (!modelConfig) {
+    return textResult(
+      { error: "model_unavailable", message: "Modelo não configurado no servidor." },
+      true
+    );
+  }
+
+  const system: ModelMessage = {
+    role: "system",
+    content:
+      "Você é o Plutão, agente de execução. Responda em português, de forma direta e profissional. Não exponha tokens, chaves ou detalhes internos de provedor/modelo.",
+  };
+  const modelMessages: ModelMessage[] = [
+    system,
+    ...historyChrono.map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+    { role: "user", content },
+  ];
+
+  let assistantText = "";
+  try {
+    const result = await chatCompletion(modelConfig, modelMessages);
+    assistantText = (result.content || "").trim() || "(sem resposta)";
+  } catch (e) {
+    return textResult(
+      {
+        error: "model_error",
+        message: e instanceof Error ? e.message : String(e),
+        conversationId,
+      },
+      true
+    );
+  }
+
+  const now = new Date();
+  const inserted = await db
+    .insert(messagesTable)
+    .values([
+      {
+        conversationId,
+        role: "user",
+        content,
+        metadata: { source: "mcp", client_id: auth.clientId },
+        createdAt: now,
+      },
+      {
+        conversationId,
+        role: "assistant",
+        content: assistantText,
+        metadata: { source: "mcp" },
+        createdAt: new Date(now.getTime() + 10),
+      },
+    ])
+    .returning({ id: messagesTable.id, role: messagesTable.role });
+
+  await db
+    .update(conversations)
+    .set({ updatedAt: new Date() })
+    .where(eq(conversations.id, conversationId));
+
+  const userMsg = inserted.find((r) => r.role === "user");
+  const asstMsg = inserted.find((r) => r.role === "assistant");
+
+  return textResult({
+    conversationId,
+    userMessageId: userMsg?.id ?? null,
+    assistantMessageId: asstMsg?.id ?? null,
+    assistant: assistantText,
+    source: "mcp",
+  });
+}
+
+/** Wrapper de auditoria para handlers de tool. */
+export async function withMcpAudit<T extends { content: unknown[]; isError?: boolean }>(
+  tool: string,
+  params: unknown,
+  fn: () => Promise<T>
+): Promise<T> {
+  const auth = getMcpAuth();
+  const started = Date.now();
+  try {
+    const result = await fn();
+    const status = result.isError ? "error" : "ok";
+    await writeMcpAudit({
+      userId: auth.userId,
+      clientId: auth.clientId,
+      grantId: auth.grantId,
+      tool,
+      params,
+      status,
+      latencyMs: Date.now() - started,
+    });
+    return result;
+  } catch (e) {
+    await writeMcpAudit({
+      userId: auth.userId,
+      clientId: auth.clientId,
+      grantId: auth.grantId,
+      tool,
+      params,
+      status: "error",
+      latencyMs: Date.now() - started,
+      errorMessage: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
+}
+
+// silence unused import if tree-shaken in some builds
+void auditEvents;
