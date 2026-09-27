@@ -7,6 +7,7 @@ import {
   stopSpeaking,
   type VoiceRuntimePrefs,
 } from "@/lib/voice/engine";
+import { formatPlaybackClock } from "@/lib/voice/audioPlayback";
 
 type Props = {
   content: string;
@@ -50,6 +51,8 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
   const [speaking, setSpeaking] = useState(false);
+  const [playElapsed, setPlayElapsed] = useState(0);
+  const [playTotal, setPlayTotal] = useState<number | null>(null);
 
   async function handleCopy() {
     try {
@@ -77,15 +80,25 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
     if (speaking) {
       stopSpeaking();
       setSpeaking(false);
+      setPlayElapsed(0);
+      setPlayTotal(null);
       return;
     }
     setSpeaking(true);
+    setPlayElapsed(0);
+    setPlayTotal(null);
     try {
       const prefs = await loadVoicePrefs();
-      // Nova mensagem interrompe a anterior (stopSpeaking dentro de speakText)
-      await speakText(content, prefs);
+      await speakText(content, prefs, {
+        onPlaybackTick: (elapsedMs, totalMs) => {
+          setPlayElapsed(elapsedMs);
+          setPlayTotal(totalMs);
+        },
+      });
     } finally {
       setSpeaking(false);
+      setPlayElapsed(0);
+      setPlayTotal(null);
     }
   }
 
@@ -107,6 +120,29 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
       <button type="button" className={btn} onClick={() => void handleSpeak()} title={speaking ? "Parar" : "Ouvir"} aria-label="Ouvir">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M11 5L6 9H2v6h4l5 4V5z" strokeLinejoin="round" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" strokeLinecap="round" /></svg>
       </button>
+      {speaking ? (
+        <span className="inline-flex items-center gap-1.5 ml-0.5 min-w-0" aria-live="polite">
+          <span className="text-[10px] font-mono tabular-nums text-[var(--text-muted)] whitespace-nowrap">
+            {playTotal != null
+              ? `${formatPlaybackClock(playElapsed)} / ${formatPlaybackClock(playTotal)}`
+              : "Reproduzindo…"}
+          </span>
+          {playTotal != null && playTotal > 0 ? (
+            <span
+              className="h-1 w-12 rounded-full bg-[var(--border)] overflow-hidden"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.min(100, Math.round((playElapsed / playTotal) * 100))}
+            >
+              <span
+                className="block h-full bg-[var(--selo)] transition-[width] duration-200 ease-linear"
+                style={{ width: `${Math.min(100, (playElapsed / playTotal) * 100)}%` }}
+              />
+            </span>
+          ) : null}
+        </span>
+      ) : null}
       {onRegenerate ? (
         <button type="button" className={btn} disabled={disabled} onClick={onRegenerate} title="Regenerar" aria-label="Regenerar">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" /></svg>
