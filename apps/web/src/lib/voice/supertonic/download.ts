@@ -420,7 +420,7 @@ async function fetchFullWithRetry(url: string): Promise<Blob> {
   });
 }
 
-function assembleChunks(partial: PartialRecord): Blob {
+export function assembleChunks(partial: PartialRecord): Blob {
   const offsets = Object.keys(partial.chunks)
     .map(Number)
     .sort((a, b) => a - b);
