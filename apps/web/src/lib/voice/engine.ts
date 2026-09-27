@@ -286,6 +286,10 @@ function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
 /**
  * Fala texto com engine do pack ativo. Nova chamada interrompe a anterior.
  * Sem pack / enabled=false → speechSynthesis.
+ *
+ * Para Supertonic: a autoridade de "pronto" é isSupertonicReady() (assets reais).
+ * Marca localStorage stale (assets evictados) é limpa e o caminho vira native +
+ * download em background — nunca bloquear speak no download de ~398 MB.
  */
 export async function speakText(
   text: string,
@@ -341,14 +345,24 @@ export async function speakText(
 
     if (pack.engine === "supertonic") {
       const { isSupertonicReady, speakSupertonic } = await import("./supertonic/runtime");
-      const ready = await isSupertonicReady();
-      if (!ready && !isPackMarkedReady("supertonic-pt-br")) {
+      const assetsReady = await isSupertonicReady();
+
+      if (!assetsReady) {
+        // Marca localStorage pode estar stale (eviction de Cache/IDB sem passar pela UI).
+        // Autoridade = assets reais. Limpa marca e segue native + download em background.
+        if (isPackMarkedReady("supertonic-pt-br")) {
+          console.info(
+            "[voice][supertonic] marca pronta stale — assets ausentes; limpando marca e re-baixando em background"
+          );
+          clearPackReady("supertonic-pt-br");
+        }
         opts?.onProgress?.(0, "downloading", "Baixando Supertonic…");
         const nativePromise = speakNative(clean, prefs);
         void ensureSupertonic(opts?.onProgress).catch(() => undefined);
         await nativePromise;
         return { engine: "native" };
       }
+
       await speakSupertonic(clean, prefs.voiceId || "F1", {
         speed: prefs.speed,
         volume: prefs.volume,
