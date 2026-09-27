@@ -18,7 +18,6 @@ export function stopActiveFloat32Playback(): void {
   if (!activeFloat32) return;
   const entry = activeFloat32;
   activeFloat32 = null;
-  entry.settled = true;
   try {
     entry.source.stop();
   } catch {
@@ -29,6 +28,7 @@ export function stopActiveFloat32Playback(): void {
   } catch {
     /* ignore */
   }
+  // resolve() is idempotent via entry.settled — do NOT set settled before this call
   entry.resolve();
 }
 
