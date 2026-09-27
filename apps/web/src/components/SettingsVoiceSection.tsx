@@ -20,6 +20,7 @@ import {
   type VoiceRuntimePrefs,
   type PackStatus,
 } from "@/lib/voice/engine";
+import { formatPlaybackClock } from "@/lib/voice/audioPlayback";
 
 type Props = {
   onNotify?: (message: string, type: "success" | "info" | "warning" | "error") => void;
@@ -42,7 +43,6 @@ function playSuccessToneIfEnabled() {
       localStorage.getItem("plutao_ui_sounds") ??
       localStorage.getItem("sounds");
     if (raw === "0" || raw === "false" || raw === "off") return;
-    // default: toca se chave ausente ou truthy
     if (raw === null || raw === "1" || raw === "true" || raw === "on" || raw === "") {
       const ctx = new AudioContext();
       const osc = ctx.createOscillator();
@@ -70,6 +70,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [detail, setDetail] = useState<Record<string, string>>({});
   const [sampleBusy, setSampleBusy] = useState(false);
+  const [sampleClock, setSampleClock] = useState<string | null>(null);
   const downloadingRef = useRef<Set<string>>(new Set());
   const resumeAttemptedRef = useRef(false);
 
@@ -144,7 +145,6 @@ export function SettingsVoiceSection({ onNotify }: Props) {
     [onNotify]
   );
 
-  // Retomada automática: partial IDB + visibilitychange / mount
   useEffect(() => {
     let cancelled = false;
 
@@ -209,6 +209,7 @@ export function SettingsVoiceSection({ onNotify }: Props) {
 
   async function handleSample() {
     setSampleBusy(true);
+    setSampleClock(null);
     try {
       const pack = getPack(prefs.packId);
       const phrase =
@@ -222,12 +223,22 @@ export function SettingsVoiceSection({ onNotify }: Props) {
           setPackStatuses((s) => ({ ...s, [id]: status }));
           if (d) setDetail((x) => ({ ...x, [id]: d }));
         },
+        onPlaybackTick: (elapsedMs, totalMs) => {
+          if (totalMs == null) {
+            setSampleClock("Reproduzindo…");
+            return;
+          }
+          setSampleClock(
+            `${formatPlaybackClock(elapsedMs)} / ${formatPlaybackClock(totalMs)}`
+          );
+        },
       });
       if (result.engine === "native" && prefs.enabled) {
         onNotify?.("Usando voz nativa do sistema enquanto o pack não está pronto", "info");
       }
     } finally {
       setSampleBusy(false);
+      setSampleClock(null);
     }
   }
 
@@ -410,22 +421,31 @@ export function SettingsVoiceSection({ onNotify }: Props) {
         />
       </label>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           disabled={sampleBusy}
           onClick={() => void handleSample()}
           className="rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs font-medium px-4 py-2.5 hover:bg-[var(--surface-hover)] disabled:opacity-50"
         >
-          {sampleBusy ? "Reproduzindo…" : "Ouvir amostra"}
+          {sampleBusy ? (sampleClock ?? "Reproduzindo…") : "Ouvir amostra"}
         </button>
         <button
           type="button"
-          onClick={() => stopSpeaking()}
+          onClick={() => {
+            stopSpeaking();
+            setSampleBusy(false);
+            setSampleClock(null);
+          }}
           className="rounded-xl border border-[var(--border)] text-xs px-4 py-2.5 text-[var(--text-muted)]"
         >
           Parar
         </button>
+        {sampleBusy && sampleClock && sampleClock.includes("/") ? (
+          <span className="text-[10px] font-mono text-[var(--text-muted)] tabular-nums">
+            {sampleClock}
+          </span>
+        ) : null}
       </div>
     </div>
   );
