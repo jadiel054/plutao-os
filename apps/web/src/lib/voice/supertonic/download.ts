@@ -15,6 +15,12 @@ import {
   SUPERTONIC_VOICE_IDS,
   voiceStyleRel,
 } from "./assets";
+import {
+  clearPartial as clearPartialRecords,
+  loadPartial as loadPartialRecords,
+  persistPartialProgress,
+  type PartialRecord,
+} from "./partialStore";
 
 export type DownloadProgress = {
   pct: number;
@@ -31,15 +37,6 @@ const CHUNK_SIZE = 24 * 1024 * 1024;
 const CHUNK_RETRIES = 3;
 /** Arquivos acima deste tamanho usam Range obrigatoriamente. */
 const RANGE_THRESHOLD = 8 * 1024 * 1024;
-
-type PartialRecord = {
-  url: string;
-  totalBytes: number;
-  receivedBytes: number;
-  /** Chunks já baixados como ArrayBuffer, indexados por offset. */
-  chunks: Record<string, ArrayBuffer>;
-  updatedAt: number;
-};
 
 function orderedRelPaths(): string[] {
   const preferred = [
@@ -226,16 +223,23 @@ async function idbGetAsset(url: string): Promise<Blob | null> {
   return idbGet<Blob>(IDB_STORE_ASSETS, url);
 }
 
-async function savePartial(rec: PartialRecord): Promise<void> {
-  await idbPutValue(IDB_STORE_PARTIAL, rec.url, rec);
+function partialIdb() {
+  return {
+    get: idbGet,
+    put: idbPutValue,
+    del: idbDelete,
+    open: openIdb,
+    storeName: IDB_STORE_PARTIAL,
+    fileLabel,
+  };
 }
 
 async function loadPartial(url: string): Promise<PartialRecord | null> {
-  return idbGet<PartialRecord>(IDB_STORE_PARTIAL, url);
+  return loadPartialRecords(partialIdb(), url);
 }
 
 async function clearPartial(url: string): Promise<void> {
-  await idbDelete(IDB_STORE_PARTIAL, url);
+  await clearPartialRecords(partialIdb(), url);
 }
 
 /* ── Cache API ─────────────────────────────────────────────── */
@@ -304,7 +308,6 @@ async function headContentLength(url: string): Promise<{ length: number; acceptR
     return { length: len, acceptRanges: ar };
   } catch (e) {
     if (e instanceof SupertonicDownloadError) throw e;
-    // Alguns CDNs bloqueiam HEAD — tenta Range 0-0
     try {
       const res = await fetch(url, {
         mode: "cors",
@@ -313,7 +316,6 @@ async function headContentLength(url: string): Promise<{ length: number; acceptR
         headers: { Range: "bytes=0-0" },
       });
       const cr = res.headers.get("Content-Range");
-      // bytes 0-0/TOTAL
       const m = cr?.match(/\/(\d+)$/);
       const total = m ? Number(m[1]) : 0;
       return { length: total, acceptRanges: res.status === 206 || Boolean(cr) };
@@ -370,7 +372,7 @@ async function fetchRangeChunk(
         error: e,
       });
       if (attempt < CHUNK_RETRIES) {
-        await sleep(400 * attempt * attempt); // backoff 400, 1600, 3600
+        await sleep(400 * attempt * attempt);
       }
     }
   }
@@ -418,7 +420,7 @@ async function fetchFullWithRetry(url: string): Promise<Blob> {
   });
 }
 
-function assembleChunks(partial: PartialRecord): Blob {
+export function assembleChunks(partial: PartialRecord): Blob {
   const offsets = Object.keys(partial.chunks)
     .map(Number)
     .sort((a, b) => a - b);
@@ -469,9 +471,6 @@ async function storeFinal(url: string, blob: Blob): Promise<"cache" | "idb"> {
   }
 }
 
-/**
- * Download de um arquivo com Range + retomada.
- */
 async function downloadOneChunked(
   url: string,
   index: number,
@@ -517,7 +516,6 @@ async function downloadOneChunked(
     return storage;
   }
 
-  // Resume parcial
   let partial = await loadPartial(url);
   if (partial && partial.totalBytes !== length) {
     console.info("[voice][supertonic] partial size mismatch, reset", {
@@ -538,7 +536,6 @@ async function downloadOneChunked(
     };
   }
 
-  // Recomputa received a partir dos chunks (fonte da verdade)
   let received = 0;
   for (const buf of Object.values(partial.chunks)) {
     received += buf.byteLength;
@@ -563,10 +560,6 @@ async function downloadOneChunked(
 
     const { status, buf } = await fetchRangeChunk(url, start, end);
 
-    // CDN ignorou Range e devolveu 200 com o arquivo inteiro.
-    // No primeiro chunk (start===0) isso é equivalente a full fetch.
-    // No resume (start>0), gravar o body em offset `start` cria gap em 0 e
-    // assembleChunks morre — cenário mobile que o chunked download existe para salvar.
     if (status === 200) {
       if (buf.byteLength === length) {
         console.info("[voice][supertonic] Range ignored (HTTP 200 full body) — adopting as single chunk", {
@@ -574,11 +567,12 @@ async function downloadOneChunked(
           requestedStart: start,
           length,
         });
+        await clearPartial(url);
         partial.chunks = { "0": buf };
         received = buf.byteLength;
         partial.receivedBytes = received;
         partial.updatedAt = Date.now();
-        await savePartial(partial);
+        await persistPartialProgress(partialIdb(), url, length, received, 0, buf);
         break;
       }
       throw new SupertonicDownloadError({
@@ -589,14 +583,12 @@ async function downloadOneChunked(
       });
     }
 
-    // status === 206 — partial content (caminho normal)
     partial.chunks[String(start)] = buf;
     received += buf.byteLength;
     partial.receivedBytes = received;
     partial.updatedAt = Date.now();
 
-    // Persiste após cada chunk (retomada)
-    await savePartial(partial);
+    await persistPartialProgress(partialIdb(), url, length, received, start, buf);
 
     onProgress?.({
       pct: filePct(index, totalFiles, received, length),
@@ -620,15 +612,12 @@ function fmtMb(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
 }
 
-/** Progresso global ponderando o arquivo atual. */
 function filePct(index: number, totalFiles: number, received: number, length: number): number {
   const base = ((index - 1) / totalFiles) * 100;
   const span = 100 / totalFiles;
   const frac = length > 0 ? received / length : 0;
   return Math.min(99, Math.round(base + span * frac));
 }
-
-/* ── Public API ────────────────────────────────────────────── */
 
 export async function isSupertonicCached(): Promise<boolean> {
   const urls = packUrls();
@@ -651,7 +640,6 @@ export async function clearSupertonicCache(): Promise<void> {
   await idbClearStore(IDB_STORE_PARTIAL);
 }
 
-/** Há download parcial pendente? */
 export async function hasPartialDownload(): Promise<boolean> {
   try {
     const db = await openIdb();
@@ -672,10 +660,6 @@ export async function hasPartialDownload(): Promise<boolean> {
 
 let activeDownload: Promise<void> | null = null;
 
-/**
- * Download sequencial com canary + Range + retomada.
- * Chamadas concorrentes compartilham a mesma Promise.
- */
 export async function downloadSupertonicPack(
   onProgress?: (p: DownloadProgress) => void
 ): Promise<void> {
