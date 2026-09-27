@@ -10,7 +10,7 @@ import {
   resolveAssetUrl,
 } from "./download";
 import { voiceStyleRel, SUPERTONIC_VOICE_IDS } from "./assets";
-import { playFloat32 } from "../audioPlayback";
+import { playFloat32, type PlaybackTick } from "../audioPlayback";
 
 export type SupertonicProgress = (pct: number, detail?: string) => void;
 
@@ -140,7 +140,12 @@ async function ensureLoaded(onProgress?: SupertonicProgress): Promise<void> {
 export async function speakSupertonic(
   text: string,
   voiceId: string,
-  opts: { speed: number; volume: number; onProgress?: SupertonicProgress }
+  opts: {
+    speed: number;
+    volume: number;
+    onProgress?: SupertonicProgress;
+    onPlaybackTick?: PlaybackTick;
+  }
 ): Promise<void> {
   await ensureLoaded(opts.onProgress);
   if (!tts) throw new Error("Supertonic não inicializado");
@@ -154,5 +159,5 @@ export async function speakSupertonic(
   const raw = result.wav;
   const wav = raw instanceof Float32Array ? raw : new Float32Array(raw as number[]);
   const sampleRate = (tts.sampleRate as number) || 44100;
-  await playFloat32(wav, sampleRate, opts.volume);
+  await playFloat32(wav, sampleRate, opts.volume, { onTick: opts.onPlaybackTick });
 }
