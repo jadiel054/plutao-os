@@ -332,7 +332,7 @@ async function fetchRangeChunk(
   url: string,
   start: number,
   end: number
-): Promise<ArrayBuffer> {
+): Promise<{ status: number; buf: ArrayBuffer }> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= CHUNK_RETRIES; attempt++) {
     try {
@@ -356,9 +356,10 @@ async function fetchRangeChunk(
           message: `chunk vazio (bytes ${start}-${end})`,
           url,
           phase: "range",
+          status: res.status,
         });
       }
-      return buf;
+      return { status: res.status, buf };
     } catch (e) {
       lastErr = e;
       console.warn("[voice][supertonic] chunk retry", {
@@ -560,7 +561,35 @@ async function downloadOneChunked(
       detail: `${prefix} ${label} · chunk ${fmtMb(start)}–${fmtMb(end + 1)} / ${fmtMb(length)} MB`,
     });
 
-    const buf = await fetchRangeChunk(url, start, end);
+    const { status, buf } = await fetchRangeChunk(url, start, end);
+
+    // CDN ignorou Range e devolveu 200 com o arquivo inteiro.
+    // No primeiro chunk (start===0) isso é equivalente a full fetch.
+    // No resume (start>0), gravar o body em offset `start` cria gap em 0 e
+    // assembleChunks morre — cenário mobile que o chunked download existe para salvar.
+    if (status === 200) {
+      if (buf.byteLength === length) {
+        console.info("[voice][supertonic] Range ignored (HTTP 200 full body) — adopting as single chunk", {
+          label,
+          requestedStart: start,
+          length,
+        });
+        partial.chunks = { "0": buf };
+        received = buf.byteLength;
+        partial.receivedBytes = received;
+        partial.updatedAt = Date.now();
+        await savePartial(partial);
+        break;
+      }
+      throw new SupertonicDownloadError({
+        message: `servidor ignorou Range e devolveu HTTP 200 com tamanho inesperado (${buf.byteLength} ≠ ${length})`,
+        url,
+        phase: "range",
+        status: 200,
+      });
+    }
+
+    // status === 206 — partial content (caminho normal)
     partial.chunks[String(start)] = buf;
     received += buf.byteLength;
     partial.receivedBytes = received;
