@@ -10,7 +10,7 @@ export async function GET() {
   const body = {
     resource,
     authorization_servers: [issuer],
-    scopes_supported: ["mcp:read"],
+    scopes_supported: ["mcp:read", "mcp:write"],
     bearer_methods_supported: ["header"],
     resource_documentation: `${issuer}/ajuda`,
     logo_uri: `${issuer}/icon.png`,
