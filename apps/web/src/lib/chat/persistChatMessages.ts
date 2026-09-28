@@ -5,7 +5,7 @@ import { emitUserMessage, emitAssistantMessage } from "@/lib/events/appendConver
 
 type Db = ReturnType<typeof getDb>;
 
-/** Persist user+assistant pair and append scrubbed conversation events (G1). */
+/** Persist user+assistant pair and append scrubbed conversation events (G1/G2). */
 export async function persistMessagePair(
   db: Db,
   conversationId: string | null,
@@ -35,12 +35,15 @@ export async function persistMessagePair(
       .set({ updatedAt: new Date() })
       .where(eq(conversations.id, conversationId));
 
-    void emitUserMessage(conversationId, userText).catch((e) =>
-      console.error("[events user_message]", e)
-    );
-    void emitAssistantMessage(conversationId, assistantText).catch((e) =>
-      console.error("[events assistant_message]", e)
-    );
+    // Ordenação: user seq < assistant seq (cadeia await, não paralelo)
+    void (async () => {
+      try {
+        await emitUserMessage(conversationId, userText);
+        await emitAssistantMessage(conversationId, assistantText);
+      } catch (e) {
+        console.error("[events persistMessagePair ordered]", e);
+      }
+    })();
   } catch (err) {
     console.error("[persistMessagePair error - chat response preserved]", err);
   }
