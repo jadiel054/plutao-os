@@ -40,6 +40,13 @@ describe("sanitizeForSpeech", () => {
     expect(out.toLowerCase()).toMatch(/link/);
   });
 
+  it("turns image markdown into alt text without bang or url", () => {
+    const out = sanitizeForSpeech("Veja ![fluxo](https://x/y.png)");
+    expect(out).toContain("fluxo");
+    expect(out).not.toContain("!");
+    expect(out).not.toMatch(/http/i);
+  });
+
   it("strips strikethrough", () => {
     const out = sanitizeForSpeech("Isso está ~~errado~~ certo");
     expect(out).toBe("Isso está errado certo");
