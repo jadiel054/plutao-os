@@ -13,6 +13,7 @@ import {
   type VoicePackId,
 } from "./packs";
 import { playFloat32, stopActiveFloat32Playback, type PlaybackTick } from "./audioPlayback";
+import { sanitizeForSpeech } from "./sanitizeForSpeech";
 
 export type VoiceRuntimePrefs = {
   enabled: boolean;
@@ -48,6 +49,8 @@ let piperLoadPromise: Promise<void> | null = null;
 
 let currentAudio: HTMLAudioElement | null = null;
 let _currentUtterance: SpeechSynthesisUtterance | null = null;
+
+export { sanitizeForSpeech } from "./sanitizeForSpeech";
 
 export function defaultVoicePrefs(): VoiceRuntimePrefs {
   return {
@@ -326,6 +329,8 @@ function speakNative(text: string, prefs: VoiceRuntimePrefs): Promise<void> {
  * Fala texto com engine do pack ativo. Nova chamada interrompe a anterior.
  * Sem pack / enabled=false → speechSynthesis.
  *
+ * Texto passa por sanitizeForSpeech (markdown → falável) antes de qualquer engine.
+ *
  * Para Supertonic: a autoridade de "pronto" é isSupertonicReady() (assets reais).
  * Marca localStorage stale (assets evictados) é limpa e o caminho vira native +
  * download em background — nunca bloquear speak no download de ~398 MB.
@@ -335,7 +340,7 @@ export async function speakText(
   prefs: VoiceRuntimePrefs,
   opts?: SpeakOptions
 ): Promise<{ engine: "kokoro" | "piper" | "supertonic" | "native" }> {
-  const clean = text.replace(/\s+/g, " ").trim();
+  const clean = sanitizeForSpeech(text);
   if (!clean) return { engine: "native" };
 
   stopSpeaking();
