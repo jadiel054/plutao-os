@@ -7,7 +7,10 @@ import { randomBytes } from "node:crypto";
 
 export const runtime = "nodejs";
 
-async function checkOwnership(conversationId: string, userId: string) {
+const MAX_TITLE_LEN = 200;
+
+/** Exported for unit tests — ownership gate shared by PATCH/DELETE. */
+export async function checkConversationOwnership(conversationId: string, userId: string) {
   const db = getDb();
   const rows = await db
     .select()
@@ -26,6 +29,17 @@ async function checkOwnership(conversationId: string, userId: string) {
   return { status: 200 as const, conversation: rows[0] };
 }
 
+/**
+ * PATCH body fields (all optional):
+ * - title: string (1–200)
+ * - isPinned: boolean
+ * - projectId: string | null
+ * - enableShare: boolean
+ *
+ * DELETE: hard delete — row removida; messages cascateiam via FK onDelete.
+ * Soft delete não existe (sem deleted_at no schema). Escolha consciente:
+ * histórico sensível some de verdade; UI já confirma antes de chamar.
+ */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -36,7 +50,7 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const check = await checkOwnership(id, user.id);
+  const check = await checkConversationOwnership(id, user.id);
   if (check.status === 404) {
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
@@ -51,7 +65,7 @@ export async function PATCH(
     };
 
     if (typeof body.title === "string" && body.title.trim()) {
-      updateData.title = body.title.trim();
+      updateData.title = body.title.trim().slice(0, MAX_TITLE_LEN);
     }
 
     if (typeof body.isPinned === "boolean") {
@@ -67,7 +81,8 @@ export async function PATCH(
 
     if (typeof body.enableShare === "boolean") {
       if (body.enableShare) {
-        updateData.shareToken = check.conversation!.shareToken || `conv_${randomBytes(16).toString("hex")}`;
+        updateData.shareToken =
+          check.conversation!.shareToken || `conv_${randomBytes(16).toString("hex")}`;
       } else {
         updateData.shareToken = null;
       }
@@ -97,7 +112,7 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const check = await checkOwnership(id, user.id);
+  const check = await checkConversationOwnership(id, user.id);
   if (check.status === 404) {
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
@@ -107,7 +122,10 @@ export async function DELETE(
 
   try {
     const db = getDb();
-    await db.delete(conversations).where(and(eq(conversations.id, id), eq(conversations.userId, user.id)));
+    // Hard delete: messages/artifacts ligados por FK cascade.
+    await db
+      .delete(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.userId, user.id)));
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("[DELETE /api/conversations/[id]]", err);
