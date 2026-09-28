@@ -330,13 +330,17 @@ export async function toolSendMessage(userId: string, input: SendMessageInput) {
     .set({ updatedAt: new Date() })
     .where(eq(conversations.id, conversationId));
 
-  // G1: event stream (append-only, scrub no write). Fire-and-forget — não bloqueia resposta MCP.
-  void emitUserMessage(conversationId, content).catch((e) =>
-    console.error("[events user_message]", e)
-  );
-  void emitAssistantMessage(conversationId, assistantText).catch((e) =>
-    console.error("[events assistant_message]", e)
-  );
+  // H1: eventos sequenciais — user sempre seq menor que assistant.
+  // Ainda fire-and-forget no total (não bloqueia a resposta MCP se o event log falhar),
+  // mas a cadeia interna é await user → await assistant.
+  void (async () => {
+    try {
+      await emitUserMessage(conversationId, content);
+      await emitAssistantMessage(conversationId, assistantText);
+    } catch (e) {
+      console.error("[events send_message ordered]", e);
+    }
+  })();
 
   const userMsg = inserted.find((r) => r.role === "user");
   const asstMsg = inserted.find((r) => r.role === "assistant");
