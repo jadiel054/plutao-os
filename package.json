@@ -19,7 +19,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
+    "typescript": "^5",
     "vitest": "^3.0.0"
   }
 }
