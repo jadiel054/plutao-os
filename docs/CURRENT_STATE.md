@@ -1,9 +1,9 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-25 (voz on-device IMPLEMENTED — smoke pendente)
+**Última atualização:** 2026-09-28 (Frente F housekeeping)
 
 Este documento registra o estado observado no repositório e em produção.
-Capacidade só é **VERIFICADA** with evidência de uso real (não só código no `main`).
+Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
 
 ---
 
@@ -13,15 +13,15 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 |------|--------|------------------------|
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
-| BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO (CÓDIGO/BUILD)** | Migration `0016_conversations.sql` adiciona `conversations` e `messages`. Servidor como fonte de verdade em `/api/conversations` (`GET`, `POST`, `PATCH/[id]`, `DELETE/[id]`, `GET/[id]/messages`, `POST/import`). `/api/chat` persiste mensagens sem bloquear resposta. Guest convert reatribui conversas. Shim único de `localStorage` import em `chat/page.tsx`. |
+| BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO** (2026-09-27) | MCP `plutao_send_message` → `list_conversations` 1→2; mesma tabela `conversations` que o drawer da UI. Migration `0016` + API REST. |
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
-| **Voz (Kokoro + Piper on-device)** | **IMPLEMENTED** | Engines: `kokoro-en` (kokoro-js@1.2.1, EN) + `piper-pt-br` (`pt_BR-faber-medium`, ~63MB CC0). Aba Configurações → Voz; MessageActions. Preferências `users.preferences` (migration **0015**, SQL manual Neon). **Smoke pendente** (AC1–AC5). pt-BR via Piper — pf_* comentados no kokoro-js 1.2.1. |
+| **Voz on-device (Kokoro + Piper + Supertonic)** | **VERIFICADO comportamental** (Poco C65, 2026-09-27) | Download ~398 MB; erro legível; retomada após rede e após 7 min background. Packs: `kokoro-en`, `piper-pt-br`, Supertonic (chunked Range + IDB partials O(1)). Sanitize markdown (#75), progress tick (#73), pack-scoped errors (#77). **Pendente:** kill-test M3, interrupção M5, inspeção DevTools formal. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
-| Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. |
+| Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. Evidence `source` mascarado `model:plutao-primary` (Frente F). |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
 | Tools note / filesystem | **IMPLEMENTED** | Dispatcher + evidência. |
 | Chat Núcleo + system prompt | **VERIFICADO** | Respostas reais em produção. |
-| Chat — awareness de conectores | **VERIFICADO** | Status + capabilities no prompt; pergunta “quais conectores…” reflete GitHub/Vercel conectados. |
+| Chat — awareness de conectores | **VERIFICADO** | Status + capabilities no prompt. |
 | Chat — tools GitHub | **VERIFICADO** | Lista de repositórios com OAuth real (`@jadiel054`). |
 | Chat — tools Vercel | **VERIFICADO** | Lista de projetos com token/OAuth real. |
 | Chat — FollowUpChips | **IMPLEMENTED** | Chips pós-tool; envio ao toque. |
@@ -32,40 +32,41 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 | Conectores UI (Sheet + Configurações) | **IMPLEMENTED** | Estados, gerenciar, catálogo. |
 | GitHub OAuth App + callback | **VERIFICADO** | Fluxo completo em produção. |
 | Vercel conector | **VERIFICADO** | Conectado e tools em chat. |
-| Neon / Stripe (manifests declarativos) | **IMPLEMENTED** | Código Wave A/B; smoke OAuth/token **pendente**. |
-| MCP personalizado (+) | **IMPLEMENTED** | Endpoints RFC 8414/9728 com `logo_uri` (`/icon.png`); favicon e app icon oficial 512x512 configurados. |
+| Neon conector (manifest) | **IMPLEMENTED** | Código; smoke token/OAuth pendente. |
+| Stripe conector (manifest) | **IMPLEMENTED** | `verifyUrl` `/v1/account`; label email/`acct_` (#77). Smoke reconectar pendente. |
+| **Conectores conectados (operador)** | **4/4 connected** (2026-09-27) | GitHub, Vercel, e demais no catálogo ativo do operador — revalidar após deploys. |
+| **MCP fase 2** | **VERIFICADO** (2026-09-27) | OAuth consent dual-scope (`mcp:read`+`mcp:write`); `plutao_send_message`; auditoria `audit_events`; rate limit; `system_status.model` = `plutao-primary`; persistência chat (BUG-03 fechado). |
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
-| Billing Stripe (checkout/webhook) | **IMPLEMENTED** | 6/6 ACs verdes em modo **TEST** em 2026-09-25 (checkout, webhook, idempotência, cancelamento). Checkout hospedado + webhook com assinatura + idempotência `billing_events` (pre-check SELECT). Price IDs só via env. `users.plan` → `caronte` / `orbita_livre`. Migration 0012 (SQL manual Neon). **LIVE pendente** (ativação da conta Stripe pelo operador). **Não VERIFICADO em LIVE.** |
-| B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; `/share/[token]`; migration 0008 no Neon **VERIFICADA**. |
+| Billing Stripe (checkout/webhook) | **IMPLEMENTED** — TEST **6/6** (2026-09-25) | Checkout, webhook, idempotência, cancelamento em modo TEST. LIVE pendente (ativação conta operador). Migration 0012. |
+| B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; ownership 403; testes #76. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
-| Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml` (mantido; one-shots removidos). |
-| Migrations 0000–0012 + **0015** + **0016** no repo | **IMPLEMENTED** | 0012 stripe; **0015** `users.preferences` jsonb; **0016** `conversations` e `messages` (SQL manual Neon). |
-| Migrations no Neon produção | **VERIFICADO** (até 0010) | 2026-09-21: tabelas 0000–0004/0006/0007/0008/0010 presentes. **0011 write_gates, 0012 stripe_billing e 0015 user_preferences: aplicar SQL manual se ainda não rodado.** 0005 skip deliberado. |
-| Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha de missão ponta a ponta ainda a formalizar. |
+| Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml`. |
+| Migrations 0000–0012 + **0015** + **0016** no repo | **IMPLEMENTED** | 0012 stripe; **0015** preferences; **0016** conversations/messages. |
+| Migrations no Neon produção | **VERIFICADO** (até 0010; 0016 operacional via chat/MCP) | 0011 write_gates / 0012 / 0015: confirmar SQL manual se ainda pendente. |
+| Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha formal ainda a formalizar. |
 | Durable execution (Inngest etc.) | **DESIGNED** | Fora do fechamento V1. |
 | Identidade “Cockpit” | **PROVISÓRIA** | Revisar pós-estabilização. |
 | PWA / APK lojas | **PLANEJADO** | Após V1 web estável. |
+| TypeScript monorepo | **ALIGNED** (Frente F) | Root + workspaces em `typescript` ^5 (Next 15 tooling). |
 
 ---
 
 ## O que o código já faz (sem inventar)
 
-- Botão "Explorar como convidado" renderizado na Landing page (`apps/web/src/app/page.tsx`) abaixo de "Já tenho conta"
-- Endpoint REST `POST /api/auth/guest` cria sessões de convidado e define cookie `plutao_guest_session`
-- Limite de sessão de convidado (10 mensagens OU 15 minutos) + Rate limit (máximo 3 sessões por IP por dia)
-- Pós-conversão guest→user: `handleGuestMigrationOnAuth` reatribui missions/artifacts; **não** apaga user guest (CR4); transcript chat migrado no client (`migrateGuestChatLocalStorage`)
+- Botão "Explorar como convidado" na Landing; `POST /api/auth/guest`; limits 10 msgs / 15 min + 3 sessões/IP/dia
+- Persistência server: `conversations` + `messages`; MCP write e UI drawer na mesma tabela
 - Estados de conector: `disconnected → authorizing → connected → reconnecting → error`
 - Tokens cifrados (AES) em `connectors.access_token_enc`
 - Runtime carrega catálogo + status real + capabilities no system prompt
 - Tools só executam se o conector estiver **conectado**
 - Write gate GitHub: aprovação humana via WriteGateCard antes de create/push
-- `resolveCloudModelConfig(id)` mapeia catálogo → `provider` + `apiModel` + `baseUrl` + env keys
-- Default nuvem: `MODEL_PROVIDER=xai` → modelo `grok-4.6`
-- Fila de mensagens, FollowUpChips, card de conector sugerido
-- Voz on-device: packs `kokoro-en` + `piper-pt-br`; API `/api/user/preferences`; aba Configurações → Voz
-- Billing: `POST /api/billing/checkout` (requireUser, planSlug server-side) → Stripe Checkout Session; `POST /api/billing/webhook` (assinatura + idempotência pre-check); UI `/planos` com 3 CTAs fundador; `/planos/sucesso`
+- `resolveCloudModelConfig(id)` mapeia catálogo → provider + apiModel + baseUrl + env keys
+- Evidence de model_step: `source: "model:plutao-primary"` (não vaza groq/openai ids)
+- MCP: OAuth 2.1+PKCE, scopes read/write, audit, rate limit, tools listadas em `docs/MCP_SERVER.md`
+- Voz: Kokoro / Piper / Supertonic; sanitizeForSpeech; pack errors humanizados; playback tick
+- Billing TEST: checkout + webhook + idempotência; founder plans → `caronte` / `orbita_livre`
 
 ---
 
@@ -74,29 +75,28 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 ### Operação
 
 - [x] Confirmar no Neon: migrations **0004–0010** (0005 skip deliberado)
-- [ ] Neon: aplicar **0011_write_gates** + **0012_stripe_billing** + **0015_user_preferences** (SQL Editor, manual) se ainda pendente
-- [ ] Vercel env modelos: `MODEL_PROVIDER`, `MODEL_API_KEY` ou `XAI_API_KEY`, opcional `MODEL_NAME=grok-4.6`, `MODEL_BASE_URL=https://api.x.ai/v1`
-- [ ] Vercel env Stripe LIVE (após ativação da conta): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_FOUNDER19`, `STRIPE_PRICE_FOUNDER29`, `STRIPE_PRICE_FOUNDER39`
-- [ ] Stripe Dashboard LIVE: Products founder + webhook endpoint `https://plutao-os.vercel.app/api/billing/webhook`
-- [ ] Chaves opcionais por card: `GROQ_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`
-- [ ] Smoke modelos: chat default + teste em Configurações → Modelos (só cards com chave)
-- [ ] Smoke conectores: GitHub list repos + Vercel list projects + desconectar/reconectar (já feito em parte; revalidar após deploys)
-- [ ] Smoke B2: pin conversa + gerar link `/share/[token]` (usa colunas 0008)
-- [x] Smoke guest AC3/AC4 (pill + LimitModal/cadastro) — 2026-09-25
-- [ ] Smoke BUG-03 AC1/AC2/AC3 (transcript guest→conta + guest_sessions preservada) após merge do torniquete
-- [x] Smoke billing AC1–AC6 em **TEST** (2026-09-25)
-- [ ] Smoke billing em **LIVE** após ativação Stripe
-- [x] Smoke write gate (GATE_PENDING → aprovação → repo) — 2026-09-25; feedback no chat pendente
-- [ ] Smoke voz AC1–AC5 (packs kokoro-en + piper-pt-br) em produção
+- [ ] Neon: aplicar **0011_write_gates** + **0012_stripe_billing** + **0015_user_preferences** se ainda pendente
+- [ ] Vercel env modelos: `MODEL_PROVIDER`, `MODEL_API_KEY` ou `XAI_API_KEY`, opcional `MODEL_NAME`, `MODEL_BASE_URL`
+- [ ] Vercel env Stripe LIVE (após ativação): secrets + price IDs
+- [ ] Stripe Dashboard LIVE: Products founder + webhook
+- [ ] Smoke modelos: chat default + teste em Configurações → Modelos
+- [ ] Smoke conectores: revalidar 4/4 após deploys; Stripe accountLabel pós-#77
+- [ ] Smoke B2: pin + `/share/[token]`
+- [x] Smoke guest AC3/AC4 — 2026-09-25
+- [x] Smoke billing AC1–AC6 em **TEST** — 2026-09-25
+- [ ] Smoke billing em **LIVE**
+- [x] Smoke write gate — 2026-09-25; feedback no chat pendente
+- [x] Smoke voz comportamental (Poco C65) — 2026-09-27; kill-test M3 / M5 pendentes
+- [x] Smoke MCP fase 2 (consent dual, write, audit, persistência) — 2026-09-27
 
 ### Produto (próximo ciclo)
 
-- [ ] Persistência server de mensagens de chat + migração guest estrutural (substitui torniquete BUG-03)
-- [ ] Neon conector: token/OAuth + tool no chat (igual Wave A)
-- [ ] Stripe **conector** (manifest OAuth/token) — distinto do billing de planos
-- [ ] Seletor AUTO / preferredModel: só ids com rota + chave; UI marca “sem chave”
-- [ ] MCP personalizado: fluxo + estável e profissional
-- [ ] Smoke missão formal: chat → plano → executar tool → evidência na trilha
+- [ ] Feedback de execução no chat do write-gate
+- [ ] Retry/resume Kokoro/Piper com partials generalizados (padrão Supertonic)
+- [ ] Neon conector: token/OAuth + tool no chat
+- [ ] Stripe conector smoke + billing LIVE
+- [ ] Seletor AUTO / preferredModel: só ids com rota + chave
+- [ ] Smoke missão formal: chat → plano → tool → evidência
 - [ ] Central de ajuda: FAQ + bot (sem genérico)
 
 ### Explicitamente fora do V1
@@ -104,49 +104,39 @@ Capacidade só é **VERIFICADA** with evidência de uso real (não só código n
 - Execução durable (Inngest / filas longas)
 - APK / lojas de app
 - Modelo próprio treinado
-- Wave C completa (Linear, Notion, Sentry, …) — um a um depois
+- Wave C completa (Linear, Notion, Sentry, …)
 
 ---
 
 ## Env de referência (produção)
 
 ```
-# App
 APP_URL=https://plutao-os.vercel.app
-
-# Auth sessão + cifra de tokens de conector
 SESSION_SECRET=
-CONNECTOR_TOKEN_SECRET=   # ou SESSION_SECRET ≥16
-
-# GitHub OAuth App (conector)
+CONNECTOR_TOKEN_SECRET=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
-
-# Modelo default (xAI)
 MODEL_PROVIDER=xai
-MODEL_API_KEY=            # ou XAI_API_KEY
-MODEL_NAME=grok-4.6       # opcional
+MODEL_API_KEY=
+MODEL_NAME=grok-4.6
 MODEL_BASE_URL=https://api.x.ai/v1
-
-# Opcional por provedor do catálogo
 GROQ_API_KEY=
 OPENAI_API_KEY=
 GEMINI_API_KEY=
 OPENROUTER_API_KEY=
-
-# Auth social / magic link (B1)
 AUTH_GOOGLE_CLIENT_ID=
 AUTH_GOOGLE_CLIENT_SECRET=
 AUTH_GITHUB_CLIENT_ID=
 AUTH_GITHUB_CLIENT_SECRET=
-# Resend / magic link conforme docs de auth
-
-# Billing Stripe (checkout + webhook)
-STRIPE_SECRET_KEY=sk_test_...   # ou sk_live_ após ativação
+STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_FOUNDER19=price_...
 STRIPE_PRICE_FOUNDER29=price_...
 STRIPE_PRICE_FOUNDER39=price_...
+MCP_TOKEN_SECRET=
+PLUTAO_MCP_API_KEY=
+PLUTAO_MCP_USER_ID=
+DATABASE_URL=
 ```
 
-Guia conectores GitHub: **`docs/CONECTORES_M5.md`**.
+Guia conectores: **`docs/CONECTORES_M5.md`**. MCP: **`docs/MCP_SERVER.md`**.

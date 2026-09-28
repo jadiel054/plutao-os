@@ -6,6 +6,10 @@
  * - Persistência de checkpoints no banco de dados
  * - Integração com LocalProvider para modo offline
  * - Tool dispatch automático
+ *
+ * Proveniência em evidence: sempre `model:plutao-primary` (decisão de produto —
+ * mesmo espírito do system_status MCP). Provider/model reais ficam só no checkpoint
+ * interno (lastModel) para recuperação operacional, não na trilha visível.
  */
 
 import { randomUUID } from "node:crypto";
@@ -20,6 +24,9 @@ import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
 import { ModelProviderFactory, setModelProviderMode } from "./provider";
 import type { ModelMessage, ModelStepResult } from "./types";
 import type { ModelMode } from "@plutao/domain";
+
+/** Label neutro gravado em evidence.source (não vaza provider/model). */
+const EVIDENCE_MODEL_SOURCE = "model:plutao-primary";
 
 type CheckpointShape = {
   step?: string;
@@ -237,7 +244,8 @@ export async function runModelStep(
     id: evidenceId,
     type: "model_step",
     content: modelResult.content || "(empty model response)",
-    source: `model:${providerType}:${modelId}`,
+    // Trilha visível: neutro. Não grava model:groq:… / openai/gpt-oss-…
+    source: EVIDENCE_MODEL_SOURCE,
     taskId: execution.currentTaskId,
     missionId: execution.missionId,
     executionId,
@@ -255,8 +263,9 @@ export async function runModelStep(
     step: "model_step",
     stepIndex,
     taskId: execution.currentTaskId,
-    note: `model ${providerType}/${modelId}`,
+    note: "model step (plutao-primary)",
     evidenceId,
+    // Interno: provider/model reais para recuperação; não vai para evidence.source
     lastModel: {
       provider: providerType,
       model: modelId,

@@ -31,7 +31,7 @@ describe("Definition of Done for execution evidence", () => {
         {
           id: "ev-model",
           type: "model_step",
-          source: "model:groq:test",
+          source: "model:plutao-primary",
           content: "Vou listar os repositórios.",
         },
         {
@@ -54,7 +54,7 @@ describe("Definition of Done for execution evidence", () => {
         {
           id: "ev-model",
           type: "model_step",
-          source: "model:groq:test",
+          source: "model:plutao-primary",
           content: "A missão está concluída.",
         },
       ],
