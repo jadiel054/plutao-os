@@ -1,7 +1,7 @@
 # MAPA MENTAL — Plutão OS
 
 **Documento-mestre para novos chats e onboarding de agentes.**  
-**Atualizado:** 2026-09-21  
+**Atualizado:** 2026-09-28  
 **Repo:** `jadiel054/plutao-os` · **Prod:** `https://plutao-os.vercel.app`  
 **Estado operacional detalhado:** `docs/CURRENT_STATE.md` · **MCP:** `docs/MCP_SERVER.md`
 
@@ -24,9 +24,9 @@ Plutão
 
 **Não é “mais um ChatGPT clone”.**  
 **Não deve ser genérico** (textos, legal, ajuda, branding).  
-**Não mencionar** outras IAs (Grok, ChatGPT, Jules…) em docs/UI do produto — só Plutão e seus agentes.
+**Não mencionar** outras IAs em docs/UI do produto — só Plutão e seus agentes.
 
-**Identidade “Cockpit”:** provisória (herança de conversas antigas). Revisar pós-V1 estável; o produto é Plutão, não um cockpit genérico.
+**Identidade “Cockpit”:** provisória. Revisar pós-V1 estável; o produto é Plutão.
 
 **Fundador / operador:** Jadiel (`@jadiel054`).
 
@@ -40,7 +40,8 @@ Plutão
 4. **Credenciais sensíveis** — alertar / mascarar no chat; preferir conector oficial a colar API key.
 5. **Execução com maturidade** — admitir falha, explicar, corrigir; personalidade “Plutão”.
 6. **Sem confete / exagero emocional** na UI de marcos.
-7. **Fases de produto** não poluem a home — conteúdo de fases em Sobre/docs, não banner “Phase 2”.
+7. **Fases de produto** não poluem a home — conteúdo de fases em Sobre/docs.
+8. **Proveniência de modelo** — superfícies externas (MCP system_status, evidence de missão) usam `plutao-primary`; não vazam provider/model de terceiros.
 
 ---
 
@@ -58,17 +59,17 @@ Plutão
      ┌─────────────────┐                              ┌─────────────────┐
      │  Neon Postgres  │                              │  Model providers │
      │  @plutao/db     │                              │  OpenAI-compat   │
-     │  Drizzle 0000–8 │                              │  MODEL_* env     │
+     │  Drizzle        │                              │  MODEL_* env     │
      └─────────────────┘                              └─────────────────┘
               │
               ▼
      ┌─────────────────────────────────────────────────────────┐
      │ Conectores (tokens AES em connectors.access_token_enc) │
-     │ GitHub OAuth ✓ · Vercel ✓ · Neon/Stripe (código) · MCP+ │
+     │ GitHub ✓ · Vercel ✓ · Neon/Stripe (código) · MCP+      │
      └─────────────────────────────────────────────────────────┘
 ```
 
-**Monorepo**
+**Monorepo** — TypeScript **^5** alinhado (root + apps/web + packages).
 
 ```
 plutao-os/
@@ -91,6 +92,7 @@ Auth usuário
 ├── Email/senha          VERIFICADO
 ├── Google / GitHub      IMPLEMENTED (env AUTH_*)
 ├── Magic link (Resend)  IMPLEMENTED
+├── Guest Mode           VERIFICADO (limits + auto-create fix PR #56)
 └── Sessão cookie HttpOnly  plutao_session
 ```
 
@@ -99,173 +101,118 @@ Auth usuário
 ```
 Chat
 ├── System prompt + personalidade Plutão
-├── Awareness de conectores (status + capabilities no prompt)  VERIFICADO
+├── Awareness de conectores  VERIFICADO
 ├── Tools só se conector connected
-├── FollowUpChips (pós-tool)
-├── Fila de mensagens (até 3 durante stream)
-├── Card Conectar/Pular (suggestedConnectors)
+├── FollowUpChips · fila · card Conectar/Pular
 ├── Anti falso-positivo de “plano de missão”
-├── UI premium (histórico, modelo, ações mensagem — em evolução)
+├── Persistência server (conversations/messages)  VERIFICADO via MCP write
 └── Model resolve: id catálogo → provider + apiModel + baseUrl
 ```
-
-**Modelos em produção (prático):** operador usa `MODEL_*` OpenAI-compatible (`gpt-4o` / mini).  
-Código default catalog: xAI `grok-4.6` se provider xai.  
-Gemini 3.1 entries corrigidas (não mais copy-paste 2.0-flash).
 
 ### 4.3 Missões
 
 ```
 Missões
 ├── Plano / gate / stop (CANCELLED)
-├── Evidência na trilha
-├── Pin + share token (/share/[token])  migration 0008 VERIFICADA
-├── Rename, delete, move project
+├── Evidência na trilha — source model:plutao-primary (mascarado)
+├── Pin + share token (/share/[token])
+├── Rename, delete, move project + ownership 403
 └── Smoke formal ponta a ponta ainda PARCIAL
 ```
 
-### 4.4 Conectores (dentro do produto)
+### 4.4 Conectores
 
 ```
 Estados: disconnected → authorizing → connected → reconnecting → error
 
-Nativos prioritários
-├── GitHub     OAuth App  VERIFICADO (list repos no chat)
-├── Vercel     OAuth/token VERIFICADO (list projects no chat)
+Nativos
+├── GitHub     OAuth App  VERIFICADO
+├── Vercel     OAuth/token VERIFICADO
 ├── Neon       manifest IMPLEMENTED — smoke pendente
-├── Stripe     manifest IMPLEMENTED — billing live PENDENTE
-└── MCP custom (+)  PARCIAL
+├── Stripe     manifest IMPLEMENTED — account via /v1/account; billing TEST 6/6
+└── MCP custom (+)  fase 2 VERIFICADO
 
-Segurança conectores
-├── access_token_enc (AES)
-├── Escopos só o usuário autoriza
-└── Modelo orienta conexão; não inventa tools offline
+Operador: 4/4 connected (revalidar pós-deploy)
 ```
 
-UI: aba Conectores em Configurações + acesso rápido (estilo Grok).  
-Catálogo por objetivo (criação, deploy, dados…) — expandir sem hardcode por provedor no runtime.
-
-### 4.5 MCP Server do Plutão (agentes externos → Plutão)
-
-**Objetivo:** Claude, Cursor, Grok, etc. auditam/ajudam o Plutão com tools oficiais.
+### 4.5 MCP Server (agentes externos → Plutão)
 
 ```
 MCP Plutão (nível GitHub/Vercel)
 ├── Resource server     /api/mcp
 ├── Authorization AS    /api/oauth/authorize + /token
-├── Consent UI          /oauth/consent
-├── PRM RFC 9728        /.well-known/oauth-protected-resource
-├── AS metadata 8414    /.well-known/oauth-authorization-server
-├── PKCE S256 obrigatório
-├── Access token ~1h, aud = URL do MCP, scope mcp:read
-├── Ops key opcional    Bearer header only (PLUTAO_MCP_API_KEY)
-├── PROIBIDO            token na query string
-└── Tools read-only
-      plutao_system_status
-      plutao_list_connectors
-      plutao_list_conversations
-      plutao_get_mission
+├── Consent UI          /oauth/consent (mcp:read + mcp:write)
+├── PRM + AS metadata   well-known
+├── PKCE S256 · refresh + rotação · revoke
+├── Audit + rate limit 30/min
+├── system_status.model = plutao-primary
+└── Tools
+      plutao_system_status (read)
+      plutao_list_connectors (read)
+      plutao_list_conversations (read)
+      plutao_get_mission (read)
+      plutao_send_message (write)
 ```
 
-**Nunca expor** tokens de GitHub/Vercel/Neon via tools MCP.
+Detalhe operacional: **`docs/MCP_SERVER.md`**.
 
-Env MCP: `MCP_TOKEN_SECRET` (ou fallback SESSION/CONNECTOR secret), `APP_URL`, ops key opcional.
+### 4.6 Voz on-device
 
-### 4.6 Billing / produto comercial
+```
+Engines
+├── kokoro-en (kokoro-js) — EN, float32 interruptível
+├── piper-pt-br (pt_BR-faber-medium) — PT-BR
+└── Supertonic — chunked Range, IDB partials O(1), resume
+
+UX: sanitizeForSpeech, progress humanizado, pack-scoped errors, playback tick ~4/s
+Smoke comportamental Poco C65 (2026-09-27): VERIFICADO parcial (M3/M5 pendentes)
+```
+
+### 4.7 Billing / produto comercial
 
 ```
 /planos  founder  R$19 / R$29 / R$39  VERIFICADO UI
-Stripe checkout/webhook  PENDENTE
+Stripe checkout/webhook  TEST 6/6 (2026-09-25) · LIVE pendente
 ```
 
-### 4.7 Legal / ajuda
+### 4.8 Legal / ajuda
 
 ```
 /ajuda · /legal/*   IMPLEMENTED (estático)
-Bot de ajuda + FAQ qualificado  PENDENTE (sem genérico)
+Bot de ajuda + FAQ qualificado  PENDENTE
 ```
 
 ---
 
 ## 5. Banco (Neon)
 
-**Migrations repo:** 0000–0008 (Drizzle).  
-**Neon prod (2026-09-21):** VERIFICADO — 0005 `chat_messages` **não aplica** (schema atual sem essa tabela).
-
-Colunas críticas confirmadas: `missions.idempotency_key`, `is_pinned`, `share_token`; `users.plan`, `preferred_model`.
-
-Tabelas presentes (amostra): users, sessions, missions, connectors, projects, tasks, artifacts, executions, agents, usage_counters, magic_link_tokens, …
+**Migrations repo:** 0000–0012 + 0015 preferences + 0016 conversations/messages.  
+**Neon prod:** 0000–0010 VERIFICADO; 0016 operacional (chat/MCP). Confirmar 0011/0012/0015 se SQL manual ainda pendente.
 
 ---
 
-## 6. Mapa de pastas críticas (apps/web)
+## 6. Roadmap mental
 
 ```
-src/app/
-├── (app)/chat/          # UI chat
-├── api/chat/            # runtime chat + tools
-├── api/mcp/             # MCP resource server
-├── api/oauth/           # authorize · token · consent POST
-├── oauth/consent/       # UI consentimento
-├── .well-known/         # PRM + AS metadata
-├── api/connectors/      # OAuth por provider
-└── api/auth/            # login social, magic link, …
+Ciclo A–F (voz + MCP write + polish)  FECHADO 2026-09-28
 
-src/lib/
-├── mcp/                 # auth · tokens · tools
-├── connectors/          # service · crypto · github/vercel OAuth
-├── runtime/model/       # resolveConfig · config
-└── auth/                # session · cookies · social
-```
-
----
-
-## 7. Env de produção (mapa)
-
-```
-APP_URL
-SESSION_SECRET · CONNECTOR_TOKEN_SECRET
-GITHUB_CLIENT_ID · GITHUB_CLIENT_SECRET          # conector GitHub
-MODEL_PROVIDER · MODEL_API_KEY · MODEL_NAME · MODEL_BASE_URL
-# opcional: GROQ_ · OPENAI_ · GEMINI_ · OPENROUTER_
-AUTH_GOOGLE_* · AUTH_GITHUB_* · RESEND_API_KEY
-DATABASE_URL
-MCP_TOKEN_SECRET · PLUTAO_MCP_API_KEY · PLUTAO_MCP_USER_ID
-MCP_OAUTH_REDIRECT_ALLOWLIST   # opcional
-```
-
-**Observação modelos:** em produção o operador relatou chat estável com **OpenAI-compatible / gpt-4o** via `MODEL_*` (não necessariamente xAI).
-
----
-
-## 8. Roadmap mental
-
-```
-V1 fechar
-├── Env modelo + smoke
-├── Pin/share smoke
-├── MCP OAuth smoke (PRM → consent → tools)
+Próximas prioridades (recalcular com operador)
+├── Feedback execução no chat do write-gate
+├── Retry/resume Kokoro/Piper (partials generalizados)
+├── Stripe LIVE
 ├── Neon conector smoke
-├── Stripe billing live
-└── Missão formal smoke
-
-Depois V1
-├── mcp:write + gate
-├── Central ajuda + bot
-├── MCP personalizado UX
-├── Wave C conectores (um a um, doc oficial)
-├── PWA/APK
-├── Identidade visual/nome pós-“Cockpit”
-└── Modelo próprio (longo prazo)
+├── Missão formal smoke
+└── Central ajuda + bot
 
 Fora de escopo imediato
 ├── Inngest / durable execution
-└── Genéricos de marketing/legal
+├── APK / lojas
+└── Modelo próprio
 ```
 
 ---
 
-## 9. Como um agente novo deve trabalhar
+## 7. Como um agente novo deve trabalhar
 
 1. Ler **este arquivo** + `docs/CURRENT_STATE.md` + `docs/MCP_SERVER.md` se o tema for MCP.
 2. Não inventar status VERIFICADO sem evidência.
@@ -276,43 +223,14 @@ Fora de escopo imediato
 
 ---
 
-## 10. Diagrama-resumo (uma página)
-
-```
-                         ┌──────────────┐
-                         │   Usuário    │
-                         └──────┬───────┘
-                login/sessão    │    OAuth MCP (Claude/Cursor/Grok)
-                                ▼
-┌─────────────┐         ┌───────────────┐         ┌────────────────┐
-│  Chat UI    │◄───────►│  Next.js API  │◄───────►│ MCP /api/mcp   │
-│  Missões    │         │  /api/chat    │         │ resource server│
-└──────┬──────┘         └───────┬───────┘         └────────┬───────┘
-       │                        │                          │
-       │               tools se connected                  │ Bearer
-       │                        ▼                          │ OAuth token
-       │               ┌────────────────┐                  │
-       │               │ GitHub·Vercel  │                  │
-       │               │ (+ Neon/Stripe)│                  │
-       │               └────────┬───────┘                  │
-       │                        │                          │
-       └────────────────────────┼──────────────────────────┘
-                                ▼
-                        ┌───────────────┐
-                        │ Neon + Models │
-                        └───────────────┘
-```
-
----
-
-## 11. Arquivos-âncora
+## 8. Arquivos-âncora
 
 | Doc | Uso |
 |-----|-----|
 | `docs/MAPA_MENTAL_PLUTAO.md` | **Este** — visão total e princípios |
 | `docs/CURRENT_STATE.md` | Matriz VERIFICADO/IMPLEMENTED + checklist V1 |
 | `docs/MCP_SERVER.md` | OAuth MCP, env, tools, segurança |
-| `docs/CONECTORES_M5.md` | Guia conectores (GitHub etc.) |
+| `docs/CONECTORES_M5.md` | Guia conectores |
 | `packages/db/drizzle/*` | Migrations |
 | `packages/domain` | Catálogo de conectores |
 
