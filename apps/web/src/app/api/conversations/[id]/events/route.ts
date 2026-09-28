@@ -27,7 +27,7 @@ export async function GET(
     return NextResponse.json({ error: "Acesso negado à conversa" }, { status: 403 });
   }
 
-  const url = req.nextUrl;
+  const url = req.nextUrl ?? new URL(req.url);
   const cursorRaw = url.searchParams.get("cursor");
   const limitRaw = url.searchParams.get("limit");
   const cursor =
