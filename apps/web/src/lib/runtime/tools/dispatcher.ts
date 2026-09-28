@@ -10,6 +10,7 @@ import { runNote } from "./note";
 import { runFilesystem } from "./filesystem";
 import { runGithub } from "./github";
 import { isToolName, type ToolName, type ToolResult } from "./types";
+import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
 
 function inputHash(name: string, input: string): string {
   return createHash("sha256").update(`${name}\0${input}`).digest("hex").slice(0, 16);
@@ -51,6 +52,8 @@ type CheckpointShape = {
   lastTool?: { name: string; hash: string; evidenceId: string };
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;
+  /** G3: conversa que originou a missão — alimenta o Computador. */
+  conversationId?: string | null;
 };
 
 function asCp(raw: unknown): CheckpointShape {
@@ -189,6 +192,34 @@ export async function dispatchTool(opts: {
     outputOrError: result.ok ? result.output : (result.error ?? "erro"),
     evidenceId,
   });
+
+  // G3: action + observation no event stream da conversa (painel Computador)
+  const conversationId =
+    (typeof cp.conversationId === "string" && cp.conversationId.trim()) ||
+    (typeof nextCp.conversationId === "string" && nextCp.conversationId.trim()) ||
+    null;
+  if (conversationId) {
+    const inputSummary = String(opts.input ?? "").slice(0, 240);
+    try {
+      await emitAction({
+        conversationId,
+        tool: opts.name,
+        inputSummary: inputSummary || opts.name,
+        source: "mission_runtime",
+      });
+      await emitObservation({
+        conversationId,
+        tool: opts.name,
+        ok: result.ok,
+        outputOrError: result.ok
+          ? result.output
+          : (result.error ?? "erro"),
+        source: "mission_runtime",
+      });
+    } catch (e) {
+      console.error("[dispatchTool conversation events]", e);
+    }
+  }
 
   return {
     applied: true as const,

@@ -1417,6 +1417,7 @@ function ChatPageInner() {
           <MissionWorkspaceBar
             key={workspaceKey}
             missionId={activeMissionId}
+            conversationId={activeConversationId}
             onNotify={(msg, type) => addToast(msg, type ?? "info")}
           />
           <AgentComputerPanel

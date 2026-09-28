@@ -29,6 +29,7 @@ import {
   completeExecution,
   findRecoverableExecution,
   startExecution,
+  writeCheckpoint,
 } from "@/lib/runtime/service";
 import { runAgentLoop, MAX_ITERATIONS } from "@/lib/runtime/agent-loop";
 import { nextStatuses } from "@/lib/missions/lifecycle";
@@ -100,6 +101,8 @@ export async function runAutonomousMissionServer(opts: {
   userId: string;
   currentTaskId?: string | null;
   maxIterations?: number;
+  /** G3: conversa do chat que originou a missão — events no Computador. */
+  conversationId?: string | null;
 }): Promise<AutonomousRunResult> {
   const { missionId, userId } = opts;
   const maxIterations = Math.min(
@@ -206,6 +209,22 @@ export async function runAutonomousMissionServer(opts: {
       error: "NO_EXECUTION",
       message: "Não foi possível iniciar execução",
     };
+  }
+
+  // G3: amarra conversationId no checkpoint para o dispatcher emitir action/observation
+  const conversationId =
+    typeof opts.conversationId === "string" && opts.conversationId.trim()
+      ? opts.conversationId.trim()
+      : null;
+  if (conversationId) {
+    try {
+      await writeCheckpoint(executionId, userId, {
+        conversationId,
+        note: "G3 conversation bind",
+      });
+    } catch (e) {
+      console.error("[runAutonomousMissionServer conversation bind]", e);
+    }
   }
 
   const loop = await runAgentLoop(executionId, userId, maxIterations);

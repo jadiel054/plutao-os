@@ -28,6 +28,8 @@ export type CheckpointPayload = {
   taskId?: string | null;
   note?: string;
   data?: Record<string, unknown>;
+  /** G3: conversa do chat ligada a esta execution (event stream do Computador). */
+  conversationId?: string | null;
 };
 
 export function activeIdempotencyKey(missionId: string): string {
