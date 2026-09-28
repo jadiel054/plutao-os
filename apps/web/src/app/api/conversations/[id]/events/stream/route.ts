@@ -39,8 +39,7 @@ export async function GET(
   }
 
   const lastEventIdHeader = req.headers.get("last-event-id");
-  const searchParams = new URL(req.url).searchParams;
-  const cursorParam = searchParams.get("cursor");
+  const cursorParam = req.nextUrl.searchParams.get("cursor");
   let cursor =
     lastEventIdHeader && Number.isFinite(Number(lastEventIdHeader))
       ? Number(lastEventIdHeader)

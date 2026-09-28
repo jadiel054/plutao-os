@@ -27,10 +27,9 @@ export async function GET(
     return NextResponse.json({ error: "Acesso negado à conversa" }, { status: 403 });
   }
 
-  // Prefer URL API over nextUrl so plain Request mocks in unit tests work.
-  const searchParams = new URL(req.url).searchParams;
-  const cursorRaw = searchParams.get("cursor");
-  const limitRaw = searchParams.get("limit");
+  const url = req.nextUrl ?? new URL(req.url);
+  const cursorRaw = url.searchParams.get("cursor");
+  const limitRaw = url.searchParams.get("limit");
   const cursor =
     cursorRaw != null && cursorRaw !== "" && Number.isFinite(Number(cursorRaw))
       ? Number(cursorRaw)
