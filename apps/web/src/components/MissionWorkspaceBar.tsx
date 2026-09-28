@@ -9,6 +9,8 @@ import { MissionExecutionView } from "@/components/MissionExecutionView";
 /**
  * Barra de Mission Workspace acima do input do chat.
  * Carrega plano da missão ativa e permite alinhar / ciclar falha / stop real (1.3).
+ * H1: após align bem-sucedido, dispara POST /api/missions/:id/autonomous-run
+ * (mesmo path do Cockpit — execução real, não só status EXECUTING).
  * Poll 2.5s para trail de tools ao vivo (1.1).
  */
 export function MissionWorkspaceBar({
@@ -66,7 +68,7 @@ export function MissionWorkspaceBar({
   }, [missionId, load]);
 
   async function patch(body: Record<string, unknown>) {
-    if (!missionId) return;
+    if (!missionId) return null;
     setBusy(true);
     try {
       const res = await fetch(`/api/missions/${missionId}/plan`, {
@@ -80,13 +82,63 @@ export function MissionWorkspaceBar({
           typeof data.error === "string" ? data.error : "Falha na ação do plano",
           "error"
         );
-        return;
+        return null;
       }
       const next = parseMissionPlan(data.plan);
       if (next) setPlan(next);
-      onNotifyRef.current?.("Plano atualizado", "success");
+      return data;
     } catch {
       onNotifyRef.current?.("Erro de rede ao atualizar plano", "error");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * H1: align e autonomous-run são requests separados.
+   * O loop NÃO roda no PATCH align (evita timeout no align).
+   * autonomous-run usa maxDuration=300 no route; missões longas ainda
+   * podem cortar — ver débito de executor durável no PR.
+   */
+  async function handleAlign() {
+    if (!missionId) return;
+    const aligned = await patch({ action: "align" });
+    if (!aligned) return;
+
+    onNotifyRef.current?.("Plano alinhado — iniciando execução…", "info");
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/missions/${missionId}/autonomous-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof data.message === "string"
+            ? data.message
+            : typeof data.error === "string"
+              ? data.error
+              : "Falha ao iniciar execução autônoma";
+        onNotifyRef.current?.(msg, "error");
+        await load(true);
+        return;
+      }
+      onNotifyRef.current?.(
+        typeof data.message === "string"
+          ? data.message
+          : "Execução concluída",
+        data.ok ? "success" : "error"
+      );
+      await load(true);
+    } catch {
+      onNotifyRef.current?.(
+        "Erro de rede ao iniciar execução. O plano permanece alinhado — tente de novo pelo Cockpit.",
+        "error"
+      );
+      await load(true);
     } finally {
       setBusy(false);
     }
@@ -153,9 +205,7 @@ export function MissionWorkspaceBar({
         compact
         aligning={busy}
         onAlign={
-          plan.aligned
-            ? undefined
-            : () => void patch({ action: "align" })
+          plan.aligned ? undefined : () => void handleAlign()
         }
       />
       <MissionExecutionView

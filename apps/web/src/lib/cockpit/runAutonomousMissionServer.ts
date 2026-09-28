@@ -2,7 +2,26 @@
  * Server-side Autonomia V1.1 cycle.
  * Survives client tab close for the duration of the HTTP request (Vercel maxDuration).
  * Does NOT implement Service Worker / closed-PWA workers — that is a later phase.
+ *
+ * ## Missões longas (H1)
+ * `POST /api/missions/:id/autonomous-run` declara `maxDuration = 300` (5 min).
+ * O loop inteiro (`runAgentLoop`, até MAX_ITERATIONS) roda **dentro** desse request.
+ * Se o trabalho ultrapassar o teto da plataforma, a execução é cortada no meio
+ * (execution pode ficar RUNNING/INTERRUPTED sem complete limpo).
+ *
+ * **Débito arquitetural (não implementar em H1):** executor durável com
+ * job table + scheduler (ex. fila / Inngest) para retomada fora do ciclo HTTP.
+ * Até lá, missões simples (poucos tool calls) são o caminho suportado;
+ * missões multi-arquivo longas devem ser fatiadas ou aceitar risco de timeout.
  */
+import { and, eq } from "drizzle-orm";
+import { missions } from "@plutao/db";
+import {
+  applyStepTransition,
+  parseMissionPlan,
+  type MissionPlanV1,
+} from "@plutao/domain";
+import { getDb } from "@/lib/db";
 import { transitionMissionStatus } from "@/lib/missions/transition";
 import { getOwnedMission, parseEvidence } from "@/lib/missions/ownership";
 import { verifyDefinitionOfDone } from "@/lib/missions/dod";
@@ -30,6 +49,51 @@ export type AutonomousRunResult = {
 
 const PATH_TO_EXECUTING = ["UNDERSTANDING", "PLANNING", "EXECUTING"] as const;
 const ORDER = ["CREATED", "UNDERSTANDING", "PLANNING", "EXECUTING"];
+
+/**
+ * H1: garante passo 0 PENDING → RUNNING no plano estruturado, se alinhado.
+ * Não vive no PATCH align — só no caminho de execução real.
+ * Retorna o plano atualizado ou null se nada mudou / sem plano.
+ */
+export async function ensureFirstPlanStepRunning(
+  missionId: string,
+  userId: string
+): Promise<MissionPlanV1 | null> {
+  const mission = await getOwnedMission(missionId, userId);
+  if (!mission) return null;
+
+  const plan = parseMissionPlan(mission.plan);
+  if (!plan || !plan.aligned || plan.steps.length === 0) return plan;
+
+  const step0 = plan.steps[0];
+  if (!step0 || step0.status !== "PENDING") return plan;
+
+  const next = applyStepTransition(plan, step0.id, "RUNNING", {
+    eventLabel: `Iniciando: ${step0.title}`,
+    eventDetail: "Passo 0 liberado pelo runtime autônomo",
+  });
+  if (!next) return plan;
+
+  const completedSteps = next.steps
+    .filter((s) => s.status === "PASSED")
+    .map((s) => s.title);
+  const pendingSteps = next.steps
+    .filter((s) => s.status !== "PASSED" && s.status !== "CANCELLED")
+    .map((s) => s.title);
+
+  const db = getDb();
+  await db
+    .update(missions)
+    .set({
+      plan: next,
+      completedSteps,
+      pendingSteps,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(missions.id, missionId), eq(missions.userId, userId)));
+
+  return next;
+}
 
 export async function runAutonomousMissionServer(opts: {
   missionId: string;
@@ -115,6 +179,9 @@ export async function runAutonomousMissionServer(opts: {
     }
     status = t.status;
   }
+
+  // H1: plano alinhado → passo 0 RUNNING antes do agent loop
+  await ensureFirstPlanStepRunning(missionId, userId);
 
   let recoverable = await findRecoverableExecution(missionId, userId);
   if (!recoverable) {
