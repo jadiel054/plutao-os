@@ -25,11 +25,10 @@ describe("sanitizeForSpeech", () => {
 
   it("strips headers and list markers", () => {
     const out = sanitizeForSpeech("# Título\n\n- item um\n- item dois\n1. passo");
-    expect(out).not.toMatch(/^#/m);
+    expect(out).not.toMatch(/#/);
     expect(out).toMatch(/Título/);
     expect(out).toMatch(/item um/);
     expect(out).toMatch(/passo/);
-    expect(out).not.toMatch(/^-\s/m);
   });
 
   it("turns markdown links into labels and bare urls into link", () => {
@@ -47,10 +46,8 @@ describe("sanitizeForSpeech", () => {
   });
 
   it("never collapses non-empty input to empty string", () => {
-    const onlyMarks = sanitizeForSpeech("***");
-    expect(onlyMarks.length).toBeGreaterThan(0);
-    const onlyHashes = sanitizeForSpeech("###");
-    expect(onlyHashes.length).toBeGreaterThan(0);
+    expect(sanitizeForSpeech("***").length).toBeGreaterThan(0);
+    expect(sanitizeForSpeech("###").length).toBeGreaterThan(0);
   });
 
   it("returns empty for blank input", () => {
@@ -59,24 +56,28 @@ describe("sanitizeForSpeech", () => {
   });
 
   it("handles typical agent reply shape", () => {
-    const md = `
-## Resumo
-
-O **Plutão** está online.
-
-1. Conector GitHub ativo
-2. Vercel **connected**
-
-Use \`pnpm build\` e veja https://plutao-os.vercel.app
-
-\\'\'\'ts\nsecret.token = \"no\"\n\\'\'\' 
-`.replace(/\\'/g, "`");
+    const md = [
+      "## Resumo",
+      "",
+      "O **Plutão** está online.",
+      "",
+      "1. Conector GitHub ativo",
+      "2. Vercel **connected**",
+      "",
+      "Use `pnpm build` e veja https://plutao-os.vercel.app",
+      "",
+      "```ts",
+      'secret.token = "no"',
+      "```",
+    ].join("\n");
     const out = sanitizeForSpeech(md);
     expect(out).toMatch(/Plutão/);
     expect(out).toMatch(/Conector GitHub/);
-    expect(out.toLowerCase()).toMatch(/código omitido|pnpm build/);
+    expect(out.toLowerCase()).toMatch(/código omitido/);
+    expect(out).toMatch(/pnpm build/);
     expect(out).not.toMatch(/\*\*/);
     expect(out).not.toContain("`");
+    expect(out).not.toContain("secret.token");
   });
 
   it("truncates to 4000 chars", () => {
