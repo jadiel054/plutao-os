@@ -32,12 +32,16 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const body = await req.json().catch(() => ({}));
     const currentTaskId = body.currentTaskId ? String(body.currentTaskId) : null;
     const maxIterations = body.maxIterations ? Number(body.maxIterations) : undefined;
+    const conversationId = body.conversationId
+      ? String(body.conversationId).trim()
+      : null;
 
     const result = await runAutonomousMissionServer({
       missionId,
       userId: user.id,
       currentTaskId,
       maxIterations,
+      conversationId,
     });
 
     const status =
