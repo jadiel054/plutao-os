@@ -15,7 +15,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const APP_URL = process.env.APP_URL?.replace(/\/$/, "") || "https://plutao-os.vercel.app";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
   title: {
     default: "Plutão",
     template: "%s · Plutão",
@@ -33,12 +36,22 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icon.png", sizes: "512x512", type: "image/png" },
-      { url: "/brand/mark.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
       { url: "/icon_192.png", sizes: "192x192", type: "image/png" },
       { url: "/icon_512.png", sizes: "512x512", type: "image/png" },
+      { url: "/icon.png", sizes: "512x512", type: "image/png" },
+      { url: "/brand/mark.svg", type: "image/svg+xml" },
     ],
-    apple: [{ url: "/apple-icon.png", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
+    shortcut: ["/favicon.ico"],
+  },
+  openGraph: {
+    title: "Plutão",
+    description: "Sistema Abraçado com o Esforço, Dedicação e Evolução.",
+    url: APP_URL,
+    siteName: "Plutão",
+    images: [{ url: "/icon_512.png", width: 512, height: 512, alt: "Plutão" }],
+    type: "website",
   },
   other: { google: "notranslate" },
 };
