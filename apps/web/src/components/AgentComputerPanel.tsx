@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { filterWorkEvents } from "@/lib/events/workEvents";
 
 export type AgentEvent = {
   id: string;
@@ -29,10 +30,10 @@ function toolLabel(ev: AgentEvent): string {
     if (tool === "vercel") return "Vercel";
     return tool.charAt(0).toUpperCase() + tool.slice(1);
   }
-  if (ev.type === "user_message") return "Usuário";
-  if (ev.type === "assistant_message") return "Plutão";
   if (ev.type === "action") return "Ação";
   if (ev.type === "observation") return "Resultado";
+  if (ev.type === "plan") return "Plano";
+  if (ev.type === "state_update") return "Estado";
   return ev.type;
 }
 
@@ -49,8 +50,8 @@ function activityLine(ev: AgentEvent): string {
     const ok = ev.payload.ok !== false;
     return `${ok ? "✓" : "✕"} ${toolLabel(ev)} · ${ev.preview.slice(0, 120)}`;
   }
-  if (ev.type === "user_message") return `Você · ${ev.preview.slice(0, 100)}`;
-  if (ev.type === "assistant_message") return `Plutão · ${ev.preview.slice(0, 100)}`;
+  if (ev.type === "plan") return `Plano · ${ev.preview.slice(0, 120)}`;
+  if (ev.type === "state_update") return `Estado · ${ev.preview.slice(0, 120)}`;
   return ev.preview.slice(0, 140);
 }
 
@@ -58,39 +59,91 @@ function focusEvent(events: AgentEvent[]): AgentEvent | null {
   if (events.length === 0) return null;
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]!;
-    if (e.type === "observation" || e.type === "assistant_message") return e;
+    if (e.type === "observation") return e;
   }
   return events[events.length - 1] ?? null;
 }
 
-/** G2 — Computador do agente, ancorado acima do composer. */
+/**
+ * G3 — Computador do agente: só trabalho (action/observation/plan/state_update).
+ * Chat messages ficam fora. SSE retoma via ?cursor= / Last-Event-ID no server.
+ */
 export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [cursorIndex, setCursorIndex] = useState<number | null>(null);
-  const [streamStatus, setStreamStatus] = useState<"idle" | "live" | "replay" | "error">("idle");
+  const [streamStatus, setStreamStatus] = useState<
+    "idle" | "live" | "replay" | "error"
+  >("idle");
   const esRef = useRef<EventSource | null>(null);
+  const lastSeqRef = useRef(0);
+  const reconnectTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (preferOpen) setOpen(true);
   }, [preferOpen]);
 
   const mergeEvents = useCallback((incoming: AgentEvent[]) => {
+    const work = filterWorkEvents(incoming);
+    if (work.length === 0) return;
     setEvents((prev) => {
       const bySeq = new Map<number, AgentEvent>();
       for (const e of prev) bySeq.set(e.seq, e);
-      for (const e of incoming) bySeq.set(e.seq, e);
-      return Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+      for (const e of work) bySeq.set(e.seq, e);
+      const next = Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+      if (next.length) lastSeqRef.current = next[next.length - 1]!.seq;
+      return next;
     });
   }, []);
+
+  const connectStream = useCallback(
+    (id: string, fromSeq: number) => {
+      esRef.current?.close();
+      const q = fromSeq > 0 ? `?cursor=${fromSeq}` : "";
+      const es = new EventSource(
+        `/api/conversations/${id}/events/stream${q}`
+      );
+      esRef.current = es;
+
+      es.addEventListener("event", (msg) => {
+        try {
+          const ev = JSON.parse((msg as MessageEvent).data) as AgentEvent;
+          if (!ev || typeof ev.seq !== "number") return;
+          mergeEvents([ev]);
+          setStreamStatus("live");
+        } catch {
+          /* ignore */
+        }
+      });
+
+      es.addEventListener("error", () => {
+        setStreamStatus((s) => (s === "replay" ? s : "error"));
+        es.close();
+        if (esRef.current === es) esRef.current = null;
+        if (reconnectTimerRef.current != null) {
+          window.clearTimeout(reconnectTimerRef.current);
+        }
+        reconnectTimerRef.current = window.setTimeout(() => {
+          if (esRef.current) return;
+          connectStream(id, lastSeqRef.current);
+        }, 2000);
+      });
+    },
+    [mergeEvents]
+  );
 
   useEffect(() => {
     if (!conversationId) {
       setEvents([]);
       setCursorIndex(null);
       setStreamStatus("idle");
+      lastSeqRef.current = 0;
       esRef.current?.close();
       esRef.current = null;
+      if (reconnectTimerRef.current != null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       return;
     }
 
@@ -106,36 +159,28 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled) return;
-        const list = Array.isArray(data.events) ? (data.events as AgentEvent[]) : [];
+        const list = Array.isArray(data.events)
+          ? (data.events as AgentEvent[])
+          : [];
         mergeEvents(list);
       } catch {
         /* ignore */
       }
-    })();
-
-    const es = new EventSource(
-      `/api/conversations/${conversationId}/events/stream`
-    );
-    esRef.current = es;
-    es.addEventListener("event", (msg) => {
-      try {
-        const ev = JSON.parse((msg as MessageEvent).data) as AgentEvent;
-        if (!ev || typeof ev.seq !== "number") return;
-        mergeEvents([ev]);
-      } catch {
-        /* ignore */
+      if (!cancelled) {
+        connectStream(conversationId, lastSeqRef.current);
       }
-    });
-    es.addEventListener("error", () => {
-      setStreamStatus((s) => (s === "live" ? "error" : s));
-    });
+    })();
 
     return () => {
       cancelled = true;
-      es.close();
-      if (esRef.current === es) esRef.current = null;
+      esRef.current?.close();
+      esRef.current = null;
+      if (reconnectTimerRef.current != null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
     };
-  }, [conversationId, mergeEvents]);
+  }, [conversationId, mergeEvents, connectStream]);
 
   const isLive = cursorIndex === null;
   const viewIndex = isLive
@@ -147,7 +192,7 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
   );
   const focus = focusEvent(visibleEvents);
   const recentActivity = useMemo(
-    () => [...visibleEvents].reverse().slice(0, 6),
+    () => [...visibleEvents].reverse().slice(0, 8),
     [visibleEvents]
   );
 
@@ -183,10 +228,11 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
       >
         <div className="min-w-0">
           <p className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">
-            Computador · {isLive ? "ao vivo" : `replay #${viewIndex + 1}/${events.length}`}
+            Computador ·{" "}
+            {isLive ? "ao vivo" : `replay #${viewIndex + 1}/${events.length}`}
           </p>
           <p className="text-xs text-[var(--text-secondary)] truncate">
-            {focus ? activityLine(focus) : "Aguardando atividade nesta conversa"}
+            {focus ? activityLine(focus) : "Aguardando trabalho do agente"}
           </p>
         </div>
         <span className="text-[10px] font-mono text-[var(--text-muted)] shrink-0">
@@ -198,7 +244,9 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
       {open ? (
         <div className="border-t border-[var(--border)]/60 px-3 pb-3 pt-2 space-y-3">
           <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--base)]/40 p-2.5 min-h-[72px]">
-            <p className="text-[10px] font-mono uppercase text-[var(--text-muted)] mb-1">Tela</p>
+            <p className="text-[10px] font-mono uppercase text-[var(--text-muted)] mb-1">
+              Tela
+            </p>
             {focus ? (
               <div className="space-y-1.5">
                 <pre className="text-[11px] leading-relaxed text-[var(--text-primary)] whitespace-pre-wrap break-words font-mono max-h-36 overflow-y-auto">
@@ -216,14 +264,20 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
                 ) : null}
               </div>
             ) : (
-              <p className="text-xs text-[var(--text-muted)] italic">Sem foco ainda.</p>
+              <p className="text-xs text-[var(--text-muted)] italic">
+                Sem foco de trabalho ainda.
+              </p>
             )}
           </div>
 
           <div className="space-y-1.5">
-            <p className="text-[10px] font-mono uppercase text-[var(--text-muted)]">Atividade</p>
+            <p className="text-[10px] font-mono uppercase text-[var(--text-muted)]">
+              Atividade
+            </p>
             {recentActivity.length === 0 ? (
-              <p className="text-xs text-[var(--text-muted)] italic">Nenhum evento.</p>
+              <p className="text-xs text-[var(--text-muted)] italic">
+                Nenhum passo de trabalho.
+              </p>
             ) : (
               <ul className="space-y-1 max-h-40 overflow-y-auto">
                 {recentActivity.map((ev) => (
@@ -260,7 +314,9 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
             <button
               type="button"
               onClick={stepForward}
-              disabled={events.length === 0 || (isLive && viewIndex >= events.length - 1)}
+              disabled={
+                events.length === 0 || (isLive && viewIndex >= events.length - 1)
+              }
               className="px-2 py-1 rounded-lg border border-[var(--border)] text-[11px] disabled:opacity-30"
               title="Próximo"
             >
@@ -275,7 +331,7 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
               Ir para ao vivo
             </button>
             <span className="text-[10px] font-mono text-[var(--text-muted)] ml-auto">
-              {events.length} evt
+              {events.length} steps
             </span>
           </div>
         </div>
