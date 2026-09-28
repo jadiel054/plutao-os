@@ -8,16 +8,16 @@ import { MissionExecutionView } from "@/components/MissionExecutionView";
 
 /**
  * Barra de Mission Workspace acima do input do chat.
- * Carrega plano da missão ativa e permite alinhar / ciclar falha / stop real (1.3).
- * H1: após align bem-sucedido, dispara POST /api/missions/:id/autonomous-run
- * (mesmo path do Cockpit — execução real, não só status EXECUTING).
- * Poll 2.5s para trail de tools ao vivo (1.1).
+ * G3: autonomous-run é fire-and-forget (não bloqueia UI até 5 min).
+ * conversationId liga o runtime ao event stream do Computador.
  */
 export function MissionWorkspaceBar({
   missionId,
+  conversationId,
   onNotify,
 }: {
   missionId: string | null;
+  conversationId?: string | null;
   onNotify?: (msg: string, type?: "info" | "success" | "error") => void;
 }) {
   const onNotifyRef = useRef(onNotify);
@@ -96,52 +96,56 @@ export function MissionWorkspaceBar({
   }
 
   /**
-   * H1: align e autonomous-run são requests separados.
-   * O loop NÃO roda no PATCH align (evita timeout no align).
-   * autonomous-run usa maxDuration=300 no route; missões longas ainda
-   * podem cortar — ver débito de executor durável no PR.
+   * Align (rápido) + dispara autonomous-run sem await longo.
+   * O painel Computador acompanha via SSE; poll do plano continua.
    */
   async function handleAlign() {
     if (!missionId) return;
     const aligned = await patch({ action: "align" });
     if (!aligned) return;
 
-    onNotifyRef.current?.("Plano alinhado — iniciando execução…", "info");
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/missions/${missionId}/autonomous-run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg =
+    onNotifyRef.current?.(
+      "Plano alinhado — execução iniciada em segundo plano",
+      "info"
+    );
+
+    // Fire-and-forget: não segura a UI nos maxDuration 300s
+    void (async () => {
+      try {
+        const res = await fetch(`/api/missions/${missionId}/autonomous-run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: conversationId || null,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg =
+            typeof data.message === "string"
+              ? data.message
+              : typeof data.error === "string"
+                ? data.error
+                : "Falha na execução autônoma";
+          onNotifyRef.current?.(msg, "error");
+          await load(true);
+          return;
+        }
+        onNotifyRef.current?.(
           typeof data.message === "string"
             ? data.message
-            : typeof data.error === "string"
-              ? data.error
-              : "Falha ao iniciar execução autônoma";
-        onNotifyRef.current?.(msg, "error");
+            : "Execução concluída",
+          data.ok ? "success" : "error"
+        );
         await load(true);
-        return;
+      } catch {
+        onNotifyRef.current?.(
+          "Erro de rede na execução. Plano permanece alinhado.",
+          "error"
+        );
+        await load(true);
       }
-      onNotifyRef.current?.(
-        typeof data.message === "string"
-          ? data.message
-          : "Execução concluída",
-        data.ok ? "success" : "error"
-      );
-      await load(true);
-    } catch {
-      onNotifyRef.current?.(
-        "Erro de rede ao iniciar execução. O plano permanece alinhado — tente de novo pelo Cockpit.",
-        "error"
-      );
-      await load(true);
-    } finally {
-      setBusy(false);
-    }
+    })();
   }
 
   async function stopMission() {
