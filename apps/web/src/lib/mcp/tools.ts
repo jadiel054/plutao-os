@@ -13,6 +13,7 @@ import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelMessage } from "@/lib/runtime/model/types";
 import { hasMcpScope, getMcpAuth } from "./auth";
 import { checkMcpRateLimit, writeMcpAudit } from "./audit";
+import { emitUserMessage, emitAssistantMessage } from "@/lib/events/appendConversationEvent";
 
 const MAX_CONTENT = 4000;
 
@@ -328,6 +329,14 @@ export async function toolSendMessage(userId: string, input: SendMessageInput) {
     .update(conversations)
     .set({ updatedAt: new Date() })
     .where(eq(conversations.id, conversationId));
+
+  // G1: event stream (append-only, scrub no write). Fire-and-forget — não bloqueia resposta MCP.
+  void emitUserMessage(conversationId, content).catch((e) =>
+    console.error("[events user_message]", e)
+  );
+  void emitAssistantMessage(conversationId, assistantText).catch((e) =>
+    console.error("[events assistant_message]", e)
+  );
 
   const userMsg = inserted.find((r) => r.role === "user");
   const asstMsg = inserted.find((r) => r.role === "assistant");
