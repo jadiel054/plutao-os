@@ -9,6 +9,7 @@ import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LongInputModal, type ArtifactRef } from "@/components/LongInputModal";
 import { MissionWorkspaceBar } from "@/components/MissionWorkspaceBar";
+import { AgentComputerPanel } from "@/components/AgentComputerPanel";
 import { ChatAttachMenu } from "@/components/ChatAttachMenu";
 import { ConnectorsSheet } from "@/components/ConnectorsSheet";
 import { ConnectorActionCard, type SuggestedConnector } from "@/components/ConnectorActionCard";
@@ -1417,6 +1418,10 @@ function ChatPageInner() {
             key={workspaceKey}
             missionId={activeMissionId}
             onNotify={(msg, type) => addToast(msg, type ?? "info")}
+          />
+          <AgentComputerPanel
+            conversationId={activeConversationId}
+            preferOpen={sending || queue.length > 0}
           />
         </div>
 

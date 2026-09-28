@@ -17,6 +17,8 @@ import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/i
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
+import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
+import { emitConnectorToolEvents } from "./emitConnectorToolEvents";
 
 export const runtime = "nodejs";
 
@@ -81,31 +83,7 @@ async function persistMessagePair(
   userText: string,
   assistantText: string
 ) {
-  if (!conversationId) return;
-  try {
-    const now = new Date();
-    await db.insert(messagesTable).values([
-      {
-        conversationId,
-        role: "user",
-        content: userText,
-        createdAt: now,
-      },
-      {
-        conversationId,
-        role: "assistant",
-        content: assistantText,
-        createdAt: new Date(now.getTime() + 10),
-      },
-    ]);
-
-    await db
-      .update(conversations)
-      .set({ updatedAt: new Date() })
-      .where(eq(conversations.id, conversationId));
-  } catch (err) {
-    console.error("[persistMessagePair error - chat response preserved]", err);
-  }
+  return persistMessagePairLib(db, conversationId, userText, assistantText);
 }
 
 async function incrementUsageCounter(db: ReturnType<typeof getDb>, userId: string, isPremium: boolean) {
@@ -951,6 +929,7 @@ ${
             }
 
             await persistMessagePair(db, activeConversationId, lastUserText, assistantContent);
+            await emitConnectorToolEvents(activeConversationId, toolRunRes);
 
             emit("done", {
               full: assistantContent,
@@ -1215,6 +1194,7 @@ ${
     }
 
     await persistMessagePair(db, activeConversationId, lastUserText, assistantContent);
+    await emitConnectorToolEvents(activeConversationId, toolRunRes);
 
     return NextResponse.json({
       message: { role: "assistant", content: assistantContent },
