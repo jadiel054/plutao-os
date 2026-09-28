@@ -41,7 +41,9 @@ describe("sanitizeForSpeech", () => {
   });
 
   it("turns image markdown into alt text without bang or url", () => {
-    const out = sanitizeForSpeech("Veja ![fluxo](https://x/y.png)");
+    // Concatenation avoids markdown pipelines eating the literal in source
+    const input = "Veja !" + "[fluxo](https://x/y.png)";
+    const out = sanitizeForSpeech(input);
     expect(out).toContain("fluxo");
     expect(out).not.toContain("!");
     expect(out).not.toMatch(/http/i);

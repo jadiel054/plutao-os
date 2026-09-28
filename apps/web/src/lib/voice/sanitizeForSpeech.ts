@@ -6,23 +6,28 @@
 
 const MAX = 4000;
 
+/** Image bang-bracket alt -> alt (RegExp built without markdown in comments) */
+const RE_IMAGE = new RegExp("!" + "\\[([^\\]]*)\\]\\([^)]*\\)", "g");
+/** Link bracket label -> label */
+const RE_LINK = new RegExp("\\[([^\\]]+)\\]\\([^)]*\\)", "g");
+
 export function sanitizeForSpeech(text: string): string {
   const raw = typeof text === "string" ? text : String(text ?? "");
   if (!raw.trim()) return "";
 
   let s = raw;
 
-  // Blocos de código fenced → verbalização curta
+  // Fenced code blocks -> short spoken placeholder
   s = s.replace(/```[\s\S]*?```/g, " código omitido ");
-  // Inline code: mantém o conteúdo, tira backticks
+  // Inline code: keep content, drop backticks
   s = s.replace(/`([^`\n]+)`/g, "$1");
   s = s.replace(/`+/g, " ");
 
-  // Imagens ![alt](url) → alt
-  s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
-  // Links [label](url) → label
-  s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-  // URLs bare → "link"
+  // Images then links (order matters: images start with bang)
+  s = s.replace(RE_IMAGE, "$1");
+  s = s.replace(RE_LINK, "$1");
+
+  // Bare URLs -> "link"
   s = s.replace(/https?:\/\/[^\s)\]>"']+/gi, " link ");
   s = s.replace(/www\.[^\s)\]>"']+/gi, " link ");
 
@@ -30,39 +35,36 @@ export function sanitizeForSpeech(text: string): string {
   s = s.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "");
   s = s.replace(/^[ \t]{0,3}#{1,6}[ \t]*$/gm, "");
 
-  // Bold / italic / strike (ordem: triplo → duplo → simples)
+  // Bold / italic / strike (triple -> double -> single)
   s = s.replace(/\*\*\*([^*]+)\*\*\*/g, "$1");
   s = s.replace(/___([^_]+)___/g, "$1");
   s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
   s = s.replace(/__([^_]+)__/g, "$1");
   s = s.replace(/~~([^~]+)~~/g, "$1");
-  // Itálico residual com * ou _ delimitando palavra
   s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1$2");
   s = s.replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?:;]|$)/g, "$1$2");
 
-  // Marcadores de lista no início da linha
+  // List markers at line start
   s = s.replace(/^[ \t]*[-*+][ \t]+/gm, "");
   s = s.replace(/^[ \t]*\d+[.)][ \t]+/gm, "");
 
   // Blockquotes
   s = s.replace(/^[ \t]*>[ \t]?/gm, "");
 
-  // Tabelas markdown: separadores
+  // Table separators
   s = s.replace(/\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)+\|?/g, " ");
   s = s.replace(/\|/g, " ");
 
-  // HTML residual comum
+  // Residual HTML
   s = s.replace(/<br\s*\/?>/gi, " ");
   s = s.replace(/<\/?[a-zA-Z][^>]*>/g, " ");
 
-  // Símbolos markdown soltos que TTS soletra
+  // Stray markdown symbols TTS would spell out
   s = s.replace(/[*_~#`]+/g, " ");
 
-  // Colapsa whitespace
   s = s.replace(/\s+/g, " ").trim();
 
   if (!s) {
-    // Nunca colapsar a vazio se havia conteúdo
     const fallback = raw.replace(/\s+/g, " ").trim().slice(0, MAX);
     return fallback || " ";
   }
