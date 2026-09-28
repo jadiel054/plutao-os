@@ -28,11 +28,22 @@ export const stripeManifest: ConnectorManifest = {
     url: "https://dashboard.stripe.com/apikeys",
     label: "API Key do Stripe (Secret ou Restricted)",
     placeholder: "API Key (ex: rk_live_... ou sk_test_...)",
-    verifyUrl: "https://api.stripe.com/v1/balance",
+    // /v1/account devolve id (acct_…) e email — /v1/balance só tem object=balance
+    verifyUrl: "https://api.stripe.com/v1/account",
     extractUserLogin: (data: unknown) => {
       const obj = data as Record<string, unknown>;
-      if (obj.object === "balance") return "stripe-account";
-      return "stripe-user";
+      if (obj && typeof obj === "object") {
+        const email = typeof obj.email === "string" ? obj.email.trim() : "";
+        if (email) return email;
+        const bp = obj.business_profile as Record<string, unknown> | undefined;
+        const biz =
+          bp && typeof bp.name === "string" ? String(bp.name).trim() : "";
+        if (biz) return biz;
+        const id = typeof obj.id === "string" ? obj.id.trim() : "";
+        if (id.startsWith("acct_")) return id;
+        if (id) return id;
+      }
+      return "stripe";
     },
   },
   capabilities: [
@@ -49,10 +60,20 @@ export const stripeManifest: ConnectorManifest = {
       summary: {
         customFormatter: (data: unknown) => {
           const obj = data as Record<string, unknown>;
-          const avail = Array.isArray(obj.available) ? (obj.available as Array<{ amount: number; currency: string }>) : [];
-          const pend = Array.isArray(obj.pending) ? (obj.pending as Array<{ amount: number; currency: string }>) : [];
-          const availStr = avail.map((a) => `${(a.amount / 100).toFixed(2)} ${a.currency.toUpperCase()}`).join(", ") || "0.00";
-          const pendStr = pend.map((p) => `${(p.amount / 100).toFixed(2)} ${p.currency.toUpperCase()}`).join(", ") || "0.00";
+          const avail = Array.isArray(obj.available)
+            ? (obj.available as Array<{ amount: number; currency: string }>)
+            : [];
+          const pend = Array.isArray(obj.pending)
+            ? (obj.pending as Array<{ amount: number; currency: string }>)
+            : [];
+          const availStr =
+            avail
+              .map((a) => `${(a.amount / 100).toFixed(2)} ${a.currency.toUpperCase()}`)
+              .join(", ") || "0.00";
+          const pendStr =
+            pend
+              .map((p) => `${(p.amount / 100).toFixed(2)} ${p.currency.toUpperCase()}`)
+              .join(", ") || "0.00";
           return `Saldo Stripe:\n- Disponível: ${availStr}\n- Pendente: ${pendStr}`;
         },
       },

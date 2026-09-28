@@ -14,6 +14,12 @@ import {
 } from "./packs";
 import { playFloat32, stopActiveFloat32Playback, type PlaybackTick } from "./audioPlayback";
 import { sanitizeForSpeech } from "./sanitizeForSpeech";
+import {
+  formatKokoroProgressDetail,
+  formatPackError,
+  formatPiperProgressDetail,
+  PackDownloadError,
+} from "./packErrors";
 
 export type VoiceRuntimePrefs = {
   enabled: boolean;
@@ -169,7 +175,15 @@ function playBlob(blob: Blob, volume: number, onTick?: PlaybackTick): Promise<vo
       audio.onerror = () => {
         URL.revokeObjectURL(url);
         if (currentAudio === audio) currentAudio = null;
-        reject(new Error("Falha ao reproduzir áudio Piper"));
+        reject(
+          new PackDownloadError({
+            packId: "piper-pt-br",
+            packName: "Português BR (Piper)",
+            file: PIPER_VOICE_ID,
+            phase: "playback",
+            cause: new Error("Falha ao reproduzir áudio"),
+          })
+        );
       };
       void audio.play().catch(reject);
     } catch (e) {
@@ -182,8 +196,10 @@ async function ensureKokoro(onProgress?: ProgressCb): Promise<void> {
   if (kokoroInstance) return;
   if (kokoroLoadPromise) return kokoroLoadPromise;
 
+  const packName = getPack("kokoro-en")?.name ?? "Inglês (Kokoro)";
+
   kokoroLoadPromise = (async () => {
-    onProgress?.(0, "downloading", "Carregando modelo Kokoro…");
+    onProgress?.(0, "downloading", "Kokoro · iniciando download…");
     console.info("[voice] downloading kokoro", KOKORO_MODEL_ID, KOKORO_DTYPE);
 
     const device =
@@ -194,18 +210,23 @@ async function ensureKokoro(onProgress?: ProgressCb): Promise<void> {
     const tts = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
       dtype: device === "webgpu" ? "fp32" : KOKORO_DTYPE,
       device,
-      progress_callback: (p: { progress?: number; status?: string }) => {
+      progress_callback: (p: {
+        progress?: number;
+        status?: string;
+        file?: string;
+        name?: string;
+      }) => {
         const pct =
           typeof p.progress === "number"
             ? Math.min(99, Math.max(0, Math.round(p.progress)))
             : 10;
-        onProgress?.(pct, "downloading", p.status ?? "download");
+        onProgress?.(pct, "downloading", formatKokoroProgressDetail(p, pct));
       },
     });
 
     kokoroInstance = tts;
     markPackReady("kokoro-en");
-    onProgress?.(100, "ready", "Pronto");
+    onProgress?.(100, "ready", "Kokoro · pronto");
     console.info("[voice] kokoro ready", { device });
   })();
 
@@ -213,8 +234,15 @@ async function ensureKokoro(onProgress?: ProgressCb): Promise<void> {
     await kokoroLoadPromise;
   } catch (e) {
     kokoroLoadPromise = null;
-    onProgress?.(0, "error", e instanceof Error ? e.message : "Falha no download Kokoro");
-    throw e;
+    const wrapped = new PackDownloadError({
+      packId: "kokoro-en",
+      packName,
+      file: KOKORO_MODEL_ID.split("/").pop() || KOKORO_MODEL_ID,
+      phase: "download",
+      cause: e,
+    });
+    onProgress?.(0, "error", wrapped.message);
+    throw wrapped;
   }
 }
 
@@ -222,8 +250,10 @@ async function ensurePiper(onProgress?: ProgressCb): Promise<void> {
   if (piperSession?.ready) return;
   if (piperLoadPromise) return piperLoadPromise;
 
+  const packName = getPack("piper-pt-br")?.name ?? "Português BR (Piper)";
+
   piperLoadPromise = (async () => {
-    onProgress?.(0, "downloading", "Carregando Piper pt_BR-faber-medium…");
+    onProgress?.(0, "downloading", formatPiperProgressDetail(0, PIPER_VOICE_ID));
     console.info("[voice] downloading piper", PIPER_VOICE_ID);
 
     const { TtsSession } = await import("@realtimex/piper-tts-web");
@@ -235,7 +265,7 @@ async function ensurePiper(onProgress?: ProgressCb): Promise<void> {
       progress: (p: { loaded?: number; total?: number }) => {
         if (p.total && p.total > 0 && typeof p.loaded === "number") {
           const pct = Math.min(99, Math.round((p.loaded / p.total) * 100));
-          onProgress?.(pct, "downloading", "download piper");
+          onProgress?.(pct, "downloading", formatPiperProgressDetail(pct, PIPER_VOICE_ID));
         }
       },
       logger: (msg: string) => console.info("[voice][piper]", msg),
@@ -243,7 +273,7 @@ async function ensurePiper(onProgress?: ProgressCb): Promise<void> {
 
     piperSession = session;
     markPackReady("piper-pt-br");
-    onProgress?.(100, "ready", "Pronto");
+    onProgress?.(100, "ready", "Piper · pronto");
     console.info("[voice] piper ready", PIPER_VOICE_ID);
   })();
 
@@ -251,8 +281,15 @@ async function ensurePiper(onProgress?: ProgressCb): Promise<void> {
     await piperLoadPromise;
   } catch (e) {
     piperLoadPromise = null;
-    onProgress?.(0, "error", e instanceof Error ? e.message : "Falha no download Piper");
-    throw e;
+    const wrapped = new PackDownloadError({
+      packId: "piper-pt-br",
+      packName,
+      file: PIPER_VOICE_ID,
+      phase: "download",
+      cause: e,
+    });
+    onProgress?.(0, "error", wrapped.message);
+    throw wrapped;
   }
 }
 
@@ -356,7 +393,7 @@ export async function speakText(
   try {
     if (pack.engine === "kokoro") {
       if (!kokoroInstance) {
-        opts?.onProgress?.(0, "downloading", "Baixando voz on-device…");
+        opts?.onProgress?.(0, "downloading", "Kokoro · baixando voz on-device…");
         const nativePromise = speakNative(clean, prefs);
         void ensureKokoro(opts?.onProgress).catch(() => undefined);
         await nativePromise;
@@ -377,7 +414,7 @@ export async function speakText(
 
     if (pack.engine === "piper") {
       if (!piperSession?.ready) {
-        opts?.onProgress?.(0, "downloading", "Baixando Piper pt-BR…");
+        opts?.onProgress?.(0, "downloading", formatPiperProgressDetail(0, PIPER_VOICE_ID));
         const nativePromise = speakNative(clean, prefs);
         void ensurePiper(opts?.onProgress).catch(() => undefined);
         await nativePromise;
@@ -419,7 +456,16 @@ export async function speakText(
     await speakNative(clean, prefs);
     return { engine: "native" };
   } catch (e) {
-    console.warn("[voice] on-device failed, native fallback", e);
+    const detail =
+      e instanceof PackDownloadError
+        ? e.message
+        : formatPackError({
+            packId: pack.id,
+            packName: pack.name,
+            phase: "speak",
+            cause: e,
+          });
+    console.warn("[voice] on-device failed, native fallback", detail, e);
     await speakNative(clean, prefs);
     return { engine: "native" };
   }
