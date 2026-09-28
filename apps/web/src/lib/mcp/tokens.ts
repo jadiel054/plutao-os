@@ -9,7 +9,7 @@
 
 import { createHmac, timingSafeEqual, createHash, randomBytes } from "node:crypto";
 
-export const MCP_SCOPES = ["mcp:read"] as const;
+export const MCP_SCOPES = ["mcp:read", "mcp:write"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 const ACCESS_TTL_SEC = 60 * 60;
@@ -194,7 +194,10 @@ export function normalizeScopes(requested: string | null | undefined): string {
   const allowed = new Set<string>(MCP_SCOPES);
   const out = parts.filter((p) => allowed.has(p));
   if (out.length === 0) return "mcp:read";
-  return [...new Set(out)].join(" ");
+  // mcp:write implica necessidade de mcp:read no grant efetivo
+  const set = new Set(out);
+  if (set.has("mcp:write")) set.add("mcp:read");
+  return [...set].join(" ");
 }
 
 export function isRedirectUriAllowed(uri: string): boolean {

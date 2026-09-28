@@ -8,7 +8,7 @@ Arquitetura alinhada a **GitHub / Vercel MCP** e à spec MCP Authorization:
 | **Authorization server** | `/api/oauth/authorize`, `/api/oauth/token`, consent UI |
 | **Discovery** | `/.well-known/oauth-protected-resource` + `oauth-authorization-server` |
 
-**Tools:** somente leitura (`mcp:read`). Tokens de GitHub/Vercel/Neon **nunca** saem nas respostas.
+**Scopes:** `mcp:read` (obrigatório) e `mcp:write` (envio de mensagens). Tokens de GitHub/Vercel/Neon **nunca** saem nas respostas.
 
 ---
 
@@ -20,8 +20,10 @@ Arquitetura alinhada a **GitHub / Vercel MCP** e à spec MCP Authorization:
 | `https://<APP>/.well-known/oauth-protected-resource` | RFC 9728 |
 | `https://<APP>/.well-known/oauth-authorization-server` | RFC 8414 |
 | `https://<APP>/api/oauth/authorize` | Login + redirect consent |
-| `https://<APP>/oauth/consent` | UI de permissão |
-| `https://<APP>/api/oauth/token` | code → access_token (PKCE) |
+| `https://<APP>/oauth/consent` | UI de permissão (lista scopes) |
+| `https://<APP>/api/oauth/token` | code → access_token + refresh (PKCE) |
+| `https://<APP>/api/oauth/revoke` | revoga grant (token ou grant_id autenticado) |
+| `https://<APP>/api/oauth/grants` | lista grants do usuário (sessão) |
 
 ---
 
@@ -35,11 +37,11 @@ MCP_TOKEN_SECRET=   # openssl rand -hex 32
 # fallback: CONNECTOR_TOKEN_SECRET ou SESSION_SECRET
 
 # Ops break-glass (opcional) — só header Bearer, nunca query
+# Ops key recebe mcp:read + mcp:write para dogfooding
 PLUTAO_MCP_API_KEY=
 PLUTAO_MCP_USER_ID=
 
 # Opcional: restringir redirect_uri (prefixos separados por vírgula)
-# Se vazio: https://* + localhost/127.0.0.1 (usuário vê URI no consent)
 MCP_OAUTH_REDIRECT_ALLOWLIST=
 ```
 
@@ -52,13 +54,13 @@ Redeploy após salvar. **Não** use token na query string.
 1. Cliente chama `/api/mcp` sem token → **401** +  
    `WWW-Authenticate: Bearer resource_metadata="https://…/.well-known/oauth-protected-resource"`
 2. Cliente lê PRM → `authorization_servers: [APP_URL]`
-3. Cliente lê AS metadata → authorize + token endpoints
-4. Browser: `/api/oauth/authorize?…&code_challenge=…&code_challenge_method=S256`
-5. Usuário loga no Plutão (se preciso) → **Autorizar** no consent
+3. Cliente lê AS metadata → authorize + token endpoints; `scopes_supported: mcp:read mcp:write`
+4. Browser: `/api/oauth/authorize?…&scope=mcp:read%20mcp:write&code_challenge=…`
+5. Usuário loga no Plutão → **Autorizar** no consent (scopes listados)
 6. Redirect com `?code=` → cliente troca em `/api/oauth/token` com `code_verifier`
 7. Cliente usa `Authorization: Bearer <access_token>` nas tools
 
-**PKCE S256 é obrigatório.** Access token: ~1h, `aud` = URL do MCP, scope `mcp:read`.
+**PKCE S256 é obrigatório.** Access token: ~1h, `aud` = URL do MCP.
 
 ---
 
@@ -81,29 +83,56 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 - [x] PKCE S256
 - [x] Consentimento explícito (conta, client_id, redirect_uri, scopes)
 - [x] Token curto + audience fixa no MCP
-- [x] Tools read-only; sem tokens de conectores
+- [x] Sem tokens de conectores nas respostas
 - [x] 401 com `resource_metadata` (RFC 9728)
-- [ ] Write tools (`mcp:write`) — futuro, com scope + gate
-- [ ] Revogação de grants na UI — próximo polish
+- [x] Auth codes single-use (DB)
+- [x] Refresh token + rotação
+- [x] Revogação de grants (API + UI Privacidade)
+- [x] Write tools (`mcp:write`) com gate no call time
+- [x] Rate limit por grant: 30 calls/min
+- [x] Auditoria de todo call (audit_events `mcp.tool_call`)
+- [x] `system_status.model` mascarado (`plutao-primary`)
 
 ---
 
 ## Tools
 
-| Tool | Descrição |
-|------|-----------|
-| `plutao_system_status` | Modelo (sem key), fase, resumo conectores |
-| `plutao_list_connectors` | Status/capabilities sem secrets |
-| `plutao_list_conversations` | Missões recentes |
-| `plutao_get_mission` | Detalhe da missão do `sub` do token |
+| Tool | Scope | Descrição |
+|------|-------|-----------|
+| `plutao_system_status` | read | Modelo mascarado, fase, resumo conectores |
+| `plutao_list_connectors` | read | Status/capabilities sem secrets |
+| `plutao_list_conversations` | read | Conversas do chat (tabela `conversations`) |
+| `plutao_get_mission` | read | Detalhe da missão do `sub` do token |
+| `plutao_send_message` | **write** | Envia mensagem; cria conversa se omitir id; ownership check |
+
+### `plutao_send_message`
+
+- Input: `{ content: string (1–4000), conversationId?: uuid }`
+- Sem `conversationId`: cria conversa; mensagens com `metadata.source = "mcp"`
+- Com id: anexa **somente** se `conversation.userId === token.sub` (senão forbidden)
+- Sem `mcp:write`: erro claro com hint de re-consent
+- Resposta: `conversationId`, ids das mensagens, texto do agente
+
+### Auditoria
+
+Todo call (read e write) grava em `audit_events`:
+
+- `userId`, `client_id`, `grant_id`, `tool`, `params_sha256`, `latency_ms`, `status`, timestamp
+- Nunca grava Bearer nem tokens de conector
+
+### Rate limit
+
+30 calls / 60s por grant (janela em memória de processo). Acima: `rate_limited` + `retryAfterSec`.
 
 ---
 
 ## Arquivos
 
-- `apps/web/src/lib/mcp/tokens.ts` — codes + access tokens HMAC
-- `apps/web/src/lib/mcp/auth.ts` — Bearer verify + ALS
-- `apps/web/src/lib/mcp/tools.ts` — tools
+- `apps/web/src/lib/mcp/tokens.ts` — codes + access tokens HMAC; `MCP_SCOPES`
+- `apps/web/src/lib/mcp/auth.ts` — Bearer verify + ALS + `hasMcpScope`
+- `apps/web/src/lib/mcp/tools.ts` — tools + send_message
+- `apps/web/src/lib/mcp/audit.ts` — audit + rate limit
+- `apps/web/src/lib/mcp/grants.ts` — grants DB
 - `apps/web/src/app/api/mcp/route.ts`
 - `apps/web/src/app/api/oauth/*`
 - `apps/web/src/app/oauth/consent/page.tsx`

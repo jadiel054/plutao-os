@@ -5,7 +5,7 @@
  * Auth: Authorization: Bearer <access_token OAuth | ops API key>
  * Discovery: /.well-known/oauth-protected-resource
  *
- * Tools: somente leitura (mcp:read). Tokens de conectores nunca são expostos.
+ * Tools: mcp:read + mcp:write (gate no call time). Tokens de conectores nunca são expostos.
  */
 
 import { createMcpHandler } from "mcp-handler";
@@ -20,7 +20,9 @@ import {
   toolGetMission,
   toolListConnectors,
   toolListConversations,
+  toolSendMessage,
   toolSystemStatus,
+  withMcpAudit,
 } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
@@ -32,13 +34,14 @@ const mcpHandler = createMcpHandler((server) => {
     {
       title: "Status do sistema Plutão",
       description:
-        "Auditoria: modelo (sem secrets), conectores do usuário autenticado e fase MCP.",
+        "Auditoria: modelo mascarado, conectores do usuário autenticado e fase MCP.",
       inputSchema: z.object({}),
     },
-    async () => {
-      const { userId, method } = getMcpAuth();
-      return toolSystemStatus(userId, method);
-    }
+    async () =>
+      withMcpAudit("plutao_system_status", {}, async () => {
+        const { userId, method } = getMcpAuth();
+        return toolSystemStatus(userId, method);
+      })
   );
 
   server.registerTool(
@@ -49,25 +52,27 @@ const mcpHandler = createMcpHandler((server) => {
         "Status, account e capabilities dos conectores — nunca inclui access tokens.",
       inputSchema: z.object({}),
     },
-    async () => {
-      const { userId } = getMcpAuth();
-      return toolListConnectors(userId);
-    }
+    async () =>
+      withMcpAudit("plutao_list_connectors", {}, async () => {
+        const { userId } = getMcpAuth();
+        return toolListConnectors(userId);
+      })
   );
 
   server.registerTool(
     "plutao_list_conversations",
     {
-      title: "Listar conversas / missões",
-      description: "Missões recentes do usuário (id, objective, status, pin).",
+      title: "Listar conversas",
+      description: "Conversas recentes do chat do usuário (id, título, pin).",
       inputSchema: z.object({
         limit: z.number().int().min(1).max(50).optional().describe("Máximo (default 20)"),
       }),
     },
-    async ({ limit }) => {
-      const { userId } = getMcpAuth();
-      return toolListConversations(userId, limit ?? 20);
-    }
+    async ({ limit }) =>
+      withMcpAudit("plutao_list_conversations", { limit }, async () => {
+        const { userId } = getMcpAuth();
+        return toolListConversations(userId, limit ?? 20);
+      })
   );
 
   server.registerTool(
@@ -79,10 +84,37 @@ const mcpHandler = createMcpHandler((server) => {
         missionId: z.string().min(1).describe("UUID da missão"),
       }),
     },
-    async ({ missionId }) => {
-      const { userId } = getMcpAuth();
-      return toolGetMission(userId, missionId);
-    }
+    async ({ missionId }) =>
+      withMcpAudit("plutao_get_mission", { missionId }, async () => {
+        const { userId } = getMcpAuth();
+        return toolGetMission(userId, missionId);
+      })
+  );
+
+  server.registerTool(
+    "plutao_send_message",
+    {
+      title: "Enviar mensagem",
+      description:
+        "Envia mensagem ao agente e persiste na conversa. Requer scope mcp:write. Sem conversationId cria conversa (source mcp).",
+      inputSchema: z.object({
+        content: z
+          .string()
+          .min(1)
+          .max(4000)
+          .describe("Texto da mensagem (1–4000 caracteres)"),
+        conversationId: z
+          .string()
+          .uuid()
+          .optional()
+          .describe("UUID da conversa existente (deve pertencer ao usuário)"),
+      }),
+    },
+    async ({ content, conversationId }) =>
+      withMcpAudit("plutao_send_message", { contentLength: content?.length, conversationId }, async () => {
+        const { userId } = getMcpAuth();
+        return toolSendMessage(userId, { content, conversationId });
+      })
   );
 });
 

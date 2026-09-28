@@ -12,6 +12,13 @@ function one(v: string | string[] | undefined): string {
   return v || "";
 }
 
+const SCOPE_COPY: Record<string, string> = {
+  "mcp:read":
+    "mcp:read — status, conectores (sem tokens), conversas e detalhes de missão",
+  "mcp:write":
+    "mcp:write — enviar mensagens ao agente e criar/anexar conversas em seu nome",
+};
+
 export default async function OAuthConsentPage({ searchParams }: Props) {
   const sp = await searchParams;
   const clientId = one(sp.client_id);
@@ -23,14 +30,17 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
   const user = await getSessionUser();
   if (!user) {
     const q = new URLSearchParams();
-    q.set("next", `/oauth/consent?${new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      scope,
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256",
-      ...(state ? { state } : {}),
-    }).toString()}`);
+    q.set(
+      "next",
+      `/oauth/consent?${new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+        ...(state ? { state } : {}),
+      }).toString()}`
+    );
     redirect(`/login?${q.toString()}`);
   }
 
@@ -45,14 +55,27 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
     );
   }
 
+  const requestedScopes = scope
+    .split(/[\s+]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const scopeList =
+    requestedScopes.length > 0
+      ? requestedScopes
+      : (["mcp:read"] as string[]);
+  // Sempre mostrar mcp:read; se write pedido, listar explicitamente
+  const displayScopes = [...new Set(["mcp:read", ...scopeList.filter((s) => s === "mcp:write")])];
+
   return (
     <main className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-6 p-6 text-[var(--text)]">
       <div className="space-y-2">
-        <p className="text-xs font-mono uppercase tracking-wide text-[var(--text-muted)]">Plutão · Agente externo</p>
+        <p className="text-xs font-mono uppercase tracking-wide text-[var(--text-muted)]">
+          Plutão · Agente externo
+        </p>
         <h1 className="text-xl font-semibold">Autorizar acesso</h1>
         <p className="text-sm text-[var(--text-muted)]">
-          Um aplicativo externo pede permissão para ler dados da sua conta no Plutão
-          via MCP. Nada é escrito nesta fase.
+          Um aplicativo externo pede permissão para acessar a sua conta no Plutão via MCP.
+          Revise os escopos antes de autorizar.
         </p>
       </div>
 
@@ -72,10 +95,13 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
         <div>
           <div className="text-xs text-[var(--text-muted)]">Permissões</div>
           <ul className="mt-1 list-inside list-disc text-[var(--text)]">
-            <li>
-              <span className="font-mono text-xs">mcp:read</span> — status, conectores (sem
-              tokens), conversas e detalhes de missão
-            </li>
+            {displayScopes.map((s) => (
+              <li key={s}>
+                <span className="font-mono text-xs">{s}</span>
+                {" — "}
+                {SCOPE_COPY[s]?.replace(/^mcp:(read|write)\s*—\s*/, "") || s}
+              </li>
+            ))}
           </ul>
         </div>
       </div>
@@ -106,8 +132,8 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
       </form>
 
       <p className="text-xs text-[var(--text-muted)]">
-        Você pode revogar o acesso deixando de usar o cliente ou rotacionando segredos em
-        Configurações. Tokens de conectores (GitHub, Vercel, …) nunca são expostos via MCP.
+        Você pode revogar o acesso em Configurações → Privacidade (grants MCP). Tokens de
+        conectores (GitHub, Vercel, …) nunca são expostos via MCP.
       </p>
     </main>
   );
