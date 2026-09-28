@@ -206,7 +206,7 @@ export async function emitAction(opts: {
   source?: string;
 }) {
   return appendConversationEvent({
-    conversationId,
+    conversationId: opts.conversationId,
     type: "action",
     source: opts.source || "tool_dispatcher",
     preview: `${opts.tool}: ${opts.inputSummary}`.slice(0, 500),
@@ -226,7 +226,7 @@ export async function emitObservation(opts: {
   source?: string;
 }) {
   return appendConversationEvent({
-    conversationId,
+    conversationId: opts.conversationId,
     type: "observation",
     source: opts.source || "tool_dispatcher",
     preview: opts.outputOrError.slice(0, 500),
