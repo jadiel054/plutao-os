@@ -46,17 +46,20 @@ async function vercelJson(
   return { ok: true, data, status: res.status };
 }
 
+/** Vercel project name is subdomain-safe: [a-z0-9-] only. */
 function sanitizeProjectName(raw: string): string {
   return raw
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 100);
 }
 
 /**
  * Create a Vercel project, optionally linked to a GitHub repo (owner/repo).
+ * Returns link.repoId when the project is linked — required by deploy_create gitSource.
  */
 export async function vercelCreateProject(
   token: string,
@@ -72,6 +75,7 @@ export async function vercelCreateProject(
       output: string;
       projectId: string;
       projectName: string;
+      repoId?: number;
       url?: string;
     }
   | { ok: false; error: string }
@@ -101,7 +105,9 @@ export async function vercelCreateProject(
   const o = res.data as Record<string, unknown>;
   const projectId = String(o.id ?? "");
   const projectName = String(o.name ?? name);
-  const link = o.link as Record<string, unknown> | undefined;
+  const link = o.link as { type?: string; repoId?: number } | undefined;
+  const repoId =
+    typeof link?.repoId === "number" && Number.isFinite(link.repoId) ? link.repoId : undefined;
   const url =
     typeof o.alias === "object" && Array.isArray(o.alias) && o.alias[0]
       ? `https://${String((o.alias as unknown[])[0])}`
@@ -111,12 +117,14 @@ export async function vercelCreateProject(
     ok: true,
     projectId,
     projectName,
+    repoId,
     url,
     output: [
       `projeto criado: ${projectName}`,
       `id: ${projectId}`,
       opts.gitRepo ? `git: github/${opts.gitRepo}` : "git: (não vinculado)",
       link?.type ? `link.type: ${String(link.type)}` : null,
+      repoId != null ? `repoId: ${repoId}` : null,
       url ? `url: ${url}` : null,
     ]
       .filter(Boolean)
@@ -125,7 +133,34 @@ export async function vercelCreateProject(
 }
 
 /**
+ * Resolve GitHub repoId from an existing Vercel project (GET, no gate).
+ */
+async function resolveProjectRepoId(
+  token: string,
+  projectName: string,
+  teamId?: string | null
+): Promise<number | null> {
+  const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
+  const res = await vercelJson(
+    token,
+    "GET",
+    `/v9/projects/${encodeURIComponent(projectName)}${qs}`
+  );
+  if (!res.ok) return null;
+  const o = res.data as Record<string, unknown>;
+  const link = o.link as { repoId?: number } | undefined;
+  if (typeof link?.repoId === "number" && Number.isFinite(link.repoId)) {
+    return link.repoId;
+  }
+  return null;
+}
+
+/**
  * Create a deployment for a project from GitHub source.
+ * Prefers gitSource.repoId (required by Vercel for type=github when available).
+ * Falls back to repo string if repoId cannot be resolved.
+ * Uses skipAutoDetectionConfirmation=1 so first deploy after project_create
+ * without framework does not 400 on framework autodetect mismatch (human gate already approved).
  */
 export async function vercelCreateDeployment(
   token: string,
@@ -133,6 +168,7 @@ export async function vercelCreateDeployment(
     projectName: string;
     projectId?: string | null;
     gitRepo?: string | null;
+    repoId?: number | null;
     branch?: string | null;
     target?: "production" | "preview" | null;
     teamId?: string | null;
@@ -157,18 +193,38 @@ export async function vercelCreateDeployment(
     target: opts.target === "preview" ? "preview" : "production",
   };
 
-  if (opts.gitRepo && opts.gitRepo.includes("/")) {
+  let repoId =
+    typeof opts.repoId === "number" && Number.isFinite(opts.repoId) ? opts.repoId : null;
+
+  if (repoId == null && (opts.gitRepo || name)) {
+    const resolved = await resolveProjectRepoId(token, name, opts.teamId);
+    if (resolved != null) repoId = resolved;
+  }
+
+  const branch = (opts.branch || "main").trim() || "main";
+
+  if (repoId != null) {
+    body.gitSource = {
+      type: "github",
+      repoId,
+      ref: branch,
+    };
+  } else if (opts.gitRepo && opts.gitRepo.includes("/")) {
     const [repoOwner, repoName] = opts.gitRepo.split("/", 2);
     if (repoOwner && repoName) {
       body.gitSource = {
         type: "github",
         repo: `${repoOwner}/${repoName}`,
-        ref: (opts.branch || "main").trim() || "main",
+        ref: branch,
       };
     }
   }
 
-  const qs = opts.teamId ? `?teamId=${encodeURIComponent(opts.teamId)}` : "";
+  const params = new URLSearchParams();
+  params.set("skipAutoDetectionConfirmation", "1");
+  if (opts.teamId) params.set("teamId", opts.teamId);
+  const qs = `?${params.toString()}`;
+
   const res = await vercelJson(token, "POST", `/v13/deployments${qs}`, body);
   if (!res.ok) return { ok: false, error: res.error };
 
@@ -190,7 +246,11 @@ export async function vercelCreateDeployment(
       readyState ? `state: ${readyState}` : null,
       url ? `url: ${url}` : null,
       inspectorUrl ? `inspector: ${inspectorUrl}` : null,
-      opts.gitRepo ? `git: ${opts.gitRepo}@${opts.branch || "main"}` : null,
+      repoId != null
+        ? `gitSource: repoId=${repoId}@${branch}`
+        : opts.gitRepo
+          ? `gitSource: ${opts.gitRepo}@${branch} (fallback repo string)`
+          : null,
     ]
       .filter(Boolean)
       .join("\n"),
