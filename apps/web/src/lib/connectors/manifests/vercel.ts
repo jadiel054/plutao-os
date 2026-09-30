@@ -4,7 +4,7 @@ export const vercelManifest: ConnectorManifest = {
   provider: "vercel",
   displayName: "Vercel",
   description:
-    "Projetos, deployments e logs. Integration OAuth oficial ou Access Token de escopo mínimo; token cifrado, nunca no chat.",
+    "Projetos, deployments e logs. Integration OAuth oficial ou Access Token de escopo mínimo; token cifrado, nunca no chat. Escritas passam pelo portão de aprovação humana.",
   category: "desenvolvedores",
   featured: true,
   authMode: "oauth",
@@ -126,6 +126,41 @@ export const vercelManifest: ConnectorManifest = {
             .join("\n");
         },
       },
+    },
+    {
+      name: "project_create",
+      description: "Criar projeto na conta Vercel (requer aprovação humana)",
+      mode: "write",
+      request: {
+        method: "POST",
+        path: "/v10/projects",
+      },
+      requiredArgs: ["name"],
+      intentKeywords: [
+        "criar projeto vercel",
+        "novo projeto vercel",
+        "create vercel project",
+        "criar app vercel",
+        "publicar no vercel",
+      ],
+    },
+    {
+      name: "deploy_create",
+      description: "Criar deployment (a partir de repositório GitHub) (requer aprovação humana)",
+      mode: "write",
+      request: {
+        method: "POST",
+        path: "/v13/deployments",
+      },
+      requiredArgs: ["name"],
+      intentKeywords: [
+        "deploy",
+        "fazer deploy",
+        "publicar",
+        "criar deployment",
+        "deploy vercel",
+        "deploy create",
+      ],
     },
   ],
 };
