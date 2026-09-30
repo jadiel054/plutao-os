@@ -38,6 +38,7 @@ type VercelPayload = {
   name?: string;
   framework?: string;
   gitRepo?: string;
+  repoId?: number;
   branch?: string;
   target?: "production" | "preview";
   teamId?: string;
@@ -60,6 +61,13 @@ function parseInput(raw: string): VercelPayload | { error: string } {
     const target =
       targetRaw === "preview" || targetRaw === "production" ? targetRaw : undefined;
 
+    let repoId: number | undefined;
+    if (typeof j.repoId === "number" && Number.isFinite(j.repoId)) {
+      repoId = j.repoId;
+    } else if (typeof j.repoId === "string" && /^\d+$/.test(j.repoId.trim())) {
+      repoId = Number(j.repoId.trim());
+    }
+
     return {
       action: action as VercelAction,
       projectId: j.projectId ? String(j.projectId) : undefined,
@@ -68,6 +76,7 @@ function parseInput(raw: string): VercelPayload | { error: string } {
       name: j.name ? String(j.name) : undefined,
       framework: j.framework ? String(j.framework) : undefined,
       gitRepo: j.gitRepo ? String(j.gitRepo) : undefined,
+      repoId,
       branch: j.branch ? String(j.branch) : undefined,
       target,
       teamId: j.teamId ? String(j.teamId) : undefined,
@@ -147,10 +156,17 @@ export async function runVercel(input: string, userId: string): Promise<ToolResu
       parsed.action === "project_create"
         ? `vercel.com/new/${parsed.name || "project"}`
         : `vercel.com/${parsed.name || parsed.projectId || "deploy"}`;
-    const summary =
-      parsed.action === "project_create"
-        ? `Criar projeto Vercel "${parsed.name}"${parsed.gitRepo ? ` (git: ${parsed.gitRepo})` : ""}`
-        : `Criar deployment "${parsed.name || parsed.projectId}"${parsed.gitRepo ? ` de ${parsed.gitRepo}` : ""}`;
+
+    let summary: string;
+    if (parsed.action === "project_create") {
+      summary = `Criar projeto Vercel "${parsed.name}"${parsed.gitRepo ? ` (git: ${parsed.gitRepo})` : ""}`;
+    } else {
+      const targetLabel =
+        parsed.target === "preview" ? "preview" : "production (autodetect)";
+      summary = `Criar deployment "${parsed.name || parsed.projectId}"${
+        parsed.gitRepo ? ` de ${parsed.gitRepo}` : ""
+      } → ${targetLabel}`;
+    }
 
     try {
       const gate = await createWriteGate({
@@ -165,13 +181,16 @@ export async function runVercel(input: string, userId: string): Promise<ToolResu
           name: parsed.name,
           framework: parsed.framework,
           gitRepo: parsed.gitRepo,
+          repoId: parsed.repoId,
           branch: parsed.branch,
           target: parsed.target,
           projectId: parsed.projectId,
           teamId: parsed.teamId,
         },
         contentPreview: parsed.gitRepo
-          ? `git: ${parsed.gitRepo}@${parsed.branch || "main"}`
+          ? `git: ${parsed.gitRepo}@${parsed.branch || "main"}${
+              parsed.repoId != null ? ` repoId=${parsed.repoId}` : ""
+            }`
           : parsed.framework || null,
       });
 
@@ -230,6 +249,7 @@ export async function runVercel(input: string, userId: string): Promise<ToolResu
       projectName: parsed.name || String(parsed.projectId || ""),
       projectId: parsed.projectId,
       gitRepo: parsed.gitRepo,
+      repoId: parsed.repoId,
       branch: parsed.branch,
       target: parsed.target,
       teamId: parsed.teamId,
