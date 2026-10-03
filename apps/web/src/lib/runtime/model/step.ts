@@ -14,7 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
-import { agents, executions, missions, tasks, users } from "@plutao/db";
+import { agents, executions, missions, tasks } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { getOwnedExecution } from "@/lib/runtime/service";
@@ -22,12 +22,6 @@ import { saveCheckpoint } from "@/lib/runtime/checkpoint";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
 import { ModelProviderFactory, setModelProviderMode } from "./provider";
-import { resolveCloudModelConfig } from "./resolveConfig";
-import { buildSystemPrompt } from "./missionPrompt";
-import { callModelWithRetry } from "./modelCall";
-import { ModelCallError } from "./client";
-import { loadConnectorRuntime } from "@/lib/chat/connectorRuntime";
-import type { ModelConfig } from "./types";
 import type { ModelMessage, ModelStepResult } from "./types";
 import type { ModelMode } from "@plutao/domain";
 
@@ -59,14 +53,78 @@ type ModelProviderLike = {
   getModelId: () => string;
 };
 
-async function getModelProvider(mode: ModelMode, cloudConfig?: ModelConfig): Promise<ModelProviderLike | null> {
+async function getModelProvider(mode: ModelMode): Promise<ModelProviderLike | null> {
   try {
-    const provider = await ModelProviderFactory.getProvider({ mode, cloudConfig });
+    const provider = await ModelProviderFactory.getProvider({ mode });
     return provider as ModelProviderLike;
   } catch (error) {
     console.error("[getModelProvider]", error);
     return null;
   }
+}
+
+async function callModelWithProvider(
+  provider: ModelProviderLike,
+  messages: ModelMessage[]
+): Promise<{
+  result: ModelStepResult;
+  providerType: "groq" | "local";
+  modelId: string;
+}> {
+  const startTime = Date.now();
+  const result = await provider.callModel(messages);
+  const latencyMs = Date.now() - startTime;
+
+  return {
+    result: {
+      ...result,
+      latencyMs,
+    },
+    providerType: provider.getProviderType(),
+    modelId: provider.getModelId(),
+  };
+}
+
+function buildSystemPrompt(agent: {
+  name: string;
+  identity: string | null;
+  personality: string | null;
+} | null) {
+  const identityLines = agent
+    ? [
+        `Agent name: ${agent.name}`,
+        agent.identity ? `Identity: ${agent.identity}` : null,
+        agent.personality ? `Personality: ${agent.personality}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "Agent: Plutão (default)";
+
+  return `You are the decision component of Plutão OS runtime.
+You do NOT control the runtime. You only propose the next action.
+
+${identityLines}
+
+You may either:
+1) Reply with short reasoning in plain text, OR
+2) Propose exactly one tool call as JSON only:
+{"tool":"note","input":"text to record"}
+or
+{"tool":"filesystem","input":"{\"action\":\"list\",\"payload\":{\"path\":\"dir\"}}"}
+or
+{"tool":"github","input":"{\"action\":\"repos_list\"}"}
+{"tool":"github","input":"{\"action\":\"issues_list\",\"owner\":\"ORG\",\"repo\":\"REPO\"}"}
+
+Available tools: note, filesystem, github, files.export_pdf, files.export_xlsx, files.export_markdown, files.export_html
+GitHub actions: repos_list | repo_get | issues_list | issues_get | pulls_list | actions_list
+(github requires the user to have connected GitHub OAuth; otherwise the tool returns an error recorded as evidence)
+Rules:
+- Stay consistent with the agent identity above.
+- Prefer a tool call only when it helps the mission.
+- For filesystem: valid JSON with action (list/read/write/mkdir/stat) and payload.path
+- For github: valid JSON with action and owner/repo/number when required
+- Never invent other tool names.
+- Keep replies concise.`;
 }
 
 export async function runModelStep(
@@ -91,6 +149,12 @@ export async function runModelStep(
 > {
   const effectiveMode = mode || "auto";
   setModelProviderMode(effectiveMode);
+
+  const provider = await getModelProvider(effectiveMode);
+
+  if (!provider) {
+    return { error: "MODEL_PROVIDER_NOT_AVAILABLE" as const };
+  }
 
   const execution = await getOwnedExecution(executionId, userId);
   if (!execution) return { error: "NOT_FOUND" as const };
@@ -123,44 +187,6 @@ export async function runModelStep(
     .limit(1);
   const agent = agentRows[0] ?? null;
 
-  // BUG 1 — mesmo caminho do chat: resolve users.preferredModel → rota de
-  // catálogo (resolveCloudModelConfig). Sem isso, o runtime usava o env cru
-  // (MODEL_PROVIDER/MODEL_NAME) e mandava id com prefixo errado ao endpoint.
-  let cloudConfig: ModelConfig | undefined;
-  try {
-    const userRows = await db
-      .select({ preferredModel: users.preferredModel })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    const preferredId = userRows[0]?.preferredModel;
-    if (preferredId) {
-      const resolved = resolveCloudModelConfig(preferredId);
-      if (resolved.ok) {
-        cloudConfig = resolved.config;
-      } else {
-        console.warn("[runModelStep] preferredModel sem rota/chave:", preferredId, resolved.error);
-      }
-    }
-  } catch (e) {
-    console.error("[runModelStep] falha ao resolver preferredModel:", e);
-  }
-
-  const provider = await getModelProvider(effectiveMode, cloudConfig);
-  if (!provider) {
-    return { error: "MODEL_PROVIDER_NOT_AVAILABLE" as const };
-  }
-
-  // BUG 2 — awareness de conectores igual ao chat: injeta o systemBlock do
-  // runtime de conectores do usuário (conectados, capacidades, write gates).
-  let connectorBlock = "";
-  try {
-    const connectorRuntime = await loadConnectorRuntime(userId);
-    connectorBlock = connectorRuntime.systemBlock;
-  } catch (e) {
-    console.error("[runModelStep] loadConnectorRuntime falhou:", e);
-  }
-
   const taskRows = await db
     .select()
     .from(tasks)
@@ -191,7 +217,7 @@ export async function runModelStep(
     .join("\n");
 
   const messages: ModelMessage[] = [
-    { role: "system", content: buildSystemPrompt(agent, connectorBlock, execution.missionId) },
+    { role: "system", content: buildSystemPrompt(agent) },
     { role: "user", content: userPrompt },
     ...additionalMessages,
   ];
@@ -201,48 +227,13 @@ export async function runModelStep(
   let modelId: string;
 
   try {
-    const callResult = await callModelWithRetry(provider, messages, { retries: 1, backoffMs: 800 });
+    const callResult = await callModelWithProvider(provider, messages);
     modelResult = callResult.result;
     providerType = callResult.providerType;
     modelId = callResult.modelId;
   } catch (e) {
-    const mce = e instanceof ModelCallError ? e : null;
-    const summary = mce?.summary() ?? (e instanceof Error ? e.message : "model call failed");
-
-    // MELHORIA: grava o PORQUÊ (status HTTP, corpo truncado, model id,
-    // endpoint, latência) como evidence da missão — visível no log/UI.
-    try {
-      const errEvidenceId = randomUUID();
-      const errItem: EvidenceItem = {
-        id: errEvidenceId,
-        type: "model_error",
-        content: ("MODEL_CALL_FAILED: " + summary).slice(0, 600),
-        source: EVIDENCE_MODEL_SOURCE,
-        taskId: execution.currentTaskId,
-        missionId: execution.missionId,
-        executionId,
-        createdAt: new Date().toISOString(),
-      };
-      const prevEvErr = parseEvidence(mission.evidence);
-      await db
-        .update(missions)
-        .set({ evidence: [...prevEvErr, errItem], updatedAt: new Date() })
-        .where(and(eq(missions.id, execution.missionId), eq(missions.userId, userId)));
-    } catch (logErr) {
-      console.error("[runModelStep] falha ao gravar evidence de erro do modelo:", logErr);
-    }
-
-    const httpStatus = mce?.httpStatus;
-    const hint =
-      httpStatus === 404
-        ? "Model id não existe neste endpoint — confira preferredModel/MODEL_NAME versus MODEL_BASE_URL (ex.: 'openai/gpt-oss-120b' só existe na Groq, não na OpenAI)."
-        : httpStatus === 401 || httpStatus === 403
-          ? "Chave de API rejeitada pelo provedor — confira GROQ_API_KEY/MODEL_API_KEY."
-          : httpStatus != null && httpStatus >= 500
-            ? "Provedor instável — reexecute a missão em alguns minutos."
-            : "Confira MODEL_API_KEY, MODEL_NAME e MODEL_BASE_URL.";
-
-    return { error: "MODEL_CALL_FAILED" as const, detail: summary, hint };
+    const msg = e instanceof Error ? e.message : "model call failed";
+    return { error: "MODEL_CALL_FAILED" as const, detail: msg };
   }
 
   const now = new Date();
