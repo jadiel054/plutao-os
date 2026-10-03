@@ -62,8 +62,8 @@ export default function SettingsPage() {
   }, []);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
-  const [agentName, setAgentName] = useState("Plutão");
-  const [agentIdentity, setAgentIdentity] = useState("Assistente Pessoal Autônomo");
+  const [agentName, setAgentName] = useState("Nix");
+  const [agentIdentity, setAgentIdentity] = useState("operador do Plutão OS, assistente pessoal do usuário");
   const [agentPersonality, setAgentPersonality] = useState("Prestativo, eficiente e focado em evidências");
   const [notifyMissions, setNotifyMissions] = useState(true);
   const [notifyTasks, setNotifyTasks] = useState(true);

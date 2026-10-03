@@ -2,7 +2,7 @@
 
 ![Plutão OS](assets/brand/lockups/lockup_escuro_github.svg)
 
-**Plutão é um cockpit pessoal para executar missões com estado persistente, ferramentas controladas e operação híbrida online/offline.** O projeto organiza uma intenção em uma missão acompanhável, executa etapas por meio de um runtime de agentes e mantém o histórico necessário para inspeção e retomada.
+**Plutão é um cockpit pessoal para executar missões com estado persistente, ferramentas controladas e operação híbrida online/offline.** O agente **Nix** opera como o assistente pessoal e operador do Plutão OS. O projeto organiza uma intenção em uma missão acompanhável, executa etapas por meio do runtime do agente e mantém o histórico necessário para inspeção e retomada.
 
 > **Estado do projeto:** base funcional em evolução. O núcleo de missões, runtime, ferramentas locais, modelos híbridos, autenticação e o primeiro ciclo de conectores estão implementados. A Browser Capability, o Tool Broker dedicado e os mecanismos próprios de permissão, aprovação e evidência ainda fazem parte do trabalho futuro.
 

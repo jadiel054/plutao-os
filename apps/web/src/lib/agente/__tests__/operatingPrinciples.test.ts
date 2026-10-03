@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { OPERATOR_GOLDEN_RULE } from "../operating-principles";
+import { NIX_IDENTITY, OPERATOR_GOLDEN_RULE } from "../operating-principles";
 
 describe("operating principles", () => {
+  it("exports NIX_IDENTITY with exact agent identity sentence", () => {
+    expect(NIX_IDENTITY).toBe("Você é Nix, o operador do Plutão OS, assistente pessoal do usuário.");
+  });
+
   it("exports OPERATOR_GOLDEN_RULE containing all 3 required operator verification rules", () => {
     expect(OPERATOR_GOLDEN_RULE).toBeDefined();
     expect(OPERATOR_GOLDEN_RULE).toContain("Depois de qualquer escrita: (1) releia o que escreveu");
