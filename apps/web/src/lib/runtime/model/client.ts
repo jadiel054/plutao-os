@@ -61,8 +61,7 @@ export async function* streamChatCompletion(
             const delta = parsed.choices?.[0]?.delta?.content;
             if (delta) {
               fullContent += delta;
-       
-       yield delta;
+              yield delta;
             }
           } catch {
             /* ignore parse errors for partial lines */
@@ -140,8 +139,7 @@ export function parseToolProposal(content: string): ModelToolProposal | null {
   if (fence?.[1]) candidates.unshift(fence[1].trim());
 
   const inline = trimmed.match(/\{[\s\S]*"tool"[\s\S]*\}/);
-  if (inline) candidates.unshift(i
-nline[0]);
+  if (inline) candidates.unshift(inline[0]);
 
   for (const c of candidates) {
     try {
