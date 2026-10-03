@@ -17,8 +17,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
 | **GitHub Files Write (`github.files.write`)** | **VERIFICADO** (2026-10-03) | Nova capability para escrita/atualização atômica de múltiplos arquivos via Git Data API (Git Trees). Protegida com Write Gate (Princípio 1), verificação pós-escrita (read-back) com detecção de divergência e limites estritos (máx 20 arquivos, 100KB/arquivo, sem path traversal `..`). |
 | **GitHub Pro (Branches, PRs, Code Search & Tree)** | **IMPLEMENTED** (2026-10-03) | Capabilities profissionais de repositório: `github.branches.list`/`create`, `github.prs.create`/`list`/`get`, `github.code.search` e `github.tree`. Escritas (branches/PRs) 100% sob Write Gate. Regra de ouro do operador minucioso no system prompt e verificação de leitura pós-escrita. **Pendente:** smoke em produção de branch/PR real. |
-| **Exportação de arquivos (`files.export_*`)** | **VERIFICADO** (2026-10-03) | 4 ferramentas nativas de exportação no runtime (`files.export_pdf`, `files.
-export_xlsx`, `files.export_markdown`, `files.export_html`). Salvam no filesystem pessoal do usuário (`exports/`), sem conector/OAuth/write-gate, com sanitização contra path traversal, limite de 5MB por export, e detector de intenções PT-BR. |
+| **Exportação de arquivos (`files.export_*`)** | **VERIFICADO** (2026-10-03) | 4 ferramentas nativas de exportação no runtime (`files.export_pdf`, `files.export_xlsx`, `files.export_markdown`, `files.export_html`). Salvam no filesystem pessoal do usuário (`exports/`), sem conector/OAuth/write-gate, com sanitização contra path traversal, limite de 5MB por export, e detector de intenções PT-BR. |
 | **Voz on-device (Kokoro + Piper + Supertonic)** | **VERIFICADO comportamental** (Poco C65, 2026-09-27) | Download ~398 MB; erro legível; retomada após rede e após 7 min background. Packs: `kokoro-en`, `piper-pt-br`, Supertonic (chunked Range + IDB partials O(1)). Sanitize markdown (#75), progress tick (#73), pack-scoped errors (#77). **Pendente:** kill-test M3, interrupção M5, inspeção DevTools formal. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. Evidence `source` mascarado `model:plutao-primary` (Frente F). |
@@ -32,8 +31,7 @@ export_xlsx`, `files.export_markdown`, `files.export_html`). Salvam no filesyste
 | Chat — FollowUpChips | **IMPLEMENTED** | Chips pós-tool; envio ao toque. |
 | Chat — fila de mensagens | **IMPLEMENTED** | Até 3 msgs durante stream. |
 | Chat — esclarecimento pré-tool | **IMPLEMENTED** | Validação de args + chips. |
-| Card inline Conectar/Pular | **IMPLEMENTED** | `suggested
-Connectors` + `ConnectorActionCard`. |
+| Card inline Conectar/Pular | **IMPLEMENTED** | `suggestedConnectors` + `ConnectorActionCard`. |
 | Extrator de plano (anti falso-positivo) | **IMPLEMENTED** | Não trata inventário de conectores como missão. |
 | Conectores UI (Sheet + Configurações) | **IMPLEMENTED** | Estados, gerenciar, catálogo. |
 | GitHub OAuth App + callback | **VERIFICADO** | Fluxo completo em produção. |
@@ -43,8 +41,7 @@ Connectors` + `ConnectorActionCard`. |
 | **Supabase conector** | **IMPLEMENTED (smoke pendente)** | PAT dual-pattern + project_url/service_role_key cifrados; capabilities `projects_list`, `tables_list`, `table_read` (SELECT apenas, máx 100 linhas), e `sql_exec` (Write Gate obrigatório + blocklist DROP/TRUNCATE/ALTER em DATABASE/SCHEMA + máx 10k chars). |
 | **Telegram conector** | **IMPLEMENTED** (2026-10-03) | Bot Token do @BotFather (padrão PAT cifrado em `accessTokenEnc`) + `chatId` do usuário cifrado em `refreshTokenEnc`. Tools `telegram.send_message` (timeout 10s, default para chatId configurado), `telegram.get_updates` (com filtro de segurança restrito ao `chatId` configurado, ignorando outros chats silenciosamente) e `telegram.get_me`. Token 100% mascarado em logs, respostas e erros. |
 | **Cloudflare conector** | **IMPLEMENTED (smoke pendente)** | API Token cifrado em `accessTokenEnc`. Tools `cloudflare.zones_list`, `cloudflare.dns_records_list`, `cloudflare.pages_projects_list`, `cloudflare.workers_list`, `cloudflare.dns_record_create` (Write Gate) e `cloudflare.pages_deploy` (Write Gate). Limite de 50 itens por lista e erros em PT-BR. |
-| **Render conector** | **IMPLEMENTED (smoke pendente)** | API Key cifrada em `accessTokenEnc`. Tools `render.services_list`, `render.service_get` (com resumo de chaves de env sem valores), `render.deploys_list`, `render.deploy_trigger` (Write Gate) e `render.env_set` (W
-rite Gate com valor mascarado no preview). Erros em PT-BR e timeout de 15s. |
+| **Render conector** | **IMPLEMENTED (smoke pendente)** | API Key cifrada em `accessTokenEnc`. Tools `render.services_list`, `render.service_get` (com resumo de chaves de env sem valores), `render.deploys_list`, `render.deploy_trigger` (Write Gate) e `render.env_set` (Write Gate com valor mascarado no preview). Erros em PT-BR e timeout de 15s. |
 | **Conectores conectados (operador)** | **4/4 connected** (2026-09-27) | GitHub, Vercel, e demais no catálogo ativo do operador — revalidar após deploys. |
 | **MCP fase 2** | **VERIFICADO** (2026-09-27) | OAuth consent dual-scope (`mcp:read`+`mcp:write`); `plutao_send_message`; auditoria `audit_events`; rate limit; `system_status.model` = `plutao-primary`; persistência chat (BUG-03 fechado). |
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
@@ -52,8 +49,7 @@ rite Gate com valor mascarado no preview). Erros em PT-BR e timeout de 15s. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
 | **UX de Configurações & Conectores** | **VERIFICADO** (2026-10-03) | Sincronização de abas com URL (`?tab=<id>`) e `localStorage` (`plutao_settings_tab`); feedback inline/toast pós-callback OAuth com limpeza de query (`connector_ok`/`connector_error`); cards com status `error` destacam "Tentar novamente" com resumo de `lastError`; botão "Conectar OAuth" desabilitado com spinner durante `authorizing`/`busy` para eliminar double-submit (`STATE_MISMATCH`); **Re-sync silencioso de capabilities** para conectores 'connected' na abertura das Configurações prevenindo drift com o manifesto (sem alterar tokens nem status); **Modal de confirmação ao desconectar** que exibe o limite de conectores do plano do usuário (`userPlan.connectorsMax`) e alerta extra se o usuário estiver no limite ou acima. |
 | Tour guiado com spotlight (onboarding) | **VERIFICADO** (2026-10-03) | `GuidedTour.tsx` + SVG mask cutout overlay + 6 passos + auto-skip de elementos ausentes + trava de scroll + ESC handler + persistência em `POST /api/user/preferences` & `localStorage` (`plutao_onboarding_seen`). |
-| Billing Stripe (checkout/webhook) | **IMPLEMENTED** — TEST **6/6** (2026-09-25) | Checkout, webhook, idem
-potência, cancelamento em modo TEST. LIVE pendente (ativação conta operador). Migration 0012. |
+| Billing Stripe (checkout/webhook) | **IMPLEMENTED** — TEST **6/6** (2026-09-25) | Checkout, webhook, idempotência, cancelamento em modo TEST. LIVE pendente (ativação conta operador). Migration 0012. |
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; ownership 403; testes #76. |
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
 | Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml`. |
@@ -75,8 +71,7 @@ potência, cancelamento em modo TEST. LIVE pendente (ativação conta operador).
 - Tokens cifrados (AES) em `connectors.access_token_enc`
 - Runtime carrega catálogo + status real + capabilities no system prompt
 - Sync silencioso de capabilities de conectores conectados em `listConnectorsForUser` comparando o estado do banco com a única fonte de verdade (`getDefaultCapabilities` do manifesto), atualizando a tabela `connectors` sem tocar em tokens ou status
-- Modal de confirmação ao clicar "Desconectar" informando limite do plano do usuário ("Seu plano permite até N conectores ativos.") e aviso extra ("Reconectar depois p
-ode ser bloqueado pelo limite do plano.") se conectores ativos >= limite
+- Modal de confirmação ao clicar "Desconectar" informando limite do plano do usuário ("Seu plano permite até N conectores ativos.") e aviso extra ("Reconectar depois pode ser bloqueado pelo limite do plano.") se conectores ativos >= limite
 - Defesa em profundidade padronizada: todas as queries `db.update(missions)` em runners de chat filtram obrigatoriamente por `missionId` e `userId`
 - Tools só executam se o conector estiver **conectado**
 - Write gate GitHub: aprovação humana via WriteGateCard antes de create/push/github.files.write
@@ -85,8 +80,7 @@ ode ser bloqueado pelo limite do plano.") se conectores ativos >= limite
 - Conector Telegram: Bot Token + chatId configurável e cifrados; capabilities `telegram.send_message`, `telegram.get_updates` (com filtro estrito de chatId por segurança) e `telegram.get_me`; mascara token em todas as saídas e erros; helper text no painel ensina a descobrir o chatId mandando /start pro bot
 - Conector Cloudflare: API Token cifrado; capabilities `cloudflare.zones_list`, `cloudflare.dns_records_list`, `cloudflare.pages_projects_list`, `cloudflare.workers_list`, `cloudflare.dns_record_create` (Write Gate) e `cloudflare.pages_deploy` (Write Gate); limites de 50 itens por lista e mensagens de erro amigáveis em PT-BR
 - Conector Render: API Key cifrada; capabilities `render.services_list`, `render.service_get` (detalhes e chaves de env sem valores), `render.deploys_list`, `render.deploy_trigger` (Write Gate) e `render.env_set` (Write Gate com valor mascarado no preview); erros amigáveis em PT-BR e timeout de 15s
-- Marcos "GitHub Pro": `githubBranches.ts` (list/create + validação de chars/`..` e existênc
-ia), `githubPulls.ts` (create/list/get + validação de head/base e política de merge humano), `githubCode.ts` (code search + tree) e `operating-principles.ts` (regra de ouro do operador minucioso no system prompt)
+- Marcos "GitHub Pro": `githubBranches.ts` (list/create + validação de chars/`..` e existência), `githubPulls.ts` (create/list/get + validação de head/base e política de merge humano), `githubCode.ts` (code search + tree) e `operating-principles.ts` (regra de ouro do operador minucioso no system prompt)
 - Exportação nativa de arquivos (`export.ts` + `exportToolRunner.ts`): PDF via `pdf-lib` (A4, quebras de página, rodapé "Gerado pelo Plutão OS"), XLSX via `exceljs`, Markdown com frontmatter YAML, e HTML autônomo com tema escuro acinzentado. Sanitização de caminhos salvos em `/exports/`, limite de 5MB, e intenções PT-BR ativadas direto no chat ("gerar pdf", "exportar planilha", "criar markdown/html")
 - `resolveCloudModelConfig(id)` mapeia catálogo → provider + apiModel + baseUrl + env keys
 - Evidence de model_step: `source: "model:plutao-primary"` (não vaza groq/openai ids)
@@ -112,8 +106,7 @@ ia), `githubPulls.ts` (create/list/get + validação de head/base e política de
 - [x] Smoke guest AC3/AC4 — 2026-09-25
 - [x] Smoke billing AC1–AC6 em **TEST** — 2026-09-25
 - [ ] Smoke billing em **LIVE**
-- [
-x] Smoke write gate — 2026-09-25; feedback no chat pendente
+- [x] Smoke write gate — 2026-09-25; feedback no chat pendente
 - [x] Smoke voz comportamental (Poco C65) — 2026-09-27; kill-test M3 / M5 pendentes
 - [x] Smoke MCP fase 2 (consent dual, write, audit, persistência) — 2026-09-27
 
