@@ -36,6 +36,9 @@ export async function createWriteGate(input: CreateGateInput) {
     })
     .returning();
   if (!row) throw new Error("failed to create write_gate");
+
+  // TODO: Notificação e aprovação de write-gates via Telegram (ponte com Telegram conector)
+
   return row;
 }
 

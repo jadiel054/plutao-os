@@ -164,6 +164,7 @@ export async function POST(req: NextRequest) {
           vercelLogin: null,
           vercelToken: null,
           supabaseConnected: false,
+          telegramConnected: false,
         }
       : await loadConnectorRuntime(user.id);
 

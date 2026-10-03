@@ -181,7 +181,7 @@ export function ConnectorsSheet({
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="w-8 h-8 rounded-xl border border-[var(--border)] flex items-center justify-center text-xs font-bold shrink-0">
-                        {c.provider === "github" ? "GH" : c.provider === "vercel" ? "VE" : String(c.provider).slice(0, 2).toUpperCase()}
+                        {c.provider === "github" ? "GH" : c.provider === "vercel" ? "VE" : c.provider === "telegram" ? "TG" : String(c.provider).slice(0, 2).toUpperCase()}
                       </span>
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{c.displayName}</p>
@@ -224,7 +224,7 @@ export function ConnectorsSheet({
                 <li key={c.id} className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--base)]/60 border border-[var(--border)] px-4 py-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="w-8 h-8 rounded-xl border border-[var(--border)] flex items-center justify-center text-xs font-bold shrink-0">
-                      {c.provider === "github" ? "GH" : c.provider === "vercel" ? "VE" : "??"}
+                      {c.provider === "github" ? "GH" : c.provider === "vercel" ? "VE" : c.provider === "telegram" ? "TG" : String(c.provider).slice(0, 2).toUpperCase()}
                     </span>
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{c.displayName}</p>

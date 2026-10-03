@@ -163,8 +163,10 @@ export async function verifyToken(
   const manifest = getConnectorManifest(provider);
   if (!manifest) return { ok: false, error: `Conector '${provider}' desconhecido.` };
 
-  const verifyUrl = manifest.tokenConfig?.verifyUrl || manifest.oauth?.userinfoUrl;
-  if (!verifyUrl) return { ok: false, error: `Conector '${provider}' não tem URL de verificação de token.` };
+  const rawVerifyUrl = manifest.tokenConfig?.verifyUrl || manifest.oauth?.userinfoUrl;
+  if (!rawVerifyUrl) return { ok: false, error: `Conector '${provider}' não tem URL de verificação de token.` };
+
+  const verifyUrl = rawVerifyUrl.replace("{token}", token);
 
   const headers = manifest.tokenConfig?.verifyHeaders
     ? manifest.tokenConfig.verifyHeaders(token)
@@ -175,11 +177,12 @@ export async function verifyToken(
   const res = await fetch(verifyUrl, { headers });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 
-  if (!res.ok) {
+  if (!res.ok || (provider === "telegram" && data.ok === false)) {
     const errObj = typeof data.error === "object" && data.error ? (data.error as { message?: string }) : undefined;
+    const description = typeof data.description === "string" ? data.description : undefined;
     return {
       ok: false,
-      error: String(data.message || errObj?.message || `verify_token_${res.status}`),
+      error: String(description || data.message || errObj?.message || `verify_token_${res.status}`),
     };
   }
 
