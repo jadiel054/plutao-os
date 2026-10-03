@@ -1,5 +1,3 @@
-import { PDFDocument, rgb, StandardFonts, PDFFont } from "pdf-lib";
-import ExcelJS from "exceljs";
 import { storageWrite } from "./storage";
 import type { ToolName, ToolResult } from "./types";
 
@@ -13,7 +11,7 @@ export type ExportPdfInput = {
 
 export type ExportXlsxSheet = {
   name?: string;
-  rows?: any[][];
+  rows?: unknown[][];
 };
 
 export type ExportXlsxInput = {
@@ -64,7 +62,12 @@ export function sanitizeFilename(filename: unknown, defaultExt: string): string 
   return clean;
 }
 
-function wrapText(text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] {
+function wrapText(
+  text: string,
+  font: { widthOfTextAtSize: (text: string, size: number) => number },
+  fontSize: number,
+  maxWidth: number
+): string[] {
   if (!text) return [""];
   const words = text.split(" ");
   const lines: string[] = [];
@@ -96,6 +99,8 @@ export async function exportPdf(
   input: ExportPdfInput,
   executionId: string = "default"
 ): Promise<ExportResult> {
+  const { PDFDocument, rgb, StandardFonts } = await import("pdf-lib");
+
   const sanitized = sanitizeFilename(input.filename || "documento.pdf", ".pdf");
   const targetPath = `exports/${sanitized}`;
   const titleText = input.title || "Relatório Plutão OS";
@@ -228,6 +233,9 @@ export async function exportXlsx(
   input: ExportXlsxInput,
   executionId: string = "default"
 ): Promise<ExportResult> {
+  const ExcelJSModule = await import("exceljs");
+  const ExcelJS = ExcelJSModule.default || ExcelJSModule;
+
   const sanitized = sanitizeFilename(input.filename || "planilha.xlsx", ".xlsx");
   const targetPath = `exports/${sanitized}`;
 
