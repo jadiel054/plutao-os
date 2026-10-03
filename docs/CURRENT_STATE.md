@@ -68,6 +68,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - Estados de conector: `disconnected → authorizing → connected → reconnecting → error`
 - Tokens cifrados (AES) em `connectors.access_token_enc`
 - Runtime carrega catálogo + status real + capabilities no system prompt
+- Defesa em profundidade padronizada: todas as queries `db.update(missions)` em runners de chat filtram obrigatoriamente por `missionId` e `userId`
 - Tools só executam se o conector estiver **conectado**
 - Write gate GitHub: aprovação humana via WriteGateCard antes de create/push/github.files.write
 - Capability `github.files.write`: cliente `githubFiles.ts` com suporte a atômico Git Trees API, limites de 20 arquivos e 100KB por arquivo, além de verificação pós-escrita (read-back) e prevenção contra path traversal `..`

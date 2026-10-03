@@ -214,7 +214,7 @@ async function maybeAppendMissionEvidence(
     await db
       .update(missions)
       .set({ evidence: [...prevEv, evidenceItem], updatedAt: new Date() })
-      .where(eq(missions.id, missionId));
+      .where(and(eq(missions.id, missionId), eq(missions.userId, userId)));
   } catch {
     /* ignore */
   }
