@@ -16,6 +16,7 @@ import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/run
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
+import { recordModelError } from "@/lib/missions/recordModelError";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
 import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
@@ -798,32 +799,11 @@ ${
                 console.error("[chat streaming FASE 3 error]", err);
                 const errDetail = err instanceof Error ? err.message : String(err);
                 if (missionId) {
-                  try {
-                    const hint = "Provedor indisponível ou limite de tokens atingido — verifique a chave MODEL_API_KEY no Vercel.";
-                    const item: EvidenceItem = {
-                      id: crypto.randomUUID(),
-                      type: "model_error",
-                      content: `MODEL_CALL_FAILED: ${errDetail} (hint: ${hint})`.slice(0, 600),
-                      source: "model:plutao-primary",
-                      taskId: null,
-                      missionId,
-                      createdAt: new Date().toISOString(),
-                    };
-                    const rows = await db
-                      .select({ evidence: missions.evidence })
-                      .from(missions)
-                      .where(and(eq(missions.id, missionId), eq(missions.userId, user.id)))
-                      .limit(1);
-                    if (rows[0]) {
-                      const prev = parseEvidence(rows[0].evidence);
-                      await db
-                        .update(missions)
-                        .set({ evidence: [...prev, item], updatedAt: new Date() })
-                        .where(and(eq(missions.id, missionId), eq(missions.userId, user.id)));
-                    }
-                  } catch {
-                    /* non-fatal */
-                  }
+                  await recordModelError({
+                    missionId,
+                    userId: user.id,
+                    error: errDetail,
+                  });
                 }
                 const errorMsg = `Não foi possível gerar a resposta final com o modelo: ${errDetail}. Verifique suas configurações de modelo.`;
                 emit("content_delta", { text: errorMsg });
