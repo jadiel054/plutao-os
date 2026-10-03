@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-28 (Frente F housekeeping)
+**Última atualização:** 2026-10-03 (Hardening do caminho de escrita do chat)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -47,6 +47,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
+| **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate em `gates.ts`, `tools/*.ts` e `connectorRuntime.ts` com log estruturado e aviso amigável `"Não consegui iniciar a operação <action>: <motivo>"`. **BUG 2:** Validação de nome do projeto Vercel (`/^[a-z0-9][a-z0-9-]{1,50}$/`, min 3 chars), rejeitando tokens inválidos (ex: `"na"`) com pedido de esclarecimento. **BUG 3:** Retorno do campo `label` amigável em `GET /api/model/status` e exibição no Cockpit via `d.label ?? `${d.provider}/${d.model}`. |
 | **UX de Configurações & Conectores** | **VERIFICADO** (2026-10-03) | Sincronização de abas com URL (`?tab=<id>`) e `localStorage` (`plutao_settings_tab`); feedback inline/toast pós-callback OAuth com limpeza de query (`connector_ok`/`connector_error`); cards com status `error` destacam "Tentar novamente" com resumo de `lastError`; botão "Conectar OAuth" desabilitado com spinner durante `authorizing`/`busy` para eliminar double-submit (`STATE_MISMATCH`); **Re-sync silencioso de capabilities** para conectores 'connected' na abertura das Configurações prevenindo drift com o manifesto (sem alterar tokens nem status); **Modal de confirmação ao desconectar** que exibe o limite de conectores do plano do usuário (`userPlan.connectorsMax`) e alerta extra se o usuário estiver no limite ou acima. |
 | Tour guiado com spotlight (onboarding) | **VERIFICADO** (2026-10-03) | `GuidedTour.tsx` + SVG mask cutout overlay + 6 passos + auto-skip de elementos ausentes + trava de scroll + ESC handler + persistência em `POST /api/user/preferences` & `localStorage` (`plutao_onboarding_seen`). |
 | Billing Stripe (checkout/webhook) | **IMPLEMENTED** — TEST **6/6** (2026-09-25) | Checkout, webhook, idempotência, cancelamento em modo TEST. LIVE pendente (ativação conta operador). Migration 0012. |
@@ -82,6 +83,9 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - Conector Render: API Key cifrada; capabilities `render.services_list`, `render.service_get` (detalhes e chaves de env sem valores), `render.deploys_list`, `render.deploy_trigger` (Write Gate) e `render.env_set` (Write Gate com valor mascarado no preview); erros amigáveis em PT-BR e timeout de 15s
 - Marcos "GitHub Pro": `githubBranches.ts` (list/create + validação de chars/`..` e existência), `githubPulls.ts` (create/list/get + validação de head/base e política de merge humano), `githubCode.ts` (code search + tree) e `operating-principles.ts` (regra de ouro do operador minucioso no system prompt)
 - Exportação nativa de arquivos (`export.ts` + `exportToolRunner.ts`): PDF via `pdf-lib` (A4, quebras de página, rodapé "Gerado pelo Plutão OS"), XLSX via `exceljs`, Markdown com frontmatter YAML, e HTML autônomo com tema escuro acinzentado. Sanitização de caminhos salvos em `/exports/`, limite de 5MB, e intenções PT-BR ativadas direto no chat ("gerar pdf", "exportar planilha", "criar markdown/html")
+- Hardening do caminho de escrita do chat: todo erro na criação do gate ou execução de ferramentas vira log estruturado (`console.error`) e mensagem visível de erro no chat ("Não consegui iniciar a operação..."), sem falhas silenciosas
+- Validação estrita do nome de projeto Vercel no runner (`isValidVercelProjectName`), bloqueando nomes < 3 caracteres ou com caracteres inválidos (ex: "na") antes da criação do gate
+- Status do modelo no Cockpit exibe o label amigável retornado pela rota `/api/model/status`
 - `resolveCloudModelConfig(id)` mapeia catálogo → provider + apiModel + baseUrl + env keys
 - Evidence de model_step: `source: "model:plutao-primary"` (não vaza groq/openai ids)
 - MCP: OAuth 2.1+PKCE, scopes read/write, audit, rate limit, tools listadas em `docs/MCP_SERVER.md`

@@ -39,6 +39,13 @@ export const VERCEL_REQUIRED_ARGS: Record<string, string[]> = {
   deploy_create: ["name"],
 };
 
+export function isValidVercelProjectName(name?: string | null): boolean {
+  if (!name || typeof name !== "string") return false;
+  const trimmed = name.trim();
+  if (trimmed.length < 3 || trimmed.length > 51) return false;
+  return /^[a-z0-9][a-z0-9-]{1,50}$/.test(trimmed);
+}
+
 function extractProjectNameCandidate(text: string): string | undefined {
   const patterns = [
     /(?:projeto|project|app|site)\s+(?:chamado|nome|named?)?\s*["']?([a-zA-Z0-9_.-]+)["']?/i,
@@ -187,14 +194,15 @@ export async function detectAndExecuteVercelTool(opts: {
   const timestamp = new Date().toISOString();
 
   if (userId && wantsCreateProject(userText)) {
-    const name = extractProjectNameCandidate(userText);
+    const rawName = extractProjectNameCandidate(userText);
     const gitRepo = extractGitRepo(userText);
+    const name = isValidVercelProjectName(rawName) ? rawName : undefined;
     if (!name) {
       return {
         executed: false,
         missingArgs: true,
         capability: "project_create",
-        contextText: `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]\nO usuário quer criar um projeto na Vercel, mas não informou o nome.\nPeça só o nome do projeto (e, se já existir, o repositório GitHub owner/repo). A aprovação humana será o WriteGateCard.`,
+        contextText: `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]\nO usuário quer criar um projeto na Vercel, mas o nome informado ("${rawName ?? ""}") é inválido ou ausente.\nNomes de projetos Vercel devem ter pelo menos 3 caracteres, começar com letra/número e conter apenas letras minúsculas, números e hífens (/^[a-z0-9][a-z0-9-]{1,50}$/).\nPeça um nome válido ao usuário. A aprovação humana será o WriteGateCard.`,
       };
     }
     const payload: Record<string, unknown> = { action: "project_create", name };
@@ -227,19 +235,25 @@ export async function detectAndExecuteVercelTool(opts: {
   }
 
   if (userId && wantsCreateDeploy(userText)) {
-    const name = extractProjectNameCandidate(userText);
+    const rawName = extractProjectNameCandidate(userText);
     const gitRepo = extractGitRepo(userText);
-    if (!name && !gitRepo) {
+    const candidateName = isValidVercelProjectName(rawName)
+      ? rawName
+      : gitRepo && isValidVercelProjectName(gitRepo.split("/")[1])
+        ? gitRepo.split("/")[1]
+        : undefined;
+
+    if (!candidateName) {
       return {
         executed: false,
         missingArgs: true,
         capability: "deploy_create",
-        contextText: `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]\nO usuário quer criar um deployment, mas faltam nome do projeto e/ou repositório GitHub (owner/repo).\nPeça o mínimo necessário. Aprovação humana = WriteGateCard.`,
+        contextText: `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]\nO usuário quer criar um deployment, mas o nome do projeto informado ("${rawName ?? ""}") é inválido ou ausente.\nNomes de projetos Vercel devem ter pelo menos 3 caracteres e seguir o padrão /^[a-z0-9][a-z0-9-]{1,50}$/.\nPeça um nome de projeto válido ao usuário. Aprovação humana = WriteGateCard.`,
       };
     }
     const payload: Record<string, unknown> = {
       action: "deploy_create",
-      name: name || (gitRepo ? gitRepo.split("/")[1] : "app"),
+      name: candidateName,
     };
     if (gitRepo) payload.gitRepo = gitRepo;
     if (opts.missionId) payload.missionId = opts.missionId;

@@ -258,11 +258,13 @@ export async function runSupabase(input: string, userId: string): Promise<ToolRe
           durationMs: Date.now() - started,
         };
       } catch (e) {
+        const reason = e instanceof Error ? e.message : "Falha ao criar write_gate para sql_exec";
+        console.error("[runSupabase createWriteGate error]", { action: parsed.action, input, error: reason });
         return {
           ok: false,
           tool: "supabase",
           input,
-          error: e instanceof Error ? e.message : "Falha ao criar write_gate para sql_exec",
+          error: `Não consegui iniciar a operação ${parsed.action}: ${reason}`,
           durationMs: Date.now() - started,
         };
       }

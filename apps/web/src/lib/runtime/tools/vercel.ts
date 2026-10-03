@@ -209,11 +209,13 @@ export async function runVercel(input: string, userId: string): Promise<ToolResu
         durationMs: Date.now() - started,
       };
     } catch (e) {
+      const reason = e instanceof Error ? e.message : "Falha ao criar write_gate";
+      console.error("[runVercel createWriteGate error]", { action: parsed.action, input, error: reason });
       return {
         ok: false,
         tool: "vercel",
         input,
-        error: e instanceof Error ? e.message : "Falha ao criar write_gate",
+        error: `Não consegui iniciar a operação ${parsed.action}: ${reason}`,
         durationMs: Date.now() - started,
       };
     }
