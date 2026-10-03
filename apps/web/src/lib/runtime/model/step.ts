@@ -49,8 +49,7 @@ function asCp(raw: unknown): CheckpointShape {
 
 type ModelProviderLike = {
   callModel: (messages: ModelMessage[]) => Promise<ModelStepResult>;
-  getProviderType: () => "groq" | "local"
-;
+  getProviderType: () => "groq" | "local";
   getModelId: () => string;
 };
 
@@ -118,8 +117,7 @@ or
 
 Available tools: note, filesystem, github, files.export_pdf, files.export_xlsx, files.export_markdown, files.export_html
 GitHub actions: repos_list | repo_get | issues_list | issues_get | pulls_list | actions_list
-(github requir
-es the user to have connected GitHub OAuth; otherwise the tool returns an error recorded as evidence)
+(github requires the user to have connected GitHub OAuth; otherwise the tool returns an error recorded as evidence)
 Rules:
 - Stay consistent with the agent identity above.
 - Prefer a tool call only when it helps the mission.
@@ -189,8 +187,7 @@ export async function runModelStep(
     .limit(1);
   const agent = agentRows[0] ?? null;
 
-  c
-onst taskRows = await db
+  const taskRows = await db
     .select()
     .from(tasks)
     .where(eq(tasks.missionId, execution.missionId))
@@ -255,8 +252,7 @@ onst taskRows = await db
     createdAt: now.toISOString(),
   };
 
-  const prevEv = parseEvidence(missio
-n.evidence);
+  const prevEv = parseEvidence(mission.evidence);
   await db
     .update(missions)
     .set({ evidence: [...prevEv, evidenceItem], updatedAt: now })
@@ -323,8 +319,7 @@ n.evidence);
     toolDispatch,
     message: modelResult.toolProposal
       ? "model step + tool dispatch attempted"
-      : "
-model step recorded",
+      : "model step recorded",
   };
 }
 
