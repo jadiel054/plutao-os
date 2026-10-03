@@ -1,6 +1,25 @@
 import type { ModelConfig, ModelMessage, ModelProviderId, ModelStepResult, ModelToolProposal } from "./types";
 
 /**
+ * Sanitiza mensagens para enviar ao provedor de IA.
+ * Mantém apenas 'role', 'content' e campos padrão OpenAI ('name', 'tool_call_id', 'tool_calls').
+ * Descarta qualquer propriedade interna ou extra (ex.: 'source').
+ */
+export function sanitizeMessagesForProvider(messages: unknown[]): Record<string, unknown>[] {
+  return messages.map((m) => {
+    if (!m || typeof m !== "object") return m as Record<string, unknown>;
+    const raw = m as Record<string, unknown>;
+    const sanitized: Record<string, unknown> = {};
+    if ("role" in raw && raw.role !== undefined) sanitized.role = raw.role;
+    if ("content" in raw && raw.content !== undefined) sanitized.content = raw.content;
+    if ("name" in raw && raw.name !== undefined) sanitized.name = raw.name;
+    if ("tool_call_id" in raw && raw.tool_call_id !== undefined) sanitized.tool_call_id = raw.tool_call_id;
+    if ("tool_calls" in raw && raw.tool_calls !== undefined) sanitized.tool_calls = raw.tool_calls;
+    return sanitized;
+  });
+}
+
+/**
  * OpenAI-compatible chat completions (works for OpenAI and xAI).
  */
 export async function* streamChatCompletion(
@@ -16,7 +35,7 @@ export async function* streamChatCompletion(
     },
     body: JSON.stringify({
       model: config.model,
-      messages,
+      messages: sanitizeMessagesForProvider(messages),
       temperature: 0.2,
       max_tokens: 1024,
       stream: true,
@@ -95,7 +114,7 @@ export async function chatCompletion(
     },
     body: JSON.stringify({
       model: config.model,
-      messages,
+      messages: sanitizeMessagesForProvider(messages),
       temperature: 0.2,
       max_tokens: 1024,
     }),

@@ -33,6 +33,12 @@ const CLOUD_ROUTES: Record<string, CloudRoute> = {
     baseUrl: "https://api.groq.com/openai/v1",
     envKeys: ["GROQ_API_KEY", "MODEL_API_KEY"],
   },
+  "openai/gpt-oss-120b": {
+    provider: "openai",
+    apiModel: "openai/gpt-oss-120b",
+    baseUrl: "https://api.groq.com/openai/v1",
+    envKeys: ["GROQ_API_KEY", "MODEL_API_KEY"],
+  },
   "groq/deepseek-r1-distill-llama-70b": {
     provider: "openai",
     apiModel: "deepseek-r1-distill-llama-70b",
