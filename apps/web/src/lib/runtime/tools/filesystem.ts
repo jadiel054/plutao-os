@@ -155,7 +155,7 @@ async function readFileContent(
 
   return {
     path: input.path,
-    content: result.content,
+    content: typeof result.content === "string" ? result.content : result.content.toString("utf-8"),
     size: result.size,
   };
 }

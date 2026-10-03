@@ -115,7 +115,7 @@ or
 {"tool":"github","input":"{\"action\":\"repos_list\"}"}
 {"tool":"github","input":"{\"action\":\"issues_list\",\"owner\":\"ORG\",\"repo\":\"REPO\"}"}
 
-Available tools: note, filesystem, github
+Available tools: note, filesystem, github, files.export_pdf, files.export_xlsx, files.export_markdown, files.export_html
 GitHub actions: repos_list | repo_get | issues_list | issues_get | pulls_list | actions_list
 (github requires the user to have connected GitHub OAuth; otherwise the tool returns an error recorded as evidence)
 Rules:

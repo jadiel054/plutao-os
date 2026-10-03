@@ -20,10 +20,10 @@ export type StorageType = "memory" | "local" | "custom";
 // Interface base para implementações de storage
 export interface StorageBackend {
   /** Obtém o conteúdo de um arquivo */
-  getFile(executionId: string, path: string): Promise<{ content: string; size: number } | null>;
+  getFile(executionId: string, path: string): Promise<{ content: string | Buffer; size: number } | null>;
   
   /** Escreve conteúdo em um arquivo */
-  writeFile(executionId: string, path: string, content: string): Promise<{ size: number }>;
+  writeFile(executionId: string, path: string, content: string | Buffer): Promise<{ size: number }>;
   
   /** Lista conteúdo de um diretório */
   listDirectory(executionId: string, path: string): Promise<{ name: string; type: "file" | "directory" }[]>;
@@ -40,9 +40,9 @@ export interface StorageBackend {
 
 // Implementação em memória (para serverless)
 export class InMemoryStorage implements StorageBackend {
-  private store: Map<string, Map<string, { content: string; type: "file" | "directory" }>> = new Map();
+  private store: Map<string, Map<string, { content: string | Buffer; type: "file" | "directory" }>> = new Map();
   
-  private getExecutionStore(executionId: string): Map<string, { content: string; type: "file" | "directory" }> {
+  private getExecutionStore(executionId: string): Map<string, { content: string | Buffer; type: "file" | "directory" }> {
     if (!this.store.has(executionId)) {
       this.store.set(executionId, new Map());
     }
@@ -71,7 +71,7 @@ export class InMemoryStorage implements StorageBackend {
     return `${executionId}:${this.normalizePath(path)}`;
   }
   
-  async getFile(executionId: string, path: string): Promise<{ content: string; size: number } | null> {
+  async getFile(executionId: string, path: string): Promise<{ content: string | Buffer; size: number } | null> {
     const store = this.getExecutionStore(executionId);
     const normalizedPath = this.normalizePath(path);
     
@@ -80,13 +80,17 @@ export class InMemoryStorage implements StorageBackend {
       return null;
     }
     
+    const size = Buffer.isBuffer(entry.content)
+      ? entry.content.length
+      : Buffer.byteLength(entry.content, "utf-8");
+
     return {
       content: entry.content,
-      size: Buffer.byteLength(entry.content, "utf-8"),
+      size,
     };
   }
   
-  async writeFile(executionId: string, path: string, content: string): Promise<{ size: number }> {
+  async writeFile(executionId: string, path: string, content: string | Buffer): Promise<{ size: number }> {
     const store = this.getExecutionStore(executionId);
     const normalizedPath = this.normalizePath(path);
     
@@ -104,8 +108,12 @@ export class InMemoryStorage implements StorageBackend {
     // Escreve o arquivo
     store.set(normalizedPath, { content, type: "file" });
     
+    const size = Buffer.isBuffer(content)
+      ? content.length
+      : Buffer.byteLength(content, "utf-8");
+
     return {
-      size: Buffer.byteLength(content, "utf-8"),
+      size,
     };
   }
   
@@ -257,7 +265,7 @@ export class LocalFilesystemStorage implements StorageBackend {
     }
   }
   
-  async writeFile(executionId: string, path: string, content: string): Promise<{ size: number }> {
+  async writeFile(executionId: string, path: string, content: string | Buffer): Promise<{ size: number }> {
     const { writeFile } = await import("node:fs/promises");
     const { mkdir } = await import("node:fs/promises");
     
@@ -268,10 +276,14 @@ export class LocalFilesystemStorage implements StorageBackend {
     const dirPath = fullPath.substring(0, fullPath.lastIndexOf(sep));
     await mkdir(dirPath, { recursive: true });
     
-    await writeFile(fullPath, content, "utf-8");
+    await writeFile(fullPath, content);
     
+    const size = Buffer.isBuffer(content)
+      ? content.length
+      : Buffer.byteLength(content, "utf-8");
+
     return {
-      size: Buffer.byteLength(content, "utf-8"),
+      size,
     };
   }
   
@@ -393,7 +405,7 @@ export function resetStorage(): void {
 // Tipos de entrada para o storage
 export type StorageListInput = { path: string };
 export type StorageReadInput = { path: string };
-export type StorageWriteInput = { path: string; content: string };
+export type StorageWriteInput = { path: string; content: string | Buffer };
 export type StorageMkdirInput = { path: string };
 export type StorageStatInput = { path: string };
 

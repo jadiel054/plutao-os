@@ -24,6 +24,10 @@ import {
   detectAndExecuteGenericTool,
   type GenericToolExecutionResult,
 } from "@/lib/chat/genericToolRunner";
+import {
+  detectAndExecuteExportTool,
+  type ExportToolExecutionResult,
+} from "@/lib/chat/exportToolRunner";
 
 export type ConnectorRuntimeSnapshot = {
   connectors: ConnectorPublicView[];
@@ -39,6 +43,7 @@ export type ConnectorToolRunResult = {
   github: GitHubToolExecutionResult;
   vercel: VercelToolExecutionResult;
   generic?: GenericToolExecutionResult;
+  exportTool?: ExportToolExecutionResult;
   contextBlocks: string[];
   suggestedFollowUps: Array<{ id: string; label: string; prompt: string }>;
 };
@@ -128,6 +133,12 @@ export async function loadConnectorRuntime(
   }
 
   const lines: string[] = [
+    "FERRAMENTAS NATIVAS DE EXPORTAÇÃO (sempre disponíveis, gravam em /exports/ no filesystem do usuário):",
+    "- files.export_pdf: { filename, title, content } -> gera arquivo PDF real",
+    "- files.export_xlsx: { filename, sheets: [{ name, rows }] } -> gera planilha Excel real",
+    "- files.export_markdown: { filename, content, title, origin } -> gera arquivo Markdown com frontmatter",
+    "- files.export_html: { filename, title, content } -> gera documento HTML autônomo estilizado",
+    "",
     "CONECTORES (fonte de verdade — não invente status):",
     "Para cada provedor: se está no catálogo, se está CONECTADO, conta, e o que você PODE fazer (capabilities).",
     "Só execute tools de conectores com status CONECTADO. Se desconectado, oriente Configurações → Conectores.",
@@ -189,7 +200,17 @@ export async function runConnectedConnectorTools(opts: {
   let github: GitHubToolExecutionResult = { executed: false };
   let vercel: VercelToolExecutionResult = { executed: false };
   let generic: GenericToolExecutionResult = { executed: false };
+  let exportTool: ExportToolExecutionResult = { executed: false };
   const contextBlocks: string[] = [];
+
+  exportTool = await detectAndExecuteExportTool({
+    text: userText,
+    userId,
+    missionId: missionId ?? null,
+  });
+  if (exportTool.executed && exportTool.contextText) {
+    contextBlocks.push(exportTool.contextText);
+  }
 
   if (snapshot.githubConnected) {
     github = await detectAndExecuteGitHubTool({
@@ -239,5 +260,5 @@ export async function runConnectedConnectorTools(opts: {
     suggestedFollowUps.push(...generic.suggestedFollowUps);
   }
 
-  return { github, vercel, generic, contextBlocks, suggestedFollowUps };
+  return { github, vercel, generic, exportTool, contextBlocks, suggestedFollowUps };
 }
