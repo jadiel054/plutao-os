@@ -66,7 +66,7 @@ describe("GitHub Files Write Client (github.files.write)", () => {
     }
   });
 
-  it("should perform atomic commit via Git Data API when valid", async () => {
+  it("should perform atomic commit via Git Data API and verify read-back content", async () => {
     const mockFetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method || "GET";
 
@@ -110,6 +110,16 @@ describe("GitHub Files Write Client (github.files.write)", () => {
           text: async () => JSON.stringify({ object: { sha: "new-commit-sha" } }),
         });
       }
+      if (url.includes("/contents/index.html")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () =>
+            JSON.stringify({
+              content: Buffer.from("<h1>Hello World</h1>").toString("base64"),
+              encoding: "base64",
+            }),
+        });
+      }
 
       return Promise.resolve({
         ok: false,
@@ -131,7 +141,83 @@ describe("GitHub Files Write Client (github.files.write)", () => {
     if (res.ok) {
       expect(res.commitSha).toBe("new-commit-sha");
       expect(res.output).toContain("push ok: octocat/hello-world@main");
-      expect(res.output).toContain("commit: new-commit-sha");
+      expect(res.output).toContain("verificação pós-escrita: 100% verificado sem divergências");
+    }
+  });
+
+  it("should report error when post-write read-back content diverges from expected", async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method || "GET";
+
+      if (url.includes("/git/ref/heads/main")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ object: { sha: "base-ref-sha" } }),
+        });
+      }
+      if (url.includes("/git/commits/base-ref-sha")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ tree: { sha: "base-tree-sha" } }),
+        });
+      }
+      if (url.includes("/git/blobs")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ sha: "blob-sha-123" }),
+        });
+      }
+      if (url.includes("/git/trees")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ sha: "new-tree-sha" }),
+        });
+      }
+      if (url.includes("/git/commits") && method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          text: async () =>
+            JSON.stringify({
+              sha: "new-commit-sha",
+              html_url: "https://github.com/octocat/hello-world/commit/new-commit-sha",
+            }),
+        });
+      }
+      if (url.includes("/git/refs/heads/main") && method === "PATCH") {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ object: { sha: "new-commit-sha" } }),
+        });
+      }
+      if (url.includes("/contents/index.html")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () =>
+            JSON.stringify({
+              content: Buffer.from("<h1>Divergent Content</h1>").toString("base64"),
+              encoding: "base64",
+            }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: async () => JSON.stringify({ message: "Not found" }),
+      });
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await githubWriteFilesWithToken("mock-token", {
+      owner: "octocat",
+      repo: "hello-world",
+      files: [{ path: "index.html", content: "<h1>Expected Content</h1>" }],
+    });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toContain("Divergência detectada após escrita no arquivo 'index.html'");
     }
   });
 
@@ -173,6 +259,16 @@ describe("GitHub Files Write Client (github.files.write)", () => {
         return Promise.resolve({
           ok: true,
           text: async () => JSON.stringify({ object: { sha: "commit-sha" } }),
+        });
+      }
+      if (url.includes("/contents/README.md")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () =>
+            JSON.stringify({
+              content: Buffer.from("Hello").toString("base64"),
+              encoding: "base64",
+            }),
         });
       }
       return Promise.resolve({ ok: false, status: 404, text: async () => "{}" });

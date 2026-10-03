@@ -30,10 +30,24 @@ export const GITHUB_REQUIRED_ARGS: Record<string, string[]> = {
   issues_list: ["owner", "repo"],
   issues_get: ["owner", "repo", "number"],
   pulls_list: ["owner", "repo"],
+  "github.prs.list": ["owner", "repo"],
+  prs_list: ["owner", "repo"],
   actions_list: ["owner", "repo"],
   repo_create: ["name"],
   push_files: ["owner", "repo", "files"],
   "github.files.write": ["owner", "repo", "files"],
+  "github.branches.list": ["owner", "repo"],
+  branches_list: ["owner", "repo"],
+  "github.branches.create": ["owner", "repo", "branch"],
+  branches_create: ["owner", "repo", "branch"],
+  "github.prs.create": ["owner", "repo", "title", "head", "base"],
+  prs_create: ["owner", "repo", "title", "head", "base"],
+  "github.prs.get": ["owner", "repo", "number"],
+  prs_get: ["owner", "repo", "number"],
+  "github.code.search": ["owner", "repo", "query"],
+  code_search: ["owner", "repo", "query"],
+  "github.tree": ["owner", "repo"],
+  tree: ["owner", "repo"],
 };
 
 export type GitHubToolPlan = {
@@ -47,6 +61,13 @@ export type GitHubToolPlan = {
   files?: Array<{ path: string; content: string }>;
   message?: string;
   branch?: string;
+  from_branch?: string;
+  title?: string;
+  body?: string;
+  head?: string;
+  base?: string;
+  query?: string;
+  tree_sha?: string;
 };
 
 function extractRepoNameCandidate(text: string): string | undefined {
@@ -90,7 +111,12 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     t.includes("readme") ||
     t.includes("commit") ||
     t.includes("push") ||
-    /\b(action|workflow|pipeline)\b/.test(t);
+    t.includes("branch") ||
+    t.includes("código") ||
+    t.includes("codigo") ||
+    t.includes("árvore") ||
+    t.includes("arvore") ||
+    /\b(action|workflow|pipeline|tree|search)\b/.test(t);
 
   if (!isGithubIntent) {
     return null;
@@ -105,6 +131,14 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
   let description: string | undefined = undefined;
   let files: Array<{ path: string; content: string }> | undefined = undefined;
   let commitMessage: string | undefined = undefined;
+  let branch: string | undefined = undefined;
+  let from_branch: string | undefined = undefined;
+  let title: string | undefined = undefined;
+  let body: string | undefined = undefined;
+  let head: string | undefined = undefined;
+  let base: string | undefined = undefined;
+  let query: string | undefined = undefined;
+  const tree_sha: string | undefined = undefined;
 
   const fullRepoMatch = text.match(/\b([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)\b/);
   if (fullRepoMatch) {
@@ -117,11 +151,10 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     repo = named;
   }
 
-  // Intent: provision a new repository (natural language, not only verb "criar").
   const listOnly =
     /\b(listar|liste|mostrar|mostre|quais\s+(s[aã]o\s+)?(os\s+)?(meus\s+)?repos|meus\s+reposit)/.test(t);
 
-  const wantsCreate =
+  const wantsCreateRepo =
     !listOnly &&
     /\b(reposit[oó]rio|repo)\b/.test(t) &&
     (/\b(criar|create|novo|gerar|gere|montar|monte|provisionar)\b/.test(t) ||
@@ -130,12 +163,29 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
       (/\breadme\b/.test(t) && /\bchamado\b/.test(t)));
 
   const wantsPush =
-    !wantsCreate &&
+    !wantsCreateRepo &&
     /\b(push|enviar\s+arquivo|commit|atualizar\s+arquivo|escrever\s+arquivo|adicionar\s+(?:o\s+)?(?:arquivo\s+)?readme|readme\.md)\b/.test(
       t
     );
 
-  if (wantsCreate) {
+  const wantsBranchCreate =
+    /\b(criar|crie|nova|new)\b/.test(t) && /\b(branch|galho)\b/.test(t);
+
+  const wantsBranchList =
+    /\b(listar|liste|quais|mostrar|mostre)\b/.test(t) && /\b(branch|branches|galhos)\b/.test(t);
+
+  const wantsPrCreate =
+    /\b(abrir|abra|criar|crie|open)\b/.test(t) && /\b(pr|pull request|pullrequests)\b/.test(t);
+
+  const wantsCodeSearch =
+    /\b(procure|busque|buscar|pesquisar|search)\b/.test(t) &&
+    /\b(c[oó]digo|code)\b/.test(t);
+
+  const wantsTree =
+    /\b([aá]rvore|tree)\b/.test(t) ||
+    (/\b(estrutura|arquivos)\b/.test(t) && /\b(do repo|do reposit[oó]rio)\b/.test(t));
+
+  if (wantsCreateRepo) {
     action = "repo_create";
     name = named || repo;
     if (t.includes("privado") || t.includes("private")) isPrivate = true;
@@ -154,6 +204,36 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
       commitMessage = "docs: README via Plutão write gate";
     }
     if (!repo && named) repo = named;
+  } else if (wantsBranchCreate) {
+    action = "github.branches.create";
+    const branchMatch = text.match(/(?:branch|galho)\s+["']?([a-zA-Z0-9._\-/]+)["']?/i);
+    if (branchMatch?.[1]) branch = branchMatch[1];
+    const fromMatch = text.match(/(?:a partir de|from)\s+["']?([a-zA-Z0-9._\-/]+)["']?/i);
+    if (fromMatch?.[1]) from_branch = fromMatch[1];
+  } else if (wantsBranchList || (t.includes("branch") && !wantsBranchCreate)) {
+    action = "github.branches.list";
+  } else if (wantsPrCreate) {
+    action = "github.prs.create";
+    const titleMatch = text.match(/(?:t[ií]tulo|title)\s+["']?([^"'\n]+)["']?/i);
+    if (titleMatch?.[1]) title = titleMatch[1];
+    else title = "Pull Request via Plutão OS";
+
+    const bodyMatch = text.match(/(?:corpo|descri[çc][aã]o|body)\s+["']?([^"'\n]+)["']?/i);
+    if (bodyMatch?.[1]) body = bodyMatch[1];
+
+    const headMatch = text.match(/(?:da branch|head|from)\s+["']?([a-zA-Z0-9._\-/]+)["']?/i);
+    if (headMatch?.[1]) head = headMatch[1];
+
+    const baseMatch = text.match(/(?:para a branch|para|base|into)\s+["']?([a-zA-Z0-9._\-/]+)["']?/i);
+    if (baseMatch?.[1]) base = baseMatch[1];
+    else base = "main";
+  } else if (wantsCodeSearch) {
+    action = "github.code.search";
+    const qMatch = text.match(/(?:procure|busque|buscar|pesquisar|search)\s+(?:por\s+)?["']?([^"'\n]+)["']?\s+no c[oó]digo/i) ||
+      text.match(/no c[oó]digo\s+(?:por\s+)?["']?([^"'\n]+)["']?/i);
+    if (qMatch?.[1]) query = qMatch[1].trim();
+  } else if (wantsTree) {
+    action = "github.tree";
   } else if (t.includes("issue")) {
     const issueNumMatch = text.match(/issue\s*#?(\d+)/i);
     if (issueNumMatch) {
@@ -163,7 +243,13 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
       action = "issues_list";
     }
   } else if (t.includes("pull") || t.includes("pr ") || t.includes("prs")) {
-    action = "pulls_list";
+    const prNumMatch = text.match(/(?:pr|pull request)\s*#?(\d+)/i);
+    if (prNumMatch) {
+      action = "github.prs.get";
+      issueNumber = parseInt(prNumMatch[1], 10);
+    } else {
+      action = "github.prs.list";
+    }
   } else if (/\b(action|workflow|pipeline)\b/.test(t) && !t.includes("write gate") && !t.includes("portão")) {
     action = "actions_list";
   } else if (
@@ -194,6 +280,14 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     description,
     files,
     message: commitMessage,
+    branch,
+    from_branch,
+    title,
+    body,
+    head,
+    base,
+    query,
+    tree_sha,
   };
 }
 
@@ -224,8 +318,25 @@ export async function detectAndExecuteGitHubTool(opts: {
     return { executed: false };
   }
 
-  const { action, owner, repo, issueNumber, name, private: isPrivate, description, files, message } =
-    plan;
+  const {
+    action,
+    owner,
+    repo,
+    issueNumber,
+    name,
+    private: isPrivate,
+    description,
+    files,
+    message,
+    branch,
+    from_branch,
+    title,
+    body,
+    head,
+    base,
+    query,
+    tree_sha,
+  } = plan;
 
   const requiredArgs = GITHUB_REQUIRED_ARGS[action] ?? [];
   const missingParams: string[] = [];
@@ -234,6 +345,11 @@ export async function detectAndExecuteGitHubTool(opts: {
   if (requiredArgs.includes("number") && issueNumber === undefined) missingParams.push("number");
   if (requiredArgs.includes("name") && !name) missingParams.push("name");
   if (requiredArgs.includes("files") && (!files || files.length === 0)) missingParams.push("files");
+  if (requiredArgs.includes("branch") && !branch) missingParams.push("branch");
+  if (requiredArgs.includes("title") && !title) missingParams.push("title");
+  if (requiredArgs.includes("head") && !head) missingParams.push("head");
+  if (requiredArgs.includes("base") && !base) missingParams.push("base");
+  if (requiredArgs.includes("query") && !query) missingParams.push("query");
 
   if (missingParams.length > 0) {
     let recentRepos: string[] = [];
@@ -253,12 +369,18 @@ export async function detectAndExecuteGitHubTool(opts: {
       let prompt = `ver detalhes do repositório ${r}`;
       if (action === "push_files" || action === "github.files.write") {
         prompt = `envie README.md para o repositório ${r}`;
+      } else if (action.includes("branch")) {
+        prompt = `liste as branches do repositório ${r}`;
       } else if (action.includes("issue")) {
         prompt = `liste as issues abertas de ${r}`;
       } else if (action.includes("pull") || action.includes("pr")) {
         prompt = `liste os pull requests de ${r}`;
       } else if (action.includes("action") || action.includes("workflow")) {
         prompt = `liste as actions de ${r}`;
+      } else if (action.includes("code") || action.includes("search")) {
+        prompt = `busque no código do repositório ${r}`;
+      } else if (action.includes("tree")) {
+        prompt = `ver árvore de arquivos de ${r}`;
       }
       return {
         id: `fu-missing-repo-${i + 1}`,
@@ -270,8 +392,8 @@ export async function detectAndExecuteGitHubTool(opts: {
     const contextText = `[ESCLARECIMENTO DE PARÂMETROS - GITHUB]
 O usuário quer executar '${action}', mas faltam: ${missingParams.join(", ")}.
 Repositórios recentes: ${recentRepos.length > 0 ? recentRepos.join(", ") : "nenhum encontrado"}.
-Peça só o mínimo que falta (ex.: nome do repositório). Não peça confirmação genérica de "posso executar?".
-Para escritas (repo_create / push_files / github.files.write), assim que os args existirem, execute a tool — a aprovação humana é o WriteGateCard, não o chat.`;
+Peça só o mínimo que falta (ex.: nome do repositório ou parâmetro faltante). Não peça confirmação genérica de "posso executar?".
+Para escritas (repo_create / push_files / github.files.write / github.branches.create / github.prs.create), assim que os args existirem, execute a tool — a aprovação humana é o WriteGateCard, não o chat.`;
 
     return {
       executed: false,
@@ -291,6 +413,14 @@ Para escritas (repo_create / push_files / github.files.write), assim que os args
   if (description) payload.description = description;
   if (files) payload.files = files;
   if (message) payload.message = message;
+  if (branch) payload.branch = branch;
+  if (from_branch) payload.from_branch = from_branch;
+  if (title) payload.title = title;
+  if (body) payload.body = body;
+  if (head) payload.head = head;
+  if (base) payload.base = base;
+  if (query) payload.query = query;
+  if (tree_sha) payload.tree_sha = tree_sha;
   if (opts.missionId) payload.missionId = opts.missionId;
 
   const rawInput = JSON.stringify(payload);
