@@ -8,9 +8,9 @@ vi.mock("@/lib/auth/session", () => ({
 
 vi.mock("@/app/api/conversations/[id]/route", () => ({
   checkConversationOwnership: vi.fn(async (id: string, userId: string) => {
-    if (id === "missing") return { status: 404, conversation: null };
-    if (id === "other") return { status: 403, conversation: null };
-    if (userId !== mockUser.id) return { status: 403, conversation: null };
+    if (id === "missing" || id === "other" || userId !== mockUser.id) {
+      return { status: 404, conversation: null };
+    }
     return {
       status: 200,
       conversation: { id, userId: mockUser.id },
@@ -60,11 +60,11 @@ describe("GET /api/conversations/[id]/events", () => {
     expect(json.events[0].seq).toBe(1);
   });
 
-  it("forbids other user's conversation", async () => {
+  it("returns 404 for other user's conversation", async () => {
     const res = await GET(req("http://localhost/api/conversations/other/events"), {
       params: Promise.resolve({ id: "other" }),
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it("404 when missing", async () => {

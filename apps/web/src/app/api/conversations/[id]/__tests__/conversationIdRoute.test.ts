@@ -97,10 +97,10 @@ describe("checkConversationOwnership", () => {
     expect(r.conversation?.id).toBe("conv-1");
   });
 
-  it("returns 403 for other user when row exists with different userId", async () => {
+  it("returns 404 for other user when row exists with different userId", async () => {
     store = [{ ...convOther }];
     const r = await checkConversationOwnership("conv-other", mockUser.id);
-    expect(r.status).toBe(403);
+    expect(r.status).toBe(404);
     expect(r.conversation).toBeNull();
   });
 
@@ -143,12 +143,12 @@ describe("PATCH /api/conversations/[id]", () => {
     expect(res.status).toBe(401);
   });
 
-  it("forbids patch on another user's conversation", async () => {
+  it("returns 404 on patch for another user's conversation", async () => {
     store = [{ ...convOther }];
     const res = await PATCH(req("PATCH", { title: "hack" }), {
       params: Promise.resolve({ id: "conv-other" }),
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 });
 
@@ -168,12 +168,12 @@ describe("DELETE /api/conversations/[id]", () => {
     expect(store.find((c) => c.id === "conv-1")).toBeUndefined();
   });
 
-  it("forbids delete on another user's conversation", async () => {
+  it("returns 404 on delete for another user's conversation", async () => {
     store = [{ ...convOther }];
     const res = await DELETE(req("DELETE"), {
       params: Promise.resolve({ id: "conv-other" }),
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     expect(store).toHaveLength(1);
   });
 });

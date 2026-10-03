@@ -23,9 +23,6 @@ export async function GET(
   if (check.status === 404) {
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
-  if (check.status === 403) {
-    return NextResponse.json({ error: "Acesso negado à conversa" }, { status: 403 });
-  }
 
   // Prefer URL API over nextUrl so plain Request mocks in unit tests work.
   const searchParams = new URL(req.url).searchParams;

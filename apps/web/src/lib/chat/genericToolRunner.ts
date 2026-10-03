@@ -213,7 +213,7 @@ Pergunte objetivamente qual recurso o usuário deseja consultar, apresentando as
         await db
           .update(missions)
           .set({ evidence: [...prevEv, evidenceItem], updatedAt: new Date() })
-          .where(eq(missions.id, opts.missionId));
+          .where(and(eq(missions.id, opts.missionId), eq(missions.userId, opts.userId)));
       }
     } catch {
       /* ignore evidence error */

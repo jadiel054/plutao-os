@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     await db
       .update(missions)
       .set({ evidence: next, updatedAt: new Date() })
-      .where(eq(missions.id, owned.missionId));
+      .where(and(eq(missions.id, owned.missionId), eq(missions.userId, user.id)));
 
     return NextResponse.json({ evidence: item }, { status: 201 });
   } catch (e) {
