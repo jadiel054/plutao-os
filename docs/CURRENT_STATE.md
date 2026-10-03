@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-09-28 (Frente F housekeeping)
+**Última atualização:** 2026-10-03 (Fix runtime de missões isolado)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -15,6 +15,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
 | BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO** (2026-09-27) | MCP `plutao_send_message` → `list_conversations` 1→2; mesma tabela `conversations` que o drawer da UI. Migration `0016` + API REST. |
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
+| **Fix Runtime de Missões (Model ID & Connector Tools)** | **IMPLEMENTED / ISOLATED** (2026-10-03) | Reaplicado fix de resolução de modelo (`resolveCloudModelConfig`), retry com backoff (`callModelWithRetry`) e prompt de missão com awareness de conectores e write gates (`missionPrompt.ts`), totalmente isolado em módulos exclusivos da missão (`step.ts`, `missionPrompt.ts`, `modelCall.ts`, `label.ts`), **sem tocar em arquivos compartilhados** (`agent-loop.ts`, `client.ts`, `provider.ts`, `api/chat/route.ts`). Teste de regressão do chat incluído e passando. |
 | **GitHub Files Write (`github.files.write`)** | **VERIFICADO** (2026-10-03) | Nova capability para escrita/atualização atômica de múltiplos arquivos via Git Data API (Git Trees). Protegida com Write Gate (Princípio 1), verificação pós-escrita (read-back) com detecção de divergência e limites estritos (máx 20 arquivos, 100KB/arquivo, sem path traversal `..`). |
 | **GitHub Pro (Branches, PRs, Code Search & Tree)** | **IMPLEMENTED** (2026-10-03) | Capabilities profissionais de repositório: `github.branches.list`/`create`, `github.prs.create`/`list`/`get`, `github.code.search` e `github.tree`. Escritas (branches/PRs) 100% sob Write Gate. Regra de ouro do operador minucioso no system prompt e verificação de leitura pós-escrita. **Pendente:** smoke em produção de branch/PR real. |
 | **Exportação de arquivos (`files.export_*`)** | **VERIFICADO** (2026-10-03) | 4 ferramentas nativas de exportação no runtime (`files.export_pdf`, `files.export_xlsx`, `files.export_markdown`, `files.export_html`). Salvam no filesystem pessoal do usuário (`exports/`), sem conector/OAuth/write-gate, com sanitização contra path traversal, limite de 5MB por export, e detector de intenções PT-BR. |
