@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-10-03 (Fix runtime de missões isolado)
+**Última atualização:** 2026-10-03 (Hardening do caminho de escrita do chat & Fix do runtime de missões)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -15,6 +15,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
 | BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO** (2026-09-27) | MCP `plutao_send_message` → `list_conversations` 1→2; mesma tabela `conversations` que o drawer da UI. Migration `0016` + API REST. |
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
+| **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate em `gates.ts`, `tools/*.ts` e `connectorRuntime.ts` com log estruturado e aviso amigável `"Não consegui iniciar a operação <action>: <motivo>"`. **BUG 2:** Validação de nome do projeto Vercel (`/^[a-z0-9][a-z0-9-]{1,50}$/`, min 3 chars), rejeitando tokens inválidos (ex: `"na"`) com pedido de esclarecimento. **BUG 3:** Retorno do campo `label` amigável em `GET /api/model/status` e exibição no Cockpit via `d.label ?? `${d.provider}/${d.model}`. |
 | **Fix Runtime de Missões (Model ID & Connector Tools)** | **IMPLEMENTED / ISOLATED** (2026-10-03) | Reaplicado fix de resolução de modelo (`resolveCloudModelConfig`), retry com backoff (`callModelWithRetry`) e prompt de missão com awareness de conectores e write gates (`missionPrompt.ts`), totalmente isolado em módulos exclusivos da missão (`step.ts`, `missionPrompt.ts`, `modelCall.ts`, `label.ts`), **sem tocar em arquivos compartilhados** (`agent-loop.ts`, `client.ts`, `provider.ts`, `api/chat/route.ts`). Teste de regressão do chat incluído e passando. |
 | **GitHub Files Write (`github.files.write`)** | **VERIFICADO** (2026-10-03) | Nova capability para escrita/atualização atômica de múltiplos arquivos via Git Data API (Git Trees). Protegida com Write Gate (Princípio 1), verificação pós-escrita (read-back) com detecção de divergência e limites estritos (máx 20 arquivos, 100KB/arquivo, sem path traversal `..`). |
 | **GitHub Pro (Branches, PRs, Code Search & Tree)** | **IMPLEMENTED** (2026-10-03) | Capabilities profissionais de repositório: `github.branches.list`/`create`, `github.prs.create`/`list`/`get`, `github.code.search` e `github.tree`. Escritas (branches/PRs) 100% sob Write Gate. Regra de ouro do operador minucioso no system prompt e verificação de leitura pós-escrita. **Pendente:** smoke em produção de branch/PR real. |
@@ -83,6 +84,10 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - Conector Render: API Key cifrada; capabilities `render.services_list`, `render.service_get` (detalhes e chaves de env sem valores), `render.deploys_list`, `render.deploy_trigger` (Write Gate) e `render.env_set` (Write Gate com valor mascarado no preview); erros amigáveis em PT-BR e timeout de 15s
 - Marcos "GitHub Pro": `githubBranches.ts` (list/create + validação de chars/`..` e existência), `githubPulls.ts` (create/list/get + validação de head/base e política de merge humano), `githubCode.ts` (code search + tree) e `operating-principles.ts` (regra de ouro do operador minucioso no system prompt)
 - Exportação nativa de arquivos (`export.ts` + `exportToolRunner.ts`): PDF via `pdf-lib` (A4, quebras de página, rodapé "Gerado pelo Plutão OS"), XLSX via `exceljs`, Markdown com frontmatter YAML, e HTML autônomo com tema escuro acinzentado. Sanitização de caminhos salvos em `/exports/`, limite de 5MB, e intenções PT-BR ativadas direto no chat ("gerar pdf", "exportar planilha", "criar markdown/html")
+- Hardening do caminho de escrita do chat: todo erro na criação do gate ou execução de ferramentas vira log estruturado (`console.error`) e mensagem visível de erro no chat ("Não consegui iniciar a operação..."), sem falhas silenciosas
+- Validação estrita do nome de projeto Vercel no runner (`isValidVercelProjectName`), bloqueando nomes < 3 caracteres ou com caracteres inválidos (ex: "na") antes da criação do gate
+- Status do modelo no Cockpit exibe o label amigável retornado pela rota `/api/model/status`
+- Runtime de missões isolado: resolução de `users.preferredModel` via `resolveCloudModelConfig`, retry com backoff (`callModelWithRetry`), prompt com awareness de conectores (`missionPrompt.ts`) sem alterar arquivos compartilhados
 - `resolveCloudModelConfig(id)` mapeia catálogo → provider + apiModel + baseUrl + env keys
 - Evidence de model_step: `source: "model:plutao-primary"` (não vaza groq/openai ids)
 - MCP: OAuth 2.1+PKCE, scopes read/write, audit, rate limit, tools listadas em `docs/MCP_SERVER.md`
