@@ -17,10 +17,9 @@ export const vercelManifest: ConnectorManifest = {
   oauth: {
     clientIdEnv: "VERCEL_CLIENT_ID",
     clientSecretEnv: "VERCEL_CLIENT_SECRET",
-    authorizeUrl: "https://vercel.com/integrations/token",
-    authorizeParams: (redirectUri, state) => ({
-      client_id: process.env.VERCEL_CLIENT_ID?.trim() || "",
-      redirect_uri: redirectUri,
+    // Legado /integrations/token retorna 404. Fluxo Community: /integrations/{slug}/new
+    authorizeUrl: "https://vercel.com/integrations/plutao-os/new",
+    authorizeParams: (_redirectUri, state) => ({
       state,
     }),
     tokenUrl: "https://api.vercel.com/v2/oauth/access_token",

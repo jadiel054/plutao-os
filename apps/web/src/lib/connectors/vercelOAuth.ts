@@ -2,6 +2,9 @@ import { getAppBaseUrl } from "./githubOAuth";
 
 export { getAppBaseUrl };
 
+/** Slug da Integration no console Vercel (vercel.com/integrations/{slug}). */
+const VERCEL_INTEGRATION_SLUG = "plutao-os";
+
 export function vercelIntegrationConfigured(): boolean {
   return Boolean(
     process.env.VERCEL_CLIENT_ID?.trim() && process.env.VERCEL_CLIENT_SECRET?.trim()
@@ -20,19 +23,17 @@ export function getVercelClientSecret(): string {
  * Integration Console (vercel.com/dashboard/integrations/console):
  * Redirect URL: {APP_URL}/api/connectors/vercel/callback
  *
- * MCP https://mcp.vercel.com exige allowlist de clientes; Plutão usa REST API
- * com token da Integration ou Access Token até aprovação MCP.
+ * O endpoint legado https://vercel.com/integrations/token retorna 404.
+ * O fluxo Community atual inicia em /integrations/{slug}/new.
  */
 export function buildVercelAuthorizeUrl(opts: {
   state: string;
   redirectUri: string;
 }): string {
   const params = new URLSearchParams({
-    client_id: getVercelClientId(),
-    redirect_uri: opts.redirectUri,
     state: opts.state,
   });
-  return `https://vercel.com/integrations/token?${params.toString()}`;
+  return `https://vercel.com/integrations/${VERCEL_INTEGRATION_SLUG}/new?${params.toString()}`;
 }
 
 export async function exchangeVercelCode(opts: {

@@ -11,7 +11,7 @@ import { getConnectorManifest } from "@/lib/connectors/manifests";
 import type { ConnectorProviderId } from "@plutao/domain";
 import { getDb } from "@/lib/db";
 import { connectors } from "@plutao/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
@@ -24,19 +24,22 @@ export async function GET(
   const manifest = getConnectorManifest(provider);
 
   const baseUrl = getAppBaseUrl(req.url);
-  const redirectTarget = `${baseUrl}/configuracoes`;
+  // Volta na aba Conectores (evita reset para Modelos após OAuth).
+  const redirectTarget = `${baseUrl}/configuracoes?tab=conectores`;
 
   if (!manifest) {
-    return NextResponse.redirect(`${redirectTarget}?connector_error=${encodeURIComponent(`Conector '${provider}' inválido`)}`);
+    return NextResponse.redirect(
+      `${redirectTarget}&connector_error=${encodeURIComponent(`Conector '${provider}' inválido`)}`
+    );
   }
 
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
-  const state = searchParams.get("state");
+  let state = searchParams.get("state");
   const errParam = searchParams.get("error");
   const errDesc = searchParams.get("error_description");
 
-  // Find authorizing user by state or fallback to current session
+  // Resolve usuário: 1) state no DB 2) sessão
   let userId: string | null = null;
   if (state) {
     const db = getDb();
@@ -53,19 +56,39 @@ export async function GET(
     if (user) userId = user.id;
   }
 
+  // Vercel Community /new às vezes não ecoa state. Se houver sessão e conector
+  // em authorizing, reaproveita o oauthState gravado no beginOAuth.
+  if (!state && userId && provider === "vercel") {
+    const db = getDb();
+    const rows = await db
+      .select({ oauthState: connectors.oauthState })
+      .from(connectors)
+      .where(
+        and(
+          eq(connectors.userId, userId),
+          eq(connectors.provider, provider),
+          eq(connectors.status, "authorizing")
+        )
+      )
+      .limit(1);
+    if (rows[0]?.oauthState) {
+      state = rows[0].oauthState;
+    }
+  }
+
   if (errParam || !code || !state) {
     const desc = errDesc || errParam || "code_ou_state_ausente";
     if (userId) {
       await failOAuth(userId, provider, desc);
     }
     return NextResponse.redirect(
-      `${redirectTarget}?connector_error=${encodeURIComponent(`Falha no OAuth de ${manifest.displayName}: ${desc}`)}`
+      `${redirectTarget}&connector_error=${encodeURIComponent(`Falha no OAuth de ${manifest.displayName}: ${desc}`)}`
     );
   }
 
   if (!userId) {
     return NextResponse.redirect(
-      `${redirectTarget}?connector_error=${encodeURIComponent("Sessão não encontrada para o callback OAuth")}`
+      `${redirectTarget}&connector_error=${encodeURIComponent("Sessão não encontrada para o callback OAuth")}`
     );
   }
 
@@ -76,7 +99,7 @@ export async function GET(
     if (!exchanged.ok) {
       await failOAuth(userId, provider, exchanged.error);
       return NextResponse.redirect(
-        `${redirectTarget}?connector_error=${encodeURIComponent(exchanged.error)}`
+        `${redirectTarget}&connector_error=${encodeURIComponent(exchanged.error)}`
       );
     }
 
@@ -84,7 +107,7 @@ export async function GET(
     if (!userResult.ok) {
       await failOAuth(userId, provider, userResult.error);
       return NextResponse.redirect(
-        `${redirectTarget}?connector_error=${encodeURIComponent(userResult.error)}`
+        `${redirectTarget}&connector_error=${encodeURIComponent(userResult.error)}`
       );
     }
 
@@ -109,16 +132,16 @@ export async function GET(
           : "Falha ao atualizar conector";
       await failOAuth(userId, provider, errMsg);
       return NextResponse.redirect(
-        `${redirectTarget}?connector_error=${encodeURIComponent(errMsg)}`
+        `${redirectTarget}&connector_error=${encodeURIComponent(errMsg)}`
       );
     }
 
-    return NextResponse.redirect(`${redirectTarget}?connector_ok=${provider}`);
+    return NextResponse.redirect(`${redirectTarget}&connector_ok=${provider}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro_desconhecido";
     await failOAuth(userId, provider, msg);
     return NextResponse.redirect(
-      `${redirectTarget}?connector_error=${encodeURIComponent(msg)}`
+      `${redirectTarget}&connector_error=${encodeURIComponent(msg)}`
     );
   }
 }
