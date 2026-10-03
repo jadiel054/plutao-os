@@ -29,6 +29,8 @@ export function SettingsConnectorsSection({
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [activeTokenProvider, setActiveTokenProvider] = useState<string | null>(null);
   const [inputToken, setInputToken] = useState("");
+  const [inputProjectUrl, setInputProjectUrl] = useState("");
+  const [inputServiceRoleKey, setInputServiceRoleKey] = useState("");
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState("");
   const [customUrl, setCustomUrl] = useState("");
@@ -103,10 +105,16 @@ export function SettingsConnectorsSection({
     }
     setBusy(`${provider}-token`);
     try {
+      const body: Record<string, string> = { token };
+      if (provider === "supabase") {
+        if (inputProjectUrl.trim()) body.projectUrl = inputProjectUrl.trim();
+        if (inputServiceRoleKey.trim()) body.serviceRoleKey = inputServiceRoleKey.trim();
+      }
+
       const res = await fetch(`/api/connectors/${provider}/connect-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -114,6 +122,8 @@ export function SettingsConnectorsSection({
         return;
       }
       setInputToken("");
+      setInputProjectUrl("");
+      setInputServiceRoleKey("");
       setActiveTokenProvider(null);
       onNotifyRef.current?.(`Conector ${provider} conectado${data.accountLogin ? ` · @${data.accountLogin}` : ""}`, "success");
       await load();
@@ -353,6 +363,8 @@ export function SettingsConnectorsSection({
                                   prev === manifest.provider ? null : manifest.provider
                                 );
                                 setInputToken("");
+                                setInputProjectUrl("");
+                                setInputServiceRoleKey("");
                               }}
                               className="px-3.5 py-1.5 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-40"
                             >
@@ -379,6 +391,8 @@ export function SettingsConnectorsSection({
                                     prev === manifest.provider ? null : manifest.provider
                                   );
                                   setInputToken("");
+                                setInputProjectUrl("");
+                                setInputServiceRoleKey("");
                                 }}
                                 className="px-3 py-1.5 rounded-xl border border-[var(--border)] text-xs hover:bg-[var(--surface-hover)] transition-colors"
                               >
@@ -424,6 +438,29 @@ export function SettingsConnectorsSection({
                           placeholder={manifest.tokenConfig?.placeholder || "Cole a API Key..."}
                           className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
                         />
+                        {manifest.provider === "supabase" ? (
+                          <div className="space-y-2 pt-1 border-t border-[var(--border)]/50">
+                            <p className="text-[10px] text-[var(--text-muted)]">
+                              Opcional por projeto (escopo mínimo recomendado): Project URL e Service Role Key para consultas diretas no PostgREST.
+                            </p>
+                            <input
+                              type="text"
+                              autoComplete="off"
+                              value={inputProjectUrl}
+                              onChange={(e) => setInputProjectUrl(e.target.value)}
+                              placeholder="Project URL (opcional, ex: https://xyz.supabase.co)"
+                              className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
+                            />
+                            <input
+                              type="password"
+                              autoComplete="off"
+                              value={inputServiceRoleKey}
+                              onChange={(e) => setInputServiceRoleKey(e.target.value)}
+                              placeholder="Service Role Key (opcional, ex: eyJ...)"
+                              className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
+                            />
+                          </div>
+                        ) : null}
                         <div className="flex gap-2">
                           <button
                             type="button"
@@ -438,6 +475,8 @@ export function SettingsConnectorsSection({
                             onClick={() => {
                               setActiveTokenProvider(null);
                               setInputToken("");
+                              setInputProjectUrl("");
+                              setInputServiceRoleKey("");
                             }}
                             className="px-3 py-1.5 rounded-xl border border-[var(--border)] text-xs"
                           >

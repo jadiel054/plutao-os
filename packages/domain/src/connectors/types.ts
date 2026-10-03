@@ -7,7 +7,7 @@
  *   * → error → disconnected | authorizing (reconectar)
  */
 
-export type ConnectorProviderId = "github" | "vercel" | "neon" | "stripe";
+export type ConnectorProviderId = "github" | "vercel" | "neon" | "stripe" | "supabase";
 
 export type ConnectorStatus =
   | "disconnected"
@@ -83,6 +83,14 @@ export const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
       "Finanças e pagamentos: saldo, produtos, clientes, cobranças e assinaturas. Restricted / Secret API Key cifrada.",
     defaultScopes: [],
     defaultServerUrl: "https://api.stripe.com/v1",
+  },
+  {
+    provider: "supabase",
+    displayName: "Supabase",
+    description:
+      "Auth, Postgres, storage e edge. Personal Access Token (PAT) do Supabase e par opcional project_url / service_role_key. Cifrados e protegidos.",
+    defaultScopes: [],
+    defaultServerUrl: "https://api.supabase.com",
   },
 ];
 

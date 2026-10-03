@@ -3,6 +3,7 @@ export type ToolName =
   | "filesystem"
   | "github"
   | "vercel"
+  | "supabase"
   | "files.export_pdf"
   | "files.export_xlsx"
   | "files.export_markdown"
@@ -36,6 +37,7 @@ export const KNOWN_TOOLS: readonly ToolName[] = [
   "filesystem",
   "github",
   "vercel",
+  "supabase",
   "files.export_pdf",
   "files.export_xlsx",
   "files.export_markdown",
