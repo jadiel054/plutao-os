@@ -63,8 +63,7 @@ export interface IModelProvider {
  */
 export class GroqProvider implements IModelProvider {
   private config: ReturnType<typeof getModelConfig> | null;
-  privat
-e modelId: string;
+  private modelId: string;
 
   constructor() {
     this.config = getModelConfig();
@@ -137,8 +136,7 @@ export class ModelProviderFactory {
       // Cria ou reutiliza LocalAdapter
       if (!this.localProvider) {
         this.localProvider = getLocalAdapter({
-          modelId: localModel
-Id || "Xenova/Llama-3.2-3B-Instruct-q4",
+          modelId: localModelId || "Xenova/Llama-3.2-3B-Instruct-q4",
         });
       }
       
@@ -227,8 +225,7 @@ Id || "Xenova/Llama-3.2-3B-Instruct-q4",
   /**
    * Obtém tipo do provedor atual
    */
-  static async getCurren
-tProviderType(): Promise<"groq" | "local"> {
+  static async getCurrentProviderType(): Promise<"groq" | "local"> {
     const provider = await this.getProvider();
     return provider.getProviderType();
   }
