@@ -6,6 +6,7 @@ import {
   markGateRejected,
 } from "@/lib/connectors/gates";
 import { runGithub } from "@/lib/runtime/tools/github";
+import { runVercel } from "@/lib/runtime/tools/vercel";
 import { getDb } from "@/lib/db";
 import { missions } from "@plutao/db";
 import { and, eq } from "drizzle-orm";
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     await appendEvidence(
       gate.missionId,
       user.id,
-      `gate rejeitado: ${gate.capability} → ${gate.target}`,
+      `gate rejeitado: ${gate.provider}/${gate.capability} → ${gate.target}`,
       "decision"
     );
     return NextResponse.json({ ok: true, status: "rejected", gate: updated });
@@ -88,14 +89,29 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     missionId: gate.missionId,
   });
 
-  const result = await runGithub(execInput, user.id);
+  const provider = String(gate.provider || "github");
+
+  let result: { ok: true; output: string } | { ok: false; error: string };
+
+  if (provider === "vercel") {
+    const r = await runVercel(execInput, user.id);
+    result = r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
+  } else if (provider === "github") {
+    const r = await runGithub(execInput, user.id);
+    result = r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
+  } else {
+    return NextResponse.json(
+      { error: `provider_not_supported: ${provider}` },
+      { status: 400 }
+    );
+  }
 
   if (!result.ok) {
     await markGateApproved(id, user.id, null, result.error || "execução falhou");
     await appendEvidence(
       gate.missionId,
       user.id,
-      `gate aprovado mas falhou: ${gate.capability} → ${result.error}`,
+      `gate aprovado mas falhou: ${gate.provider}/${gate.capability} → ${result.error}`,
       "tool_error"
     );
     return NextResponse.json({ ok: false, status: "failed", error: result.error }, { status: 502 });
@@ -105,7 +121,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   await appendEvidence(
     gate.missionId,
     user.id,
-    `gate aprovado e executado: ${gate.capability}\n${result.output}`,
+    `gate aprovado e executado: ${gate.provider}/${gate.capability}\n${result.output}`,
     "tool_result"
   );
 

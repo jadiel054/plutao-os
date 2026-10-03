@@ -9,6 +9,7 @@ import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { runNote } from "./note";
 import { runFilesystem } from "./filesystem";
 import { runGithub } from "./github";
+import { runVercel } from "./vercel";
 import { isToolName, type ToolName, type ToolResult } from "./types";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
 
@@ -28,6 +29,8 @@ async function dispatchLocal(
       return await runFilesystem(input, opts.executionId);
     case "github":
       return await runGithub(input, opts.userId);
+    case "vercel":
+      return await runVercel(input, opts.userId);
     default: {
       const _exhaustive: never = name;
       return {
@@ -75,7 +78,7 @@ export async function dispatchTool(opts: {
   if (!isToolName(opts.name)) {
     return {
       error: "UNKNOWN_TOOL" as const,
-      known: ["note", "filesystem", "github"] as const,
+      known: ["note", "filesystem", "github", "vercel"] as const,
     };
   }
 
@@ -193,7 +196,6 @@ export async function dispatchTool(opts: {
     evidenceId,
   });
 
-  // G3: action + observation no event stream da conversa (painel Computador)
   const conversationId =
     (typeof cp.conversationId === "string" && cp.conversationId.trim()) ||
     (typeof nextCp.conversationId === "string" && nextCp.conversationId.trim()) ||

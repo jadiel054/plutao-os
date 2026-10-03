@@ -11,6 +11,7 @@ import {
 } from "@/lib/connectors/service";
 import { CONNECTOR_CATALOG, type ConnectorCapability, type ConnectorPublicView } from "@plutao/domain";
 import { githubManifest } from "@/lib/connectors/manifests/github";
+import { vercelManifest } from "@/lib/connectors/manifests/vercel";
 import {
   detectAndExecuteGitHubTool,
   type GitHubToolExecutionResult,
@@ -49,9 +50,15 @@ function enrichCapabilities(
   stored: ConnectorCapability[]
 ): ConnectorCapability[] {
   if (status !== "connected") return stored;
-  if (provider !== "github") return stored;
+  const manifest =
+    provider === "github"
+      ? githubManifest
+      : provider === "vercel"
+        ? vercelManifest
+        : null;
+  if (!manifest) return stored;
   const byName = new Map(stored.map((c) => [c.name, c]));
-  for (const m of githubManifest.capabilities) {
+  for (const m of manifest.capabilities) {
     if (!byName.has(m.name)) {
       byName.set(m.name, {
         name: m.name,
@@ -64,10 +71,6 @@ function enrichCapabilities(
   return Array.from(byName.values());
 }
 
-/**
- * Carrega catálogo + estado real do usuário.
- * Fonte de verdade — o modelo não inventa conector conectado.
- */
 export async function loadConnectorRuntime(
   userId: string
 ): Promise<ConnectorRuntimeSnapshot> {
@@ -130,11 +133,12 @@ export async function loadConnectorRuntime(
     "Só execute tools de conectores com status CONECTADO. Se desconectado, oriente Configurações → Conectores.",
     "",
     "ESCRITAS E APROVAÇÃO HUMANA (Princípio 1):",
-    "- Capabilities mode=write (ex.: repo_create, push_files) existem e são executáveis quando o conector está connected.",
+    "- Capabilities mode=write (ex.: repo_create, push_files, project_create, deploy_create) existem e são executáveis quando o conector está connected.",
     "- O runtime cria write_gate e o chat mostra o card Aprovar/Recusar. Essa é a única confirmação humana.",
     "- NÃO peça 'confirma no chat' / 'posso prosseguir?' para escritas. NÃO diga que só tem leitura se write estiver na lista.",
     "- NÃO ofereça guia manual ou CLI no lugar de usar a tool.",
-    "- Intenção natural do usuário (ex.: criar site, criar repo, publicar) deve mapear para as tools disponíveis nesta sessão.",
+    "- Intenção natural do usuário (ex.: criar site, criar repo, publicar no Vercel) deve mapear para as tools disponíveis nesta sessão.",
+    "- Fluxo típico de site/app: GitHub (repo_create + push_files) → Vercel (project_create / deploy_create) com gates em cada write.",
   ];
 
   for (const c of connectors) {
@@ -174,9 +178,6 @@ export async function loadConnectorRuntime(
   };
 }
 
-/**
- * Executa tools dos conectores CONNECTED conforme a intenção do usuário.
- */
 export async function runConnectedConnectorTools(opts: {
   userId: string;
   userText: string;
@@ -206,8 +207,10 @@ export async function runConnectedConnectorTools(opts: {
     vercel = await detectAndExecuteVercelTool({
       text: userText,
       userText,
+      userId,
       accessToken: snapshot.vercelToken,
       accountLogin: snapshot.vercelLogin,
+      missionId: missionId ?? null,
     });
     if ((vercel.executed || vercel.missingArgs) && vercel.contextText) {
       contextBlocks.push(vercel.contextText);
