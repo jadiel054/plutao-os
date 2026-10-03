@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, inArray, and } from "drizzle-orm";
-import { agents, artifacts as artifactsTable, users, usageCounters, conversations, messages as messagesTable } from "@plutao/db";
+import { agents, artifacts as artifactsTable, users, usageCounters, conversations } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";

@@ -112,6 +112,38 @@ describe("githubPulls", () => {
     });
   });
 
+  describe("githubPullsList", () => {
+    it("returns list of pull requests", async () => {
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify([
+            {
+              number: 1,
+              title: "Initial PR",
+              state: "open",
+              head: { ref: "feature-1" },
+              base: { ref: "main" },
+              html_url: "https://github.com/user/my-repo/pull/1",
+            },
+          ]),
+      } as Response);
+
+      const res = await githubPullsList("test-token", {
+        owner: "user",
+        repo: "my-repo",
+      });
+
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.pulls).toHaveLength(1);
+        expect(res.pulls[0].title).toBe("Initial PR");
+        expect(res.output).toContain("#1 [open] Initial PR");
+      }
+    });
+  });
+
   describe("githubPullsGet", () => {
     it("returns PR details including additions, deletions, mergeable, and reviewers", async () => {
       global.fetch = vi.fn().mockResolvedValueOnce({

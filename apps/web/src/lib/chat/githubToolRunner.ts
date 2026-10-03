@@ -138,7 +138,7 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
   let head: string | undefined = undefined;
   let base: string | undefined = undefined;
   let query: string | undefined = undefined;
-  let tree_sha: string | undefined = undefined;
+  const tree_sha: string | undefined = undefined;
 
   const fullRepoMatch = text.match(/\b([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)\b/);
   if (fullRepoMatch) {
@@ -217,6 +217,9 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     const titleMatch = text.match(/(?:t[ií]tulo|title)\s+["']?([^"'\n]+)["']?/i);
     if (titleMatch?.[1]) title = titleMatch[1];
     else title = "Pull Request via Plutão OS";
+
+    const bodyMatch = text.match(/(?:corpo|descri[çc][aã]o|body)\s+["']?([^"'\n]+)["']?/i);
+    if (bodyMatch?.[1]) body = bodyMatch[1];
 
     const headMatch = text.match(/(?:da branch|head|from)\s+["']?([a-zA-Z0-9._\-/]+)["']?/i);
     if (headMatch?.[1]) head = headMatch[1];
