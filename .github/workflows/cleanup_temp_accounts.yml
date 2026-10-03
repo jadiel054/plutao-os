@@ -1,0 +1,75 @@
+name: Cleanup Temp Accounts
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (audita sem deletar nada)"
+        type: boolean
+        default: true
+  schedule:
+    # PRIMEIRA EXECUÇÃO DEVE SER MANUAL COM dry_run=true — revisar relatório antes de deixar o cron aplicar
+    - cron: "0 3 * * *" # diário às 03:00 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cleanup-temp-accounts
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: ${{ secrets.NEON_DB_HOST }}
+      PGPORT: "5432"
+      PGDATABASE: ${{ secrets.NEON_DB_NAME }}
+      PGUSER: ${{ secrets.NEON_DB_USER }}
+      PGPASSWORD: ${{ secrets.NEON_DB_PASSWORD }}
+      REPORT_DIR: ${{ github.workspace }}/reports
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run cleanup (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: |
+          mkdir -p "$REPORT_DIR"
+          psql --version
+          psql -v ON_ERROR_STOP=1 -v dry_run=1 \
+            -f scripts/cleanup_temp_accounts.sql 2>&1 | tee "$REPORT_DIR/cleanup_dry_run.txt"
+
+      - name: Run cleanup (apply)
+        # Roda por padrão em schedules (sem inputs) e quando dry_run != true
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          mkdir -p "$REPORT_DIR"
+          psql --version
+          psql -v ON_ERROR_STOP=1 -v dry_run=0 \
+            -f scripts/cleanup_temp_accounts.sql 2>&1 | tee "$REPORT_DIR/cleanup_apply.txt"
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleanup-temp-accounts-report
+          path: reports/
+          retention-days: 30
+
+      - name: Notify Slack
+        continue-on-error: true # notificação não deve falhar o workflow
+        if: always()
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "cleanup-temp-accounts (${{ github.event_name }}): ${{ job.status }} — dry_run=${{ github.event.inputs.dry_run || 'false' }}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: incoming-webhook
