@@ -5,6 +5,7 @@ import { vercelManifest } from "./vercel";
 import { neonManifest } from "./neon";
 import { stripeManifest } from "./stripe";
 import { supabaseManifest } from "./supabase";
+import { telegramManifest } from "./telegram";
 
 export * from "./types";
 export { githubManifest } from "./github";
@@ -12,6 +13,7 @@ export { vercelManifest } from "./vercel";
 export { neonManifest } from "./neon";
 export { stripeManifest } from "./stripe";
 export { supabaseManifest } from "./supabase";
+export { telegramManifest } from "./telegram";
 
 export const CONNECTOR_MANIFESTS: Record<ConnectorProviderId, ConnectorManifest> = {
   github: githubManifest,
@@ -19,6 +21,7 @@ export const CONNECTOR_MANIFESTS: Record<ConnectorProviderId, ConnectorManifest>
   neon: neonManifest,
   stripe: stripeManifest,
   supabase: supabaseManifest,
+  telegram: telegramManifest,
 };
 
 export function getConnectorManifest(provider: string): ConnectorManifest | undefined {

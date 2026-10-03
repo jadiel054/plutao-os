@@ -13,6 +13,7 @@ import { CONNECTOR_CATALOG, type ConnectorCapability, type ConnectorPublicView }
 import { githubManifest } from "@/lib/connectors/manifests/github";
 import { vercelManifest } from "@/lib/connectors/manifests/vercel";
 import { supabaseManifest } from "@/lib/connectors/manifests/supabase";
+import { telegramManifest } from "@/lib/connectors/manifests/telegram";
 import {
   detectAndExecuteGitHubTool,
   type GitHubToolExecutionResult,
@@ -25,6 +26,10 @@ import {
   detectAndExecuteSupabaseTool,
   type SupabaseToolExecutionResult,
 } from "@/lib/chat/supabaseToolRunner";
+import {
+  detectAndExecuteTelegramTool,
+  type TelegramToolExecutionResult,
+} from "@/lib/chat/telegramToolRunner";
 import {
   detectAndExecuteGenericTool,
   type GenericToolExecutionResult,
@@ -43,12 +48,14 @@ export type ConnectorRuntimeSnapshot = {
   vercelLogin: string | null;
   vercelToken: string | null;
   supabaseConnected: boolean;
+  telegramConnected: boolean;
 };
 
 export type ConnectorToolRunResult = {
   github: GitHubToolExecutionResult;
   vercel: VercelToolExecutionResult;
   supabase?: SupabaseToolExecutionResult;
+  telegram?: TelegramToolExecutionResult;
   generic?: GenericToolExecutionResult;
   exportTool?: ExportToolExecutionResult;
   contextBlocks: string[];
@@ -69,7 +76,9 @@ function enrichCapabilities(
         ? vercelManifest
         : provider === "supabase"
           ? supabaseManifest
-          : null;
+          : provider === "telegram"
+            ? telegramManifest
+            : null;
   if (!manifest) return stored;
   const byName = new Map(stored.map((c) => [c.name, c]));
   for (const m of manifest.capabilities) {
@@ -119,6 +128,7 @@ export async function loadConnectorRuntime(
   let vercelLogin: string | null = null;
   let vercelToken: string | null = null;
   let supabaseConnected = false;
+  let telegramConnected = false;
 
   try {
     const ghTok = await getAccessToken(userId, "github");
@@ -127,6 +137,13 @@ export async function loadConnectorRuntime(
       const row = await getConnectorRow(userId, "github");
       githubLogin = row?.accountLogin ?? null;
     }
+  } catch {
+    /* migration pending */
+  }
+
+  try {
+    const tgTok = await getAccessToken(userId, "telegram");
+    telegramConnected = Boolean(tgTok);
   } catch {
     /* migration pending */
   }
@@ -204,6 +221,7 @@ export async function loadConnectorRuntime(
     vercelLogin,
     vercelToken,
     supabaseConnected,
+    telegramConnected,
   };
 }
 
@@ -218,6 +236,7 @@ export async function runConnectedConnectorTools(opts: {
   let github: GitHubToolExecutionResult = { executed: false };
   let vercel: VercelToolExecutionResult = { executed: false };
   let supabase: SupabaseToolExecutionResult = { executed: false };
+  let telegram: TelegramToolExecutionResult = { executed: false };
   let generic: GenericToolExecutionResult = { executed: false };
   let exportTool: ExportToolExecutionResult = { executed: false };
   const contextBlocks: string[] = [];
@@ -268,7 +287,18 @@ export async function runConnectedConnectorTools(opts: {
     }
   }
 
-  if (!github.executed && !vercel.executed && !supabase.executed) {
+  if (snapshot.telegramConnected) {
+    telegram = await detectAndExecuteTelegramTool({
+      text: userText,
+      userId,
+      missionId: missionId ?? null,
+    });
+    if ((telegram.executed || telegram.missingArgs) && telegram.contextText) {
+      contextBlocks.push(telegram.contextText);
+    }
+  }
+
+  if (!github.executed && !vercel.executed && !supabase.executed && !telegram.executed) {
     generic = await detectAndExecuteGenericTool({
       text: userText,
       userId,
@@ -289,9 +319,12 @@ export async function runConnectedConnectorTools(opts: {
   if (supabase.suggestedFollowUps) {
     suggestedFollowUps.push(...supabase.suggestedFollowUps);
   }
+  if (telegram.suggestedFollowUps) {
+    suggestedFollowUps.push(...telegram.suggestedFollowUps);
+  }
   if (generic.suggestedFollowUps) {
     suggestedFollowUps.push(...generic.suggestedFollowUps);
   }
 
-  return { github, vercel, supabase, generic, exportTool, contextBlocks, suggestedFollowUps };
+  return { github, vercel, supabase, telegram, generic, exportTool, contextBlocks, suggestedFollowUps };
 }

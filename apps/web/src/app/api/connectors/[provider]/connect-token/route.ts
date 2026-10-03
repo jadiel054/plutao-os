@@ -42,6 +42,7 @@ export async function POST(
       token?: string;
       projectUrl?: string;
       serviceRoleKey?: string;
+      chatId?: string;
     };
     const rawToken = body.token?.trim() || "";
 
@@ -65,6 +66,10 @@ export async function POST(
       refreshToken = JSON.stringify({
         projectUrl: body.projectUrl?.trim() || null,
         serviceRoleKey: body.serviceRoleKey?.trim() || null,
+      });
+    } else if (provider === "telegram" && body.chatId?.trim()) {
+      refreshToken = JSON.stringify({
+        chatId: body.chatId.trim(),
       });
     }
 

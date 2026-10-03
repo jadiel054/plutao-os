@@ -7,7 +7,13 @@
  *   * → error → disconnected | authorizing (reconectar)
  */
 
-export type ConnectorProviderId = "github" | "vercel" | "neon" | "stripe" | "supabase";
+export type ConnectorProviderId =
+  | "github"
+  | "vercel"
+  | "neon"
+  | "stripe"
+  | "supabase"
+  | "telegram";
 
 export type ConnectorStatus =
   | "disconnected"
@@ -91,6 +97,14 @@ export const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
       "Auth, Postgres, storage e edge. Personal Access Token (PAT) do Supabase e par opcional project_url / service_role_key. Cifrados e protegidos.",
     defaultScopes: [],
     defaultServerUrl: "https://api.supabase.com",
+  },
+  {
+    provider: "telegram",
+    displayName: "Telegram",
+    description:
+      "Bot do Telegram via Bot Token do @BotFather. Envio de mensagens e leitura de updates com restrição de chat_id e token mascarado.",
+    defaultScopes: [],
+    defaultServerUrl: "https://api.telegram.org",
   },
 ];
 

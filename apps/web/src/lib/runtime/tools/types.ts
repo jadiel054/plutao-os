@@ -4,6 +4,7 @@ export type ToolName =
   | "github"
   | "vercel"
   | "supabase"
+  | "telegram"
   | "files.export_pdf"
   | "files.export_xlsx"
   | "files.export_markdown"
@@ -38,6 +39,7 @@ export const KNOWN_TOOLS: readonly ToolName[] = [
   "github",
   "vercel",
   "supabase",
+  "telegram",
   "files.export_pdf",
   "files.export_xlsx",
   "files.export_markdown",

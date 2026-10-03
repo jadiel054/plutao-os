@@ -31,6 +31,7 @@ export function SettingsConnectorsSection({
   const [inputToken, setInputToken] = useState("");
   const [inputProjectUrl, setInputProjectUrl] = useState("");
   const [inputServiceRoleKey, setInputServiceRoleKey] = useState("");
+  const [inputChatId, setInputChatId] = useState("");
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState("");
   const [customUrl, setCustomUrl] = useState("");
@@ -109,6 +110,8 @@ export function SettingsConnectorsSection({
       if (provider === "supabase") {
         if (inputProjectUrl.trim()) body.projectUrl = inputProjectUrl.trim();
         if (inputServiceRoleKey.trim()) body.serviceRoleKey = inputServiceRoleKey.trim();
+      } else if (provider === "telegram") {
+        if (inputChatId.trim()) body.chatId = inputChatId.trim();
       }
 
       const res = await fetch(`/api/connectors/${provider}/connect-token`, {
@@ -124,6 +127,7 @@ export function SettingsConnectorsSection({
       setInputToken("");
       setInputProjectUrl("");
       setInputServiceRoleKey("");
+      setInputChatId("");
       setActiveTokenProvider(null);
       onNotifyRef.current?.(`Conector ${provider} conectado${data.accountLogin ? ` · @${data.accountLogin}` : ""}`, "success");
       await load();
@@ -365,6 +369,7 @@ export function SettingsConnectorsSection({
                                 setInputToken("");
                                 setInputProjectUrl("");
                                 setInputServiceRoleKey("");
+                                setInputChatId("");
                               }}
                               className="px-3.5 py-1.5 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-40"
                             >
@@ -393,6 +398,7 @@ export function SettingsConnectorsSection({
                                   setInputToken("");
                                 setInputProjectUrl("");
                                 setInputServiceRoleKey("");
+                                setInputChatId("");
                                 }}
                                 className="px-3 py-1.5 rounded-xl border border-[var(--border)] text-xs hover:bg-[var(--surface-hover)] transition-colors"
                               >
@@ -461,6 +467,21 @@ export function SettingsConnectorsSection({
                             />
                           </div>
                         ) : null}
+                        {manifest.provider === "telegram" ? (
+                          <div className="space-y-2 pt-1 border-t border-[var(--border)]/50">
+                            <p className="text-[10px] text-[var(--text-muted)]">
+                              Chat ID do usuário no Telegram (opcional / configurável): Mande /start para o seu bot no Telegram e veja o chat_id via get_updates, ou peça pro agente.
+                            </p>
+                            <input
+                              type="text"
+                              autoComplete="off"
+                              value={inputChatId}
+                              onChange={(e) => setInputChatId(e.target.value)}
+                              placeholder="Chat ID (ex: 123456789)"
+                              className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
+                            />
+                          </div>
+                        ) : null}
                         <div className="flex gap-2">
                           <button
                             type="button"
@@ -477,6 +498,7 @@ export function SettingsConnectorsSection({
                               setInputToken("");
                               setInputProjectUrl("");
                               setInputServiceRoleKey("");
+                              setInputChatId("");
                             }}
                             className="px-3 py-1.5 rounded-xl border border-[var(--border)] text-xs"
                           >
