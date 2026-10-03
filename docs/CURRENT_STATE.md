@@ -161,3 +161,26 @@ DATABASE_URL=
 ```
 
 Guia conectores: **`docs/CONECTORES_M5.md`**. MCP: **`docs/MCP_SERVER.md`**.
+
+---
+
+## 2026-10-03 — Fix runtime de missões: model id duplicado + tools de conectores
+
+**Evidência (produção, 03/10):** Runtime Controller exibia `Model: openai/openai/gpt-oss-120b` (prefixo duplicado) e missões só ofereciam a tool `note`, sem tools de conectores (github, vercel, ...).
+
+### Causas-raiz
+
+1. **Model id duplicado / endpoint errado:** o executor de missões (`runtime/model/step.ts`) resolvia o modelo pelo env cru (`getModelConfig()` → `GroqProvider`), enquanto o chat usa `resolveCloudModelConfig(preferred.id)` (rotas de catálogo em `runtime/model/resolveConfig.ts`). Com `MODEL_PROVIDER=openai` + `MODEL_NAME=openai/gpt-oss-120b`, a missão enviava id estilo Groq ao endpoint errado → HTTP 404 → `MODEL_CALL_FAILED`. Na UI, o cockpit concatenava `${provider}/${model}` sem checar prefixo.
+2. **Missão sem tools de conectores:** o `buildSystemPrompt` do `step.ts` era hardcoded (github somente leitura; sem vercel/supabase/telegram/cloudflare/render; sem awareness de conectores nem write gates) — embora o dispatcher (`runtime/tools/dispatcher.ts`) e as tools (`runtime/tools/github.ts`, `vercel.ts`) já suportassem tudo, com write gates.
+
+### Correções
+
+- `runtime/model/step.ts`: resolve `users.preferredModel` via `resolveCloudModelConfig` (mesmo caminho do chat) e injeta o `systemBlock` de `loadConnectorRuntime(userId)` no system prompt; chamada ao modelo com 1 retry + backoff (`runtime/model/modelCall.ts`); em falha, grava evidence `model_error` com status HTTP, corpo (truncado 300), model id, endpoint e latência; retorna `hint` acionável (404 → conferir preferredModel/MODEL_NAME vs endpoint; 401/403 → chave; 5xx → instabilidade).
+- `runtime/model/client.ts`: classe `ModelCallError` (status, body ≤300, model, baseUrl, latencyMs) nos dois throws (stream e chatCompletion).
+- `runtime/model/provider.ts`: `GroqProvider` aceita `cloudConfig` resolvida (precedência sobre env cru) via factory.
+- `runtime/model/missionPrompt.ts` (novo): system prompt com a lista real de tools do dispatcher, ações de escrita gated (repo_create, push_files, project_create, deploy_create, ...), semântica GATE_PENDING e missionId nos payloads de escrita.
+- `runtime/model/label.ts` (novo): `formatModelLabel` evita prefixo duplicado quando o model id já contém "/". `/api/model/status` agora retorna `label` pronto.
+- `runtime/agent-loop.ts`: propaga `detail`/`hint` do MODEL_STEP_ERROR para o `error` final da missão (estado FAILED com mensagem acionável, não genérica).
+- Testes: `runtime/model/__tests__/{modelResolution,missionSystemPrompt,modelCallRetry}.test.ts`.
+
+**Pendente (edit manual no cockpit):** em `apps/web/src/app/(app)/cockpit/page.tsx`, trocar `setModelInfo(`${d.provider}/${d.model}`)` por `setModelInfo(d.label ?? `${d.provider}/${d.model}`)` (usa o campo `label` novo de `/api/model/status`).
