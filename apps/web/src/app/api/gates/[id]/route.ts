@@ -16,6 +16,8 @@ import { and, eq } from "drizzle-orm";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 
 export const runtime = "nodejs";
+/** Allow long autonomous cycles post-gate approval on Vercel Pro (Hobby caps lower). */
+export const maxDuration = 300;
 
 type Ctx = { params: Promise<{ id: string }> };
 

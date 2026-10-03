@@ -38,6 +38,7 @@ export type EvidenceItem = {
   taskId: string | null;
   missionId: string;
   executionId?: string;
+  status?: string;
   createdAt: string;
 };
 
