@@ -1,7 +1,13 @@
 /**
  * Runner Vercel — detecta intenção e chama API oficial com token do conector.
- * Contrato alinhado ao githubToolRunner (contextText para o modelo).
+ * Reads: direto. Writes: via runVercel → write_gate (Princípio 1).
  */
+
+import { runVercel } from "@/lib/runtime/tools/vercel";
+import { getDb } from "@/lib/db";
+import { missions } from "@plutao/db";
+import { eq, and } from "drizzle-orm";
+import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 
 export type VercelToolCallTrace = {
   id: string;
@@ -21,7 +27,6 @@ export type VercelToolExecutionResult = {
   trace?: VercelToolCallTrace;
   contextText?: string;
   suggestedFollowUps?: Array<{ id: string; label: string; prompt: string }>;
-  /** @deprecated use contextText */
   output?: string;
   error?: string;
 };
@@ -29,7 +34,35 @@ export type VercelToolExecutionResult = {
 export const VERCEL_REQUIRED_ARGS: Record<string, string[]> = {
   projects_list: [],
   deployments_list: ["projectId"],
+  deployment_get: ["deploymentId"],
+  project_create: ["name"],
+  deploy_create: ["name"],
 };
+
+function extractProjectNameCandidate(text: string): string | undefined {
+  const patterns = [
+    /(?:projeto|project|app|site)\s+(?:chamado|nome|named?)?\s*["']?([a-zA-Z0-9_.-]+)["']?/i,
+    /(?:criar|create|publicar|deploy)\s+(?:um\s+)?(?:projeto|app|site)\s+["']?([a-zA-Z0-9_.-]+)["']?/i,
+    /vercel[^\n]{0,40}["']([a-zA-Z0-9_.-]{2,40})["']/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (
+      m?.[1] &&
+      m[1].length >= 2 &&
+      !/^(vercel|projeto|project|app|site|github|deploy|publicar)$/i.test(m[1])
+    ) {
+      return m[1];
+    }
+  }
+  return undefined;
+}
+
+function extractGitRepo(text: string): string | undefined {
+  const m = text.match(/\b([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)\b/);
+  if (m?.[1] && !m[1].startsWith("http")) return m[1];
+  return undefined;
+}
 
 function wantsListProjects(text: string): boolean {
   const t = text.toLowerCase();
@@ -53,7 +86,8 @@ function wantsListDeployments(text: string): boolean {
   const t = text.toLowerCase();
   return (
     (t.includes("deploy") || t.includes("deployment") || t.includes("publica")) &&
-    (t.includes("vercel") || t.includes("listar") || t.includes("liste") || t.includes("último") || t.includes("ultimo"))
+    (t.includes("vercel") || t.includes("listar") || t.includes("liste") || t.includes("último") || t.includes("ultimo")) &&
+    !/\b(criar|create|fazer|publicar\s+agora|novo)\b/.test(t)
   );
 }
 
@@ -75,16 +109,28 @@ function extractProjectNamesFromData(data: unknown): string[] {
     .slice(0, 3);
 }
 
-async function vercelGet(
-  path: string,
-  token: string
-): Promise<{ ok: boolean; data: unknown; status: number; durationMs: number }> {
-  const t0 = Date.now();
-  const res = await fetch(`https://api.vercel.com${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-  });
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, data, status: res.status, durationMs: Date.now() - t0 };
+function wantsCreateProject(text: string): boolean {
+  const t = text.toLowerCase();
+  if (!t.includes("vercel") && !t.includes("deploy") && !/\b(site|app|projeto)\b/.test(t)) {
+    return false;
+  }
+  const listOnly = /\b(listar|liste|mostrar|mostre|quais)\b/.test(t);
+  if (listOnly) return false;
+  return (
+    (/\b(criar|create|novo|gerar|gere|montar)\b/.test(t) &&
+      /\b(projeto|project|app|site)\b/.test(t)) ||
+    (/\b(publicar|hospedar)\b/.test(t) && /\b(vercel|site|app)\b/.test(t))
+  );
+}
+
+function wantsCreateDeploy(text: string): boolean {
+  const t = text.toLowerCase();
+  if (wantsCreateProject(text)) return false;
+  return (
+    (/\b(deploy|deployment|publicar)\b/.test(t) &&
+      /\b(criar|create|fazer|rodar|executar|agora)\b/.test(t)) ||
+    (/\bdeploy\b/.test(t) && /\bvercel\b/.test(t) && !/\b(listar|liste|mostrar)\b/.test(t))
+  );
 }
 
 function formatProjects(data: unknown): string {
@@ -115,16 +161,111 @@ function formatDeployments(data: unknown): string {
   return `Deployments recentes (${deployments.length}):\n\n${lines.join("\n\n")}`;
 }
 
+async function vercelGet(
+  path: string,
+  token: string
+): Promise<{ ok: boolean; data: unknown; status: number; durationMs: number }> {
+  const t0 = Date.now();
+  const res = await fetch(`https://api.vercel.com${path}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, data, status: res.status, durationMs: Date.now() - t0 };
+}
+
 export async function detectAndExecuteVercelTool(opts: {
   text?: string;
   userText?: string;
   userId?: string;
   accessToken: string;
   accountLogin?: string | null;
+  missionId?: string | null;
 }): Promise<VercelToolExecutionResult> {
   const userText = opts.text ?? opts.userText ?? "";
   const accessToken = opts.accessToken;
+  const userId = opts.userId;
   const timestamp = new Date().toISOString();
+
+  if (userId && wantsCreateProject(userText)) {
+    const name = extractProjectNameCandidate(userText);
+    const gitRepo = extractGitRepo(userText);
+    if (!name) {
+      return {
+        executed: false,
+        missingArgs: true,
+        capability: "project_create",
+        contextText: `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]\nO usuário quer criar um projeto na Vercel, mas não informou o nome.\nPeça só o nome do projeto (e, se já existir, o repositório GitHub owner/repo). A aprovação humana será o WriteGateCard.`,
+      };
+    }
+    const payload: Record<string, unknown> = { action: "project_create", name };
+    if (gitRepo) payload.gitRepo = gitRepo;
+    if (/\bnext\b/i.test(userText)) payload.framework = "nextjs";
+    else if (/\bvite\b/i.test(userText)) payload.framework = "vite";
+    if (opts.missionId) payload.missionId = opts.missionId;
+
+    const res = await runVercel(JSON.stringify(payload), userId);
+    const isGatePending = Boolean(res.ok && res.output?.includes("GATE_PENDING"));
+    const trace: VercelToolCallTrace = {
+      id: crypto.randomUUID(),
+      provider: "vercel",
+      capability: "project_create",
+      input: payload,
+      output: res.ok ? res.output : (res.error ?? "erro"),
+      status: res.ok ? "ok" : "error",
+      durationMs: res.durationMs,
+      timestamp,
+    };
+    await maybeAppendMissionEvidence(opts.missionId, userId, trace, res.ok);
+
+    const contextText = res.ok
+      ? isGatePending
+        ? `[WRITE GATE — APROVAÇÃO HUMANA PENDENTE]\nCapability: project_create\nA tool NÃO executou a escrita na Vercel. Foi criado um write_gate.\nOutput:\n${res.output}\n\nInstrua o usuário de forma breve: a ação está no card de aprovação no chat (Aprovar / Recusar).\nNÃO peça nova confirmação em texto. Após aprovação no card, o runtime executa a escrita.`
+        : `[EXECUÇÃO DE FERRAMENTA DO CONECTOR VERCEL]\nCapability: project_create\nStatus: Sucesso (${res.durationMs}ms)\n${res.output}`
+      : `[EXECUÇÃO DE FERRAMENTA DO CONECTOR VERCEL]\nCapability: project_create\nStatus: Erro\n${res.error}`;
+
+    return { executed: true, capability: "project_create", trace, contextText };
+  }
+
+  if (userId && wantsCreateDeploy(userText)) {
+    const name = extractProjectNameCandidate(userText);
+    const gitRepo = extractGitRepo(userText);
+    if (!name && !gitRepo) {
+      return {
+        executed: false,
+        missingArgs: true,
+        capability: "deploy_create",
+        contextText: `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]\nO usuário quer criar um deployment, mas faltam nome do projeto e/ou repositório GitHub (owner/repo).\nPeça o mínimo necessário. Aprovação humana = WriteGateCard.`,
+      };
+    }
+    const payload: Record<string, unknown> = {
+      action: "deploy_create",
+      name: name || (gitRepo ? gitRepo.split("/")[1] : "app"),
+    };
+    if (gitRepo) payload.gitRepo = gitRepo;
+    if (opts.missionId) payload.missionId = opts.missionId;
+
+    const res = await runVercel(JSON.stringify(payload), userId);
+    const isGatePending = Boolean(res.ok && res.output?.includes("GATE_PENDING"));
+    const trace: VercelToolCallTrace = {
+      id: crypto.randomUUID(),
+      provider: "vercel",
+      capability: "deploy_create",
+      input: payload,
+      output: res.ok ? res.output : (res.error ?? "erro"),
+      status: res.ok ? "ok" : "error",
+      durationMs: res.durationMs,
+      timestamp,
+    };
+    await maybeAppendMissionEvidence(opts.missionId, userId, trace, res.ok);
+
+    const contextText = res.ok
+      ? isGatePending
+        ? `[WRITE GATE — APROVAÇÃO HUMANA PENDENTE]\nCapability: deploy_create\nA tool NÃO executou o deploy. Foi criado um write_gate.\nOutput:\n${res.output}\n\nInstrua o usuário: aprovação no card do chat. Sem confirmação extra em texto.`
+        : `[EXECUÇÃO DE FERRAMENTA DO CONECTOR VERCEL]\nCapability: deploy_create\nStatus: Sucesso (${res.durationMs}ms)\n${res.output}`
+      : `[EXECUÇÃO DE FERRAMENTA DO CONECTOR VERCEL]\nCapability: deploy_create\nStatus: Erro\n${res.error}`;
+
+    return { executed: true, capability: "deploy_create", trace, contextText };
+  }
 
   const run = async (
     capability: string,
@@ -159,7 +300,6 @@ export async function detectAndExecuteVercelTool(opts: {
   };
 
   if (wantsSpecificProjectDeployment(userText)) {
-    // Check if project name is specified in user text
     const projRes = await vercelGet("/v9/projects?limit=10", accessToken);
     const recentProjects = projRes.ok ? extractProjectNamesFromData(projRes.data) : [];
     const matchedProject = recentProjects.find((p) => userText.toLowerCase().includes(p.toLowerCase()));
@@ -171,10 +311,7 @@ export async function detectAndExecuteVercelTool(opts: {
         prompt: `mostre os deployments do projeto ${p} na Vercel`,
       }));
 
-      const contextText = `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]
-O usuário quer ver os deployments de um projeto na Vercel, mas não especificou qual projeto.
-Projetos recentes do usuário: ${recentProjects.length > 0 ? recentProjects.join(", ") : "nenhum encontrado"}.
-Pergunte ao usuário qual projeto ele deseja consultar, oferecendo essas opções de forma objetiva e direta. Não tente adivinhar.`;
+      const contextText = `[ESCLARECIMENTO DE PARÂMETROS - VERCEL]\nO usuário quer ver os deployments de um projeto na Vercel, mas não especificou qual projeto.\nProjetos recentes do usuário: ${recentProjects.length > 0 ? recentProjects.join(", ") : "nenhum encontrado"}.\nPergunte ao usuário qual projeto ele deseja consultar, oferecendo essas opções de forma objetiva e direta. Não tente adivinhar.`;
 
       return {
         executed: false,
@@ -196,11 +333,44 @@ Pergunte ao usuário qual projeto ele deseja consultar, oferecendo essas opçõe
     return run("projects_list", "/v9/projects?limit=20", formatProjects);
   }
 
-  // Pedido genérico com Vercel conectado + "consulta" / "pode fazer"
   const t = userText.toLowerCase();
   if (t.includes("vercel") && (t.includes("consulta") || t.includes("pode") || t.includes("list"))) {
     return run("projects_list", "/v9/projects?limit=20", formatProjects);
   }
 
   return { executed: false };
+}
+
+async function maybeAppendMissionEvidence(
+  missionId: string | null | undefined,
+  userId: string,
+  trace: VercelToolCallTrace,
+  ok: boolean
+) {
+  if (!missionId) return;
+  try {
+    const db = getDb();
+    const rows = await db
+      .select({ evidence: missions.evidence })
+      .from(missions)
+      .where(and(eq(missions.id, missionId), eq(missions.userId, userId)))
+      .limit(1);
+    if (!rows[0]) return;
+    const prevEv = parseEvidence(rows[0].evidence);
+    const evidenceItem: EvidenceItem = {
+      id: trace.id,
+      type: ok ? "tool_result" : "tool_error",
+      content: `tool:vercel capability:${trace.capability} → ${trace.output}`,
+      source: "tool_dispatcher",
+      taskId: null,
+      missionId,
+      createdAt: trace.timestamp,
+    };
+    await db
+      .update(missions)
+      .set({ evidence: [...prevEv, evidenceItem], updatedAt: new Date() })
+      .where(eq(missions.id, missionId));
+  } catch {
+    /* ignore */
+  }
 }

@@ -102,5 +102,17 @@ export function vercelDefaultCapabilities() {
     { name: "projects_list", description: "Listar projetos", kind: "rest_api" as const, mode: "read" as const },
     { name: "deployments_list", description: "Listar deployments", kind: "rest_api" as const, mode: "read" as const },
     { name: "deployment_get", description: "Detalhe de um deployment", kind: "rest_api" as const, mode: "read" as const },
+    {
+      name: "project_create",
+      description: "Criar projeto na conta Vercel (requer aprovação humana)",
+      kind: "rest_api" as const,
+      mode: "write" as const,
+    },
+    {
+      name: "deploy_create",
+      description: "Criar deployment a partir de repositório GitHub (requer aprovação humana)",
+      kind: "rest_api" as const,
+      mode: "write" as const,
+    },
   ];
 }
