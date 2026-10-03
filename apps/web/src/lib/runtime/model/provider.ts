@@ -18,7 +18,7 @@ import { getModelConfig } from "./config";
 import { chatCompletion } from "./client";
 import { LocalAdapter, getLocalAdapter, resetLocalAdapter } from "./localAdapter";
 import { getModelSelector, ModelMode } from "@plutao/domain";
-import type { ModelMessage, ModelStepResult } from "./types";
+import type { ModelConfig, ModelMessage, ModelStepResult } from "./types";
 
 // ============================================================
 // Types
@@ -34,6 +34,13 @@ export interface ModelProviderConfig {
   
   /** ID do modelo local (se modo offline) */
   localModelId?: string;
+
+  /**
+   * Config já resolvida por rota de catálogo (resolveCloudModelConfig) —
+   * mesmo caminho do chat. Quando presente, tem precedência sobre o env cru
+   * (evita model id com prefixo duplicado e endpoint errado no runtime de missões).
+   */
+  cloudConfig?: ModelConfig;
 }
 
 /** Interface do provedor de modelo */
@@ -62,11 +69,11 @@ export interface IModelProvider {
  * GroqProvider - Implementação do provedor para Groq API
  */
 export class GroqProvider implements IModelProvider {
-  private config: ReturnType<typeof getModelConfig> | null;
+  private config: ModelConfig | ReturnType<typeof getModelConfig> | null;
   private modelId: string;
 
-  constructor() {
-    this.config = getModelConfig();
+  constructor(cloudConfig?: ModelConfig) {
+    this.config = cloudConfig ?? getModelConfig();
     this.modelId = this.config?.model || "openai/gpt-oss-120b";
   }
 
@@ -125,6 +132,7 @@ export class ModelProviderFactory {
     const mode = config?.mode || "auto";
     const forceLocal = config?.forceLocal || false;
     const localModelId = config?.localModelId;
+    const cloudConfig = config?.cloudConfig;
 
     // Atualiza modo atual
     this.currentMode = mode;
@@ -148,7 +156,10 @@ export class ModelProviderFactory {
       return this.localProvider;
     }
 
-    // Usa GroqProvider
+    // Usa GroqProvider (com cloudConfig resolvida, quando disponível)
+    if (cloudConfig) {
+      return new GroqProvider(cloudConfig);
+    }
     if (!this.groqProvider) {
       this.groqProvider = new GroqProvider();
     }
