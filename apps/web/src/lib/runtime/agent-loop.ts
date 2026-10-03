@@ -69,8 +69,7 @@ function toolResultToMessage(
   return {
     role: "user",
     content: `Tool ${toolName} result: ${successResult.output || "(empty)"}`,
-    sourc
-e: "tool_result",
+    source: "tool_result",
   };
 }
 
@@ -145,8 +144,7 @@ export async function runAgentLoop(
   }
 
   const initialStatus = execution.status as ExecutionStatus;
-  if (!REC
-OVERABLE.has(initialStatus)) {
+  if (!RECOVERABLE.has(initialStatus)) {
     return {
       ok: false,
       executionId,
@@ -216,8 +214,7 @@ OVERABLE.has(initialStatus)) {
 
     const toolDispatch = await stepResult.toolDispatch;
 
-    if (toolDispatch && isIdempotentTo
-olDispatch(toolDispatch)) {
+    if (toolDispatch && isIdempotentToolDispatch(toolDispatch)) {
       stopReason = "IDEMPOTENT_TOOL_CALL";
       details.push({
         iteration,
