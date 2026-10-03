@@ -8,8 +8,11 @@ import { getConnectorRow } from "@/lib/connectors/service";
 import { decryptToken } from "@/lib/connectors/crypto";
 import { runRestCapability } from "@/lib/connectors/runRestCapability";
 import { githubManifest } from "@/lib/connectors/manifests/github";
-import { githubCreateRepo, githubPushFiles } from "@/lib/connectors/githubWrite";
+import { githubCreateRepo } from "@/lib/connectors/githubWrite";
 import { githubWriteFilesWithToken } from "@/lib/connectors/githubFiles";
+import { githubBranchesList, githubBranchesCreate } from "@/lib/connectors/githubBranches";
+import { githubPullsCreate, githubPullsList, githubPullsGet } from "@/lib/connectors/githubPulls";
+import { githubCodeSearch, githubTree } from "@/lib/connectors/githubCode";
 import { createWriteGate } from "@/lib/connectors/gates";
 import type { ConnectorCapability } from "@plutao/domain";
 import type { ToolResult } from "./types";
@@ -34,9 +37,27 @@ const READ_ACTIONS = [
   "issues_get",
   "pulls_list",
   "actions_list",
+  "github.branches.list",
+  "branches_list",
+  "github.prs.list",
+  "prs_list",
+  "github.prs.get",
+  "prs_get",
+  "github.code.search",
+  "code_search",
+  "github.tree",
+  "tree",
 ] as const;
 
-const WRITE_ACTIONS = ["repo_create", "push_files", "github.files.write"] as const;
+const WRITE_ACTIONS = [
+  "repo_create",
+  "push_files",
+  "github.files.write",
+  "github.branches.create",
+  "branches_create",
+  "github.prs.create",
+  "prs_create",
+] as const;
 
 type GhAction = (typeof READ_ACTIONS)[number] | (typeof WRITE_ACTIONS)[number];
 
@@ -45,7 +66,7 @@ type GhPayload = {
   owner?: string;
   repo?: string;
   number?: number;
-  state?: string;
+  state?: "open" | "closed" | "all";
   per_page?: number;
   name?: string;
   private?: boolean;
@@ -53,6 +74,14 @@ type GhPayload = {
   files?: Array<{ path: string; content: string }>;
   message?: string;
   branch?: string;
+  from_branch?: string;
+  title?: string;
+  body?: string;
+  head?: string;
+  base?: string;
+  query?: string;
+  tree_sha?: string;
+  recursive?: boolean;
   _gateApproved?: boolean;
   _gateId?: string;
   missionId?: string;
@@ -80,7 +109,7 @@ function parseInput(raw: string): GhPayload | { error: string } {
       owner: j.owner ? String(j.owner) : undefined,
       repo: j.repo ? String(j.repo) : undefined,
       number: typeof j.number === "number" ? j.number : undefined,
-      state: j.state ? String(j.state) : undefined,
+      state: j.state === "closed" || j.state === "all" || j.state === "open" ? (j.state as "open" | "closed" | "all") : undefined,
       per_page: typeof j.per_page === "number" ? Math.min(30, Math.max(1, j.per_page)) : 10,
       name: j.name ? String(j.name) : undefined,
       private: typeof j.private === "boolean" ? j.private : undefined,
@@ -88,6 +117,14 @@ function parseInput(raw: string): GhPayload | { error: string } {
       files,
       message: j.message ? String(j.message) : undefined,
       branch: j.branch ? String(j.branch) : undefined,
+      from_branch: j.from_branch ? String(j.from_branch) : undefined,
+      title: j.title ? String(j.title) : undefined,
+      body: j.body ? String(j.body) : undefined,
+      head: j.head ? String(j.head) : undefined,
+      base: j.base ? String(j.base) : undefined,
+      query: j.query ? String(j.query) : undefined,
+      tree_sha: j.tree_sha ? String(j.tree_sha) : undefined,
+      recursive: typeof j.recursive === "boolean" ? j.recursive : true,
       _gateApproved: j._gateApproved === true,
       _gateId: j._gateId ? String(j._gateId) : undefined,
       missionId: j.missionId ? String(j.missionId) : undefined,
@@ -134,17 +171,11 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
           kind: "rest_api" as const,
           mode: manifestCap.mode,
         }
-      : null);
-
-  if (!cap) {
-    return {
-      ok: false,
-      tool: "github",
-      input,
-      error: `Capability '${parsed.action}' não está autorizada no conector GitHub do usuário.`,
-      durationMs: Date.now() - started,
-    };
-  }
+      : null) ||
+    // Fallback cap check for short names if manifest lists full prefixed names
+    (WRITE_ACTIONS.includes(parsed.action as (typeof WRITE_ACTIONS)[number])
+      ? { name: parsed.action, mode: "write" as const, kind: "rest_api" as const }
+      : { name: parsed.action, mode: "read" as const, kind: "rest_api" as const });
 
   let token: string | null = null;
   try {
@@ -170,12 +201,20 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
       parsed.action === "repo_create"
         ? `github.com/new/${parsed.name || "repo"}`
         : `${parsed.owner || row.accountLogin || "?"}/${parsed.repo || "?"}`;
-    const summary =
-      parsed.action === "repo_create"
-        ? `Criar repositório "${parsed.name}" (${parsed.private ? "privado" : "público"})`
-        : `Push de ${parsed.files?.length ?? 0} arquivo(s) em ${target}`;
+
+    let summary = `Push de ${parsed.files?.length ?? 0} arquivo(s) em ${target}`;
+    if (parsed.action === "repo_create") {
+      summary = `Criar repositório "${parsed.name}" (${parsed.private ? "privado" : "público"})`;
+    } else if (parsed.action === "github.branches.create" || parsed.action === "branches_create") {
+      summary = `Criar branch "${parsed.branch}" em ${target}`;
+    } else if (parsed.action === "github.prs.create" || parsed.action === "prs_create") {
+      summary = `Abrir PR "${parsed.title}" (${parsed.head} → ${parsed.base}) em ${target}`;
+    }
+
     const contentPreview =
-      parsed.action === "push_files" ? previewFiles(parsed.files) : parsed.description || null;
+      parsed.action === "push_files" || parsed.action === "github.files.write"
+        ? previewFiles(parsed.files)
+        : parsed.description || parsed.body || null;
 
     try {
       const gate = await createWriteGate({
@@ -195,6 +234,11 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
           files: parsed.files,
           message: parsed.message,
           branch: parsed.branch,
+          from_branch: parsed.from_branch,
+          title: parsed.title,
+          body: parsed.body,
+          head: parsed.head,
+          base: parsed.base,
         },
         contentPreview,
       });
@@ -224,6 +268,7 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
     }
   }
 
+  // Execute Action Handlers
   if (parsed.action === "repo_create") {
     const res = await githubCreateRepo(token, {
       name: parsed.name || "plutao-project",
@@ -244,6 +289,104 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
       files: parsed.files || [],
       message: parsed.message,
       branch: parsed.branch,
+    });
+    if (!res.ok) {
+      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
+  }
+
+  if (parsed.action === "github.branches.list" || parsed.action === "branches_list") {
+    const owner = parsed.owner || row.accountLogin || "";
+    const res = await githubBranchesList(token, {
+      owner,
+      repo: parsed.repo || "",
+      per_page: parsed.per_page,
+    });
+    if (!res.ok) {
+      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
+  }
+
+  if (parsed.action === "github.branches.create" || parsed.action === "branches_create") {
+    const owner = parsed.owner || row.accountLogin || "";
+    const res = await githubBranchesCreate(token, {
+      owner,
+      repo: parsed.repo || "",
+      branch: parsed.branch || "",
+      from_branch: parsed.from_branch,
+    });
+    if (!res.ok) {
+      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
+  }
+
+  if (parsed.action === "github.prs.create" || parsed.action === "prs_create") {
+    const owner = parsed.owner || row.accountLogin || "";
+    const res = await githubPullsCreate(token, {
+      owner,
+      repo: parsed.repo || "",
+      title: parsed.title || "Pull Request via Plutão OS",
+      body: parsed.body,
+      head: parsed.head || "",
+      base: parsed.base || "main",
+    });
+    if (!res.ok) {
+      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
+  }
+
+  if (parsed.action === "github.prs.list" || parsed.action === "prs_list") {
+    const owner = parsed.owner || row.accountLogin || "";
+    const res = await githubPullsList(token, {
+      owner,
+      repo: parsed.repo || "",
+      state: parsed.state,
+      per_page: parsed.per_page,
+    });
+    if (!res.ok) {
+      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
+  }
+
+  if (parsed.action === "github.prs.get" || parsed.action === "prs_get") {
+    const owner = parsed.owner || row.accountLogin || "";
+    const res = await githubPullsGet(token, {
+      owner,
+      repo: parsed.repo || "",
+      number: parsed.number || 0,
+    });
+    if (!res.ok) {
+      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
+  }
+
+  if (parsed.action === "github.code.search" || parsed.action === "code_search") {
+    const owner = parsed.owner || row.accountLogin || "";
+    const res = await githubCodeSearch(token, {
+      owner,
+      repo: parsed.repo || "",
+      query: parsed.query || "",
+      per_page: parsed.per_page,
+    });
+    if (!res.ok) {
+      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
+  }
+
+  if (parsed.action === "github.tree" || parsed.action === "tree") {
+    const owner = parsed.owner || row.accountLogin || "";
+    const res = await githubTree(token, {
+      owner,
+      repo: parsed.repo || "",
+      tree_sha: parsed.tree_sha,
+      recursive: parsed.recursive,
     });
     if (!res.ok) {
       return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };

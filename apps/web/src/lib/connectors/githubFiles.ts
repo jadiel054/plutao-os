@@ -173,6 +173,33 @@ export async function githubWriteFilesWithToken(
   );
   if (!updateRef.ok) return updateRef;
 
+  // 7. Post-write read-back verification
+  for (const f of files) {
+    const cleanPath = f.path.replace(/^\//, "");
+    const readRes = await ghJson(
+      token,
+      "GET",
+      `/repos/${owner}/${repo}/contents/${encodeURIComponent(cleanPath)}?ref=${encodeURIComponent(activeBranch)}`
+    );
+
+    if (!readRes.ok) {
+      return {
+        ok: false,
+        error: `Falha na verificação pós-escrita: não foi possível ler o arquivo '${f.path}' do GitHub (${readRes.error}).`,
+      };
+    }
+
+    const rawBase64 = String((readRes.data as { content?: string })?.content ?? "").replace(/\s+/g, "");
+    const readContent = Buffer.from(rawBase64, "base64").toString("utf-8");
+
+    if (readContent !== f.content) {
+      return {
+        ok: false,
+        error: `Divergência detectada após escrita no arquivo '${f.path}': o conteúdo lido do GitHub não corresponde ao conteúdo enviado.`,
+      };
+    }
+  }
+
   const paths = files.map((f) => f.path).join(", ");
   return {
     ok: true,
@@ -182,6 +209,7 @@ export async function githubWriteFilesWithToken(
       `push ok: ${owner}/${repo}@${activeBranch}`,
       `commit: ${newCommitSha}`,
       `arquivos (${files.length}): ${paths}`,
+      `verificação pós-escrita: 100% verificado sem divergências`,
       `message: ${msg}`,
     ].join("\n"),
   };

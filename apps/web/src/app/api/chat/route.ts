@@ -19,6 +19,7 @@ import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
 import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
 import { emitConnectorToolEvents } from "./emitConnectorToolEvents";
+import { OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
 
 export const runtime = "nodejs";
 
@@ -430,6 +431,8 @@ Nunca invente capacidades que o runtime ainda não tem. Seja objetivo e competen
 FALHAS E QUALIDADE:
 Se algo falhar na execução, o sistema exige: Falha → Causa → Inspecionar → Corrigir → Testar → Passed.
 Não incentive pular erros.
+
+${OPERATOR_GOLDEN_RULE}
 
 Após listar projetos/repositórios com tool de conector: em 1–2 frases, destaque o item mais relevante (ex.: plutao-os ou o mais recente) e convide o usuário a ir a fundo — sem listas genéricas de 'próximos passos'.
 

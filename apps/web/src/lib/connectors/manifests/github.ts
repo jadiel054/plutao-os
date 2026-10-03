@@ -229,5 +229,82 @@ export const githubManifest: ConnectorManifest = {
         "commit de arquivos",
       ],
     },
+    {
+      name: "github.branches.list",
+      description: "Listar branches de um repositório",
+      mode: "read",
+      request: {
+        method: "GET",
+        path: "/repos/{owner}/{repo}/branches",
+      },
+      requiredArgs: ["owner", "repo"],
+      intentKeywords: ["branches", "listar branches", "galhos"],
+    },
+    {
+      name: "github.branches.create",
+      description: "Criar nova branch em um repositório a partir de uma ref existente (requer aprovação humana)",
+      mode: "write",
+      request: {
+        method: "POST",
+        path: "/repos/{owner}/{repo}/git/refs",
+      },
+      requiredArgs: ["owner", "repo", "branch"],
+      intentKeywords: ["criar branch", "nova branch", "crie uma branch", "create branch"],
+    },
+    {
+      name: "github.prs.create",
+      description: "Abrir um Pull Request em um repositório (requer aprovação humana)",
+      mode: "write",
+      request: {
+        method: "POST",
+        path: "/repos/{owner}/{repo}/pulls",
+      },
+      requiredArgs: ["owner", "repo", "title", "head", "base"],
+      intentKeywords: ["abrir pr", "criar pull request", "abra um pull request", "create pr"],
+    },
+    {
+      name: "github.prs.list",
+      description: "Listar Pull Requests de um repositório",
+      mode: "read",
+      request: {
+        method: "GET",
+        path: "/repos/{owner}/{repo}/pulls",
+      },
+      requiredArgs: ["owner", "repo"],
+      intentKeywords: ["prs", "pull requests", "listar prs"],
+    },
+    {
+      name: "github.prs.get",
+      description: "Obter detalhes de um Pull Request por número (additions/deletions, mergeable, revisores)",
+      mode: "read",
+      request: {
+        method: "GET",
+        path: "/repos/{owner}/{repo}/pulls/{number}",
+      },
+      requiredArgs: ["owner", "repo", "number"],
+      intentKeywords: ["pr #", "detalhes do pr", "pull request number"],
+    },
+    {
+      name: "github.code.search",
+      description: "Buscar trechos de código em um repositório (GitHub Code Search)",
+      mode: "read",
+      request: {
+        method: "GET",
+        path: "/search/code",
+      },
+      requiredArgs: ["owner", "repo", "query"],
+      intentKeywords: ["buscar código", "procure no código", "search code", "pesquisar código"],
+    },
+    {
+      name: "github.tree",
+      description: "Obter árvore completa ou parcial de arquivos do repositório",
+      mode: "read",
+      request: {
+        method: "GET",
+        path: "/repos/{owner}/{repo}/git/trees/{tree_sha}",
+      },
+      requiredArgs: ["owner", "repo"],
+      intentKeywords: ["árvore de arquivos", "tree", "estrutura de arquivos"],
+    },
   ],
 };
