@@ -12,6 +12,7 @@ import { runGithub } from "./github";
 import { runVercel } from "./vercel";
 import { runSupabase } from "./supabase";
 import { runTelegram } from "./telegram";
+import { runCloudflare } from "./cloudflare";
 import { runExportTool } from "./export";
 import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
@@ -38,6 +39,8 @@ async function dispatchLocal(
       return await runSupabase(input, opts.userId);
     case "telegram":
       return await runTelegram(input, opts.userId);
+    case "cloudflare":
+      return await runCloudflare(input, opts.userId);
     case "files.export_pdf":
     case "files.export_xlsx":
     case "files.export_markdown":

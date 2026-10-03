@@ -39,6 +39,7 @@ export type TokenManifestConfig = {
   url?: string;
   label?: string;
   placeholder?: string;
+  helperText?: string;
   verifyUrl: string;
   verifyHeaders?: (token: string) => Record<string, string>;
   extractUserLogin: (data: unknown) => string;

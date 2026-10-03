@@ -13,7 +13,8 @@ export type ConnectorProviderId =
   | "neon"
   | "stripe"
   | "supabase"
-  | "telegram";
+  | "telegram"
+  | "cloudflare";
 
 export type ConnectorStatus =
   | "disconnected"
@@ -105,6 +106,14 @@ export const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
       "Bot do Telegram via Bot Token do @BotFather. Envio de mensagens e leitura de updates com restrição de chat_id e token mascarado.",
     defaultScopes: [],
     defaultServerUrl: "https://api.telegram.org",
+  },
+  {
+    provider: "cloudflare",
+    displayName: "Cloudflare",
+    description:
+      "Zones, DNS, Pages e Workers da sua conta Cloudflare via API Token cifrado.",
+    defaultScopes: [],
+    defaultServerUrl: "https://api.cloudflare.com/client/v4",
   },
 ];
 

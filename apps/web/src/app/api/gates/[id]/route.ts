@@ -7,6 +7,7 @@ import {
 } from "@/lib/connectors/gates";
 import { runGithub } from "@/lib/runtime/tools/github";
 import { runVercel } from "@/lib/runtime/tools/vercel";
+import { runCloudflare } from "@/lib/runtime/tools/cloudflare";
 import { getDb } from "@/lib/db";
 import { missions } from "@plutao/db";
 import { and, eq } from "drizzle-orm";
@@ -98,6 +99,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     result = r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
   } else if (provider === "github") {
     const r = await runGithub(execInput, user.id);
+    result = r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
+  } else if (provider === "cloudflare") {
+    const r = await runCloudflare(execInput, user.id);
     result = r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
   } else {
     return NextResponse.json(
