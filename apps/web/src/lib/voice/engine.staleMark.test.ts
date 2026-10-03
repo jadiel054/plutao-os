@@ -6,18 +6,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const IDB_KEY = "plutao_voice_pack_ready_v1";
 
-const speakSupertonic = vi.fn<any>(async () => {
+const speakSupertonic = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {
   throw new Error("speakSupertonic não deveria ser chamado com assets ausentes");
 });
-const isSupertonicReady = vi.fn<any>(async () => false);
-const clearSupertonic = vi.fn<any>(async () => undefined);
-const downloadSupertonic = vi.fn<any>(async () => undefined);
+const isSupertonicReady = vi.fn<() => Promise<boolean>>(async () => false);
+const clearSupertonic = vi.fn<() => Promise<void>>(async () => undefined);
+const downloadSupertonic = vi.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
 
 vi.mock("./supertonic/runtime", () => ({
   isSupertonicReady: () => isSupertonicReady(),
-  speakSupertonic: (...args: any[]) => speakSupertonic(...args),
+  speakSupertonic: (...args: unknown[]) => speakSupertonic(...args),
   clearSupertonic: () => clearSupertonic(),
-  downloadSupertonic: (...args: any[]) => downloadSupertonic(...args),
+  downloadSupertonic: (...args: unknown[]) => downloadSupertonic(...args),
 }));
 
 vi.mock("./audioPlayback", () => ({
