@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { getModelConfig } from "@/lib/runtime/model/config";
+import { formatModelLabel } from "@/lib/runtime/model/label";
 import { PRESET_MODELS } from "@plutao/domain";
 
 export const runtime = "nodejs";
@@ -26,7 +27,7 @@ export async function GET() {
       m.id.toLowerCase().includes(cfg.model.toLowerCase()) ||
       m.name.toLowerCase().includes(cfg.model.toLowerCase())
   );
-  const label = matched?.name ?? `${cfg.provider}/${cfg.model}`;
+  const label = matched?.name ?? formatModelLabel(cfg.provider, cfg.model);
 
   return NextResponse.json({
     configured: true,

@@ -14,6 +14,7 @@ import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
 import { MissionDoDPanel } from "@/components/MissionDoDPanel";
 import { runAutonomousMission } from "@/lib/cockpit/runAutonomousMission";
 import { usePendingIntents } from "@/hooks/usePendingIntents";
+import { formatModelLabel } from "@/lib/runtime/model/label";
 
 type MissionRow = {
   id: string;
@@ -149,7 +150,7 @@ export default function CockpitPage() {
         if (s.ok) {
           const d = await s.json();
           setModelConfigured(!!d.configured);
-          if (d.configured) setModelInfo(d.label ?? `${d.provider}/${d.model}`);
+          if (d.configured) setModelInfo(d.label ?? formatModelLabel(d.provider, d.model));
         }
         const a = await fetch("/api/agent", { cache: "no-store" });
         if (a.ok) {
