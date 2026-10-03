@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runGithub } from "../github";
 import * as connectorsService from "../../../connectors/service";
 import * as cryptoService from "../../../connectors/crypto";
+import * as gatesService from "../../../connectors/gates";
 
 vi.mock("../../../connectors/service");
 vi.mock("../../../connectors/crypto");
+vi.mock("../../../connectors/gates");
 
 describe("GitHub Tool Execution & Capability Enforcement", () => {
   beforeEach(() => {
@@ -73,7 +75,7 @@ describe("GitHub Tool Execution & Capability Enforcement", () => {
     }
   });
 
-  it("should refuse execution if capability mode === 'write' (Principle 1)", async () => {
+  it("should create write_gate when write operation is requested without prior approval", async () => {
     vi.spyOn(connectorsService, "getConnectorRow").mockResolvedValue({
       id: "conn-1",
       userId: "user-1",
@@ -87,7 +89,7 @@ describe("GitHub Tool Execution & Capability Enforcement", () => {
       accountLabel: "octocat",
       scopes: ["repo"],
       capabilities: [
-        { name: "issues_create", kind: "rest_api", mode: "write" },
+        { name: "github.files.write", kind: "rest_api", mode: "write" },
       ],
       oauthState: null,
       lastError: null,
@@ -95,12 +97,52 @@ describe("GitHub Tool Execution & Capability Enforcement", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    vi.spyOn(cryptoService, "decryptToken").mockReturnValue("decrypted-github-token");
+
+    vi.spyOn(gatesService, "createWriteGate").mockResolvedValue({
+      id: "gate-123",
+      userId: "user-1",
+      missionId: null,
+      executionId: null,
+      provider: "github",
+      capability: "github.files.write",
+      target: "octocat/hello-world",
+      summary: "Push de 1 arquivo(s) em octocat/hello-world",
+      payload: {},
+      contentPreview: "- index.html (20 chars)",
+      status: "pending",
+      decision: null,
+      decidedAt: null,
+      executedAt: null,
+      result: null,
+      error: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
 
     const res = await runGithub(
-      JSON.stringify({ action: "repos_list" }),
+      JSON.stringify({
+        action: "github.files.write",
+        owner: "octocat",
+        repo: "hello-world",
+        files: [{ path: "index.html", content: "<h1>Hello World</h1>" }],
+      }),
       "user-1"
     );
-    expect(res.ok).toBe(false);
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.output).toContain("GATE_PENDING");
+      expect(res.output).toContain("gate_id: gate-123");
+    }
+    expect(gatesService.createWriteGate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        provider: "github",
+        capability: "github.files.write",
+        target: "octocat/hello-world",
+      })
+    );
   });
 
   it("should execute read capability successfully when authorized with valid token", async () => {

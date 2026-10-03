@@ -15,6 +15,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
 | BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO** (2026-09-27) | MCP `plutao_send_message` → `list_conversations` 1→2; mesma tabela `conversations` que o drawer da UI. Migration `0016` + API REST. |
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
+| **GitHub Files Write (`github.files.write`)** | **VERIFICADO** (2026-10-03) | Nova capability para escrita/atualização atômica de múltiplos arquivos via Git Data API (Git Trees). Protegida com Write Gate (Princípio 1) e limites estritos (máx 20 arquivos, 100KB/arquivo, sem path traversal `..`). |
 | **Voz on-device (Kokoro + Piper + Supertonic)** | **VERIFICADO comportamental** (Poco C65, 2026-09-27) | Download ~398 MB; erro legível; retomada após rede e após 7 min background. Packs: `kokoro-en`, `piper-pt-br`, Supertonic (chunked Range + IDB partials O(1)). Sanitize markdown (#75), progress tick (#73), pack-scoped errors (#77). **Pendente:** kill-test M3, interrupção M5, inspeção DevTools formal. |
 | B1. Login social (Google/GitHub) + Magic Link | **IMPLEMENTED** | Código + migrations 0007; smoke completo depende de `AUTH_*` + Resend em produção. |
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. Evidence `source` mascarado `model:plutao-primary` (Frente F). |
@@ -62,7 +63,8 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - Tokens cifrados (AES) em `connectors.access_token_enc`
 - Runtime carrega catálogo + status real + capabilities no system prompt
 - Tools só executam se o conector estiver **conectado**
-- Write gate GitHub: aprovação humana via WriteGateCard antes de create/push
+- Write gate GitHub: aprovação humana via WriteGateCard antes de create/push/github.files.write
+- Capability `github.files.write`: cliente `githubFiles.ts` com suporte a atômico Git Trees API, limites de 20 arquivos e 100KB por arquivo, além de prevenção contra path traversal `..`
 - `resolveCloudModelConfig(id)` mapeia catálogo → provider + apiModel + baseUrl + env keys
 - Evidence de model_step: `source: "model:plutao-primary"` (não vaza groq/openai ids)
 - MCP: OAuth 2.1+PKCE, scopes read/write, audit, rate limit, tools listadas em `docs/MCP_SERVER.md`

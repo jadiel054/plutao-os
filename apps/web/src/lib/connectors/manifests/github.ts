@@ -196,7 +196,7 @@ export const githubManifest: ConnectorManifest = {
     },
     {
       name: "push_files",
-      description: "Enviar um ou mais arquivos para um repositório (requer aprovação humana)",
+      description: "Enviar um ou mais arquivos para um repositório (requer aprovação humana, máx 20 arquivos, 100KB/arquivo)",
       mode: "write",
       request: {
         method: "POST",
@@ -210,6 +210,23 @@ export const githubManifest: ConnectorManifest = {
         "atualizar arquivo",
         "criar arquivo no github",
         "push files",
+        "escrever arquivo",
+      ],
+    },
+    {
+      name: "github.files.write",
+      description: "Escrever/atualizar arquivos em repositórios do GitHub via Git Data API (requer aprovação humana, máx 20 arquivos, 100KB/arquivo)",
+      mode: "write",
+      request: {
+        method: "POST",
+        path: "/repos/{owner}/{repo}/git/trees",
+      },
+      requiredArgs: ["owner", "repo", "files"],
+      intentKeywords: [
+        "github.files.write",
+        "escrever arquivo no repo",
+        "escrever arquivos",
+        "commit de arquivos",
       ],
     },
   ],

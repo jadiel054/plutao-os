@@ -33,6 +33,7 @@ export const GITHUB_REQUIRED_ARGS: Record<string, string[]> = {
   actions_list: ["owner", "repo"],
   repo_create: ["name"],
   push_files: ["owner", "repo", "files"],
+  "github.files.write": ["owner", "repo", "files"],
 };
 
 export type GitHubToolPlan = {
@@ -130,7 +131,7 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
 
   const wantsPush =
     !wantsCreate &&
-    /\b(push|enviar\s+arquivo|commit|atualizar\s+arquivo|adicionar\s+(?:o\s+)?(?:arquivo\s+)?readme|readme\.md)\b/.test(
+    /\b(push|enviar\s+arquivo|commit|atualizar\s+arquivo|escrever\s+arquivo|adicionar\s+(?:o\s+)?(?:arquivo\s+)?readme|readme\.md)\b/.test(
       t
     );
 
@@ -250,7 +251,7 @@ export async function detectAndExecuteGitHubTool(opts: {
 
     const followUps = recentRepos.map((r, i) => {
       let prompt = `ver detalhes do repositório ${r}`;
-      if (action === "push_files") {
+      if (action === "push_files" || action === "github.files.write") {
         prompt = `envie README.md para o repositório ${r}`;
       } else if (action.includes("issue")) {
         prompt = `liste as issues abertas de ${r}`;
@@ -270,7 +271,7 @@ export async function detectAndExecuteGitHubTool(opts: {
 O usuário quer executar '${action}', mas faltam: ${missingParams.join(", ")}.
 Repositórios recentes: ${recentRepos.length > 0 ? recentRepos.join(", ") : "nenhum encontrado"}.
 Peça só o mínimo que falta (ex.: nome do repositório). Não peça confirmação genérica de "posso executar?".
-Para escritas (repo_create / push_files), assim que os args existirem, execute a tool — a aprovação humana é o WriteGateCard, não o chat.`;
+Para escritas (repo_create / push_files / github.files.write), assim que os args existirem, execute a tool — a aprovação humana é o WriteGateCard, não o chat.`;
 
     return {
       executed: false,

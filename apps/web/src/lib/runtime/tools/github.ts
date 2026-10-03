@@ -9,6 +9,7 @@ import { decryptToken } from "@/lib/connectors/crypto";
 import { runRestCapability } from "@/lib/connectors/runRestCapability";
 import { githubManifest } from "@/lib/connectors/manifests/github";
 import { githubCreateRepo, githubPushFiles } from "@/lib/connectors/githubWrite";
+import { githubWriteFilesWithToken } from "@/lib/connectors/githubFiles";
 import { createWriteGate } from "@/lib/connectors/gates";
 import type { ConnectorCapability } from "@plutao/domain";
 import type { ToolResult } from "./types";
@@ -35,7 +36,7 @@ const READ_ACTIONS = [
   "actions_list",
 ] as const;
 
-const WRITE_ACTIONS = ["repo_create", "push_files"] as const;
+const WRITE_ACTIONS = ["repo_create", "push_files", "github.files.write"] as const;
 
 type GhAction = (typeof READ_ACTIONS)[number] | (typeof WRITE_ACTIONS)[number];
 
@@ -235,9 +236,9 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
     return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
   }
 
-  if (parsed.action === "push_files") {
+  if (parsed.action === "push_files" || parsed.action === "github.files.write") {
     const owner = parsed.owner || row.accountLogin || "";
-    const res = await githubPushFiles(token, {
+    const res = await githubWriteFilesWithToken(token, {
       owner,
       repo: parsed.repo || "",
       files: parsed.files || [],
