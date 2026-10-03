@@ -4,7 +4,10 @@ import { listConnectorsForUser } from "@/lib/connectors/service";
 import { isOAuthConfigured } from "@/lib/connectors/connectorOAuth";
 import { canEncryptTokens } from "@/lib/connectors/crypto";
 import { getAllConnectorManifests } from "@/lib/connectors/manifests";
-import { CONNECTOR_CATALOG } from "@plutao/domain";
+import { CONNECTOR_CATALOG, getPlanDefinition } from "@plutao/domain";
+import { getDb } from "@/lib/db";
+import { users } from "@plutao/db";
+import { eq } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
@@ -15,6 +18,15 @@ export async function GET() {
   }
 
   try {
+    const db = getDb();
+    const userRows = await db
+      .select({ plan: users.plan })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+    const userPlanId = userRows[0]?.plan ?? "orbita_livre";
+    const planDef = getPlanDefinition(userPlanId);
+
     const connectors = await listConnectorsForUser(user.id);
     const manifests = getAllConnectorManifests();
 
@@ -29,6 +41,11 @@ export async function GET() {
       connectors,
       catalog: CONNECTOR_CATALOG,
       manifests,
+      userPlan: {
+        id: planDef.id,
+        label: planDef.label,
+        connectorsMax: planDef.connectorsMax,
+      },
       oauth: {
         githubConfigured: oauthConfigured.github ?? false,
         vercelConfigured: oauthConfigured.vercel ?? false,

@@ -35,6 +35,8 @@ export function SettingsConnectorsSection({
 
   const [connectors, setConnectors] = useState<ConnectorPublicView[]>([]);
   const [manifests, setManifests] = useState<ConnectorManifest[]>([]);
+  const [userPlan, setUserPlan] = useState<{ id: string; label: string; connectorsMax: number } | null>(null);
+  const [disconnectingProvider, setDisconnectingProvider] = useState<{ provider: string; displayName: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
@@ -65,6 +67,9 @@ export function SettingsConnectorsSection({
       setConnectors(Array.isArray(data.connectors) ? data.connectors : []);
       if (Array.isArray(data.manifests)) {
         setManifests(data.manifests);
+      }
+      if (data.userPlan && typeof data.userPlan === "object") {
+        setUserPlan(data.userPlan);
       }
     } catch {
       onNotifyRef.current?.("Erro de rede", "error");
@@ -484,7 +489,12 @@ export function SettingsConnectorsSection({
                             <button
                               type="button"
                               disabled={busy !== null}
-                              onClick={() => void handleDisconnect(manifest.provider)}
+                              onClick={() =>
+                                setDisconnectingProvider({
+                                  provider: manifest.provider,
+                                  displayName: manifest.displayName,
+                                })
+                              }
                               className="px-3 py-1.5 rounded-xl border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs transition-colors"
                             >
                               Desconectar
@@ -647,6 +657,49 @@ export function SettingsConnectorsSection({
           </div>
         );
       })}
+
+      {disconnectingProvider ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 shadow-2xl">
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                Desconectar {disconnectingProvider.displayName}?
+              </h3>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Seu plano permite até {userPlan?.connectorsMax ?? 1} conectores ativos.
+              </p>
+            </div>
+
+            {connectors.filter((c) => c.status === "connected").length >= (userPlan?.connectorsMax ?? 1) ? (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 font-medium">
+                Reconectar depois pode ser bloqueado pelo limite do plano.
+              </div>
+            ) : null}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDisconnectingProvider(null)}
+                className="px-3.5 py-2 rounded-xl border border-[var(--border)] text-xs text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => {
+                  const targetProvider = disconnectingProvider.provider;
+                  setDisconnectingProvider(null);
+                  void handleDisconnect(targetProvider);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-red-500/90 hover:bg-red-500 text-white text-xs font-semibold transition-colors disabled:opacity-40"
+              >
+                Desconectar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

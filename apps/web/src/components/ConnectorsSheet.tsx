@@ -27,6 +27,8 @@ export function ConnectorsSheet({
   });
 
   const [connectors, setConnectors] = useState<ConnectorPublicView[]>([]);
+  const [userPlan, setUserPlan] = useState<{ id: string; label: string; connectorsMax: number } | null>(null);
+  const [disconnectingProvider, setDisconnectingProvider] = useState<{ provider: string; displayName: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [oauthReady, setOauthReady] = useState({ github: false, crypto: false });
@@ -42,6 +44,9 @@ export function ConnectorsSheet({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return;
       setConnectors(Array.isArray(data.connectors) ? data.connectors : []);
+      if (data.userPlan && typeof data.userPlan === "object") {
+        setUserPlan(data.userPlan);
+      }
       setOauthReady({
         github: Boolean(data.oauth?.githubConfigured),
         crypto: Boolean(data.oauth?.tokenEncryptionReady),
@@ -110,14 +115,18 @@ export function ConnectorsSheet({
   }
 
   function onToggle(c: ConnectorPublicView) {
-    if (c.provider === "github") {
-      if (c.status === "connected") void disconnect("github");
-      else void connectGitHub();
+    if (c.status === "connected") {
+      setDisconnectingProvider({
+        provider: c.provider,
+        displayName: c.displayName,
+      });
       return;
     }
-    if (c.provider === "vercel") {
-      if (c.status === "connected") void disconnect("vercel");
-      else setVercelPanel(true);
+
+    if (c.provider === "github") {
+      void connectGitHub();
+    } else if (c.provider === "vercel") {
+      setVercelPanel(true);
     }
   }
 
@@ -249,6 +258,49 @@ export function ConnectorsSheet({
             })}
           </ul>
         )}
+
+        {disconnectingProvider ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 shadow-2xl">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  Desconectar {disconnectingProvider.displayName}?
+                </h3>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Seu plano permite até {userPlan?.connectorsMax ?? 1} conectores ativos.
+                </p>
+              </div>
+
+              {connectors.filter((c) => c.status === "connected").length >= (userPlan?.connectorsMax ?? 1) ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 font-medium">
+                  Reconectar depois pode ser bloqueado pelo limite do plano.
+                </div>
+              ) : null}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDisconnectingProvider(null)}
+                  className="px-3.5 py-2 rounded-xl border border-[var(--border)] text-xs text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    const targetProvider = disconnectingProvider.provider as "github" | "vercel";
+                    setDisconnectingProvider(null);
+                    void disconnect(targetProvider);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-red-500/90 hover:bg-red-500 text-white text-xs font-semibold transition-colors disabled:opacity-40"
+                >
+                  Desconectar
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
