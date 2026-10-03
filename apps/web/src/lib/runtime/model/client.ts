@@ -45,7 +45,11 @@ export async function* streamChatCompletion(
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
     const msg = body.error?.message || `provider HTTP ${res.status}`;
-    throw new Error(msg);
+    const err = new Error(msg) as Error & { http_status?: number; httpStatus?: number; retryAfter?: string | null };
+    err.http_status = res.status;
+    err.httpStatus = res.status;
+    err.retryAfter = res.headers.get("retry-after");
+    throw err;
   }
 
   if (!res.body) {
@@ -129,7 +133,11 @@ export async function chatCompletion(
 
   if (!res.ok) {
     const msg = body.error?.message || `provider HTTP ${res.status}`;
-    throw new Error(msg);
+    const err = new Error(msg) as Error & { http_status?: number; httpStatus?: number; retryAfter?: string | null };
+    err.http_status = res.status;
+    err.httpStatus = res.status;
+    err.retryAfter = res.headers.get("retry-after");
+    throw err;
   }
 
   const content = body.choices?.[0]?.message?.content?.trim() || "";
