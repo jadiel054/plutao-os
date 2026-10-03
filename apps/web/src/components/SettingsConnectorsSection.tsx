@@ -9,7 +9,18 @@ const STATUS_LABEL: Record<string, string> = {
   authorizing: "Autorizando…",
   connected: "Conectado",
   reconnecting: "Reconectando…",
-  error: "Erro",
+  error: "Erro de conexão",
+};
+
+const PROVIDER_NAMES: Record<string, string> = {
+  github: "GitHub",
+  vercel: "Vercel",
+  neon: "Neon",
+  stripe: "Stripe",
+  supabase: "Supabase",
+  telegram: "Telegram",
+  cloudflare: "Cloudflare",
+  render: "Render",
 };
 
 export function SettingsConnectorsSection({
@@ -27,6 +38,7 @@ export function SettingsConnectorsSection({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [activeTokenProvider, setActiveTokenProvider] = useState<string | null>(null);
   const [inputToken, setInputToken] = useState("");
   const [inputProjectUrl, setInputProjectUrl] = useState("");
@@ -71,17 +83,33 @@ export function SettingsConnectorsSection({
     const ok = url.searchParams.get("connector_ok");
     const err = url.searchParams.get("connector_error");
     if (!ok && !err) return;
+
     url.searchParams.delete("connector_ok");
     url.searchParams.delete("connector_error");
     window.history.replaceState(null, "", url.pathname + (url.search ? `?${url.searchParams}` : "") + url.hash);
+
     if (ok) {
-      onNotifyRef.current?.(`Conector ${ok} conectado`, "success");
+      const providerName = PROVIDER_NAMES[ok.toLowerCase()] || (ok.charAt(0).toUpperCase() + ok.slice(1));
+      const msg = `${providerName} conectado ✅`;
+      setFeedback({ message: msg, type: "success" });
+      onNotifyRef.current?.(msg, "success");
       void load();
+    } else if (err) {
+      const decoded = decodeURIComponent(err);
+      let msg = decoded;
+      const lowerDecoded = decoded.toLowerCase();
+      if (PROVIDER_NAMES[lowerDecoded]) {
+        msg = `Falha ao conectar ${PROVIDER_NAMES[lowerDecoded]} — tente novamente`;
+      } else if (!decoded.startsWith("Falha") && !decoded.includes("tente novamente")) {
+        msg = `Falha ao conectar: ${decoded} — tente novamente`;
+      }
+      setFeedback({ message: msg, type: "error" });
+      onNotifyRef.current?.(msg, "error");
     }
-    if (err) onNotifyRef.current?.(decodeURIComponent(err), "error");
   }, [load]);
 
   async function handleConnectOAuth(provider: string) {
+    if (busy !== null) return;
     setBusy(provider);
     try {
       const res = await fetch(`/api/connectors/${provider}/authorize`, { method: "POST" });
@@ -246,6 +274,29 @@ export function SettingsConnectorsSection({
         </div>
       ) : null}
 
+      {feedback ? (
+        <div
+          className={`rounded-2xl border p-4 text-xs font-medium flex items-center justify-between gap-3 animate-in fade-in duration-150 ${
+            feedback.type === "success"
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+              : "border-red-500/40 bg-red-500/10 text-red-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm">{feedback.type === "success" ? "✅" : "⚠️"}</span>
+            <span>{feedback.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFeedback(null)}
+            className="text-xs opacity-70 hover:opacity-100 p-1 shrink-0 cursor-pointer"
+            aria-label="Fechar mensagem de feedback"
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
+
       {inlineError ? (
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">
           {inlineError}
@@ -273,6 +324,8 @@ export function SettingsConnectorsSection({
               {items.map(({ manifest, view }) => {
                 const status = view?.status ?? "disconnected";
                 const isConnected = status === "connected";
+                const isError = status === "error";
+                const isAuthorizing = busy === manifest.provider || status === "authorizing";
 
                 // Tool counter & modes
                 const totalTools = manifest.capabilities.length;
@@ -295,7 +348,11 @@ export function SettingsConnectorsSection({
                 return (
                   <div
                     key={manifest.provider}
-                    className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-4"
+                    className={`rounded-2xl border p-4 space-y-4 ${
+                      isError
+                        ? "border-red-500/40 bg-red-500/5"
+                        : "border-[var(--border)] bg-[var(--surface)]"
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-1">
@@ -322,7 +379,7 @@ export function SettingsConnectorsSection({
                             className={`inline-flex items-center gap-1 font-medium ${
                               isConnected
                                 ? "text-emerald-400"
-                                : status === "error"
+                                : isError
                                   ? "text-red-400"
                                   : "text-[var(--text-muted)]"
                             }`}
@@ -331,7 +388,7 @@ export function SettingsConnectorsSection({
                               className={`w-1.5 h-1.5 rounded-full ${
                                 isConnected
                                   ? "bg-emerald-400"
-                                  : status === "error"
+                                  : isError
                                     ? "bg-red-400"
                                     : "bg-neutral-500"
                               }`}
@@ -352,11 +409,26 @@ export function SettingsConnectorsSection({
                           manifest.authMode === "oauth" ? (
                             <button
                               type="button"
-                              disabled={busy !== null}
+                              disabled={busy !== null || isAuthorizing}
                               onClick={() => void handleConnectOAuth(manifest.provider)}
-                              className="px-3.5 py-1.5 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-40"
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 flex items-center justify-center gap-1.5 ${
+                                isAuthorizing
+                                  ? "bg-[var(--selo)] text-[var(--base)] opacity-60 cursor-not-allowed"
+                                  : isError
+                                    ? "bg-amber-500 hover:bg-amber-400 text-black shadow-sm"
+                                    : "bg-[var(--selo)] text-[var(--base)] hover:opacity-90 disabled:opacity-40"
+                              }`}
                             >
-                              {busy === manifest.provider ? "Iniciando…" : "Conectar OAuth"}
+                              {isAuthorizing ? (
+                                <>
+                                  <span className="w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                                  Autorizando…
+                                </>
+                              ) : isError ? (
+                                "Tentar novamente"
+                              ) : (
+                                "Conectar OAuth"
+                              )}
                             </button>
                           ) : (
                             <button
@@ -371,9 +443,13 @@ export function SettingsConnectorsSection({
                                 setInputServiceRoleKey("");
                                 setInputChatId("");
                               }}
-                              className="px-3.5 py-1.5 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-40"
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 flex items-center justify-center gap-1.5 ${
+                                isError
+                                  ? "bg-amber-500 hover:bg-amber-400 text-black shadow-sm"
+                                  : "bg-[var(--selo)] text-[var(--base)] hover:opacity-90 disabled:opacity-40"
+                              }`}
                             >
-                              Colar Token / Key
+                              {isError ? "Tentar novamente" : "Colar Token / Key"}
                             </button>
                           )
                         ) : (
@@ -417,6 +493,22 @@ export function SettingsConnectorsSection({
                         )}
                       </div>
                     </div>
+
+                    {isError ? (
+                      <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300 space-y-1 animate-in fade-in duration-150">
+                        <div className="flex items-center gap-1.5 font-semibold text-red-400">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="8" x2="12" y2="12" />
+                            <line x1="12" y1="16" x2="12.01" y2="16" />
+                          </svg>
+                          <span>Falha na conexão</span>
+                        </div>
+                        <p className="text-[11px] text-red-300/90 leading-relaxed font-mono">
+                          {view?.lastError || "Ocorreu um erro ao conectar este serviço. Clique em 'Tentar novamente' para autenticar de novo."}
+                        </p>
+                      </div>
+                    ) : null}
 
                     {isTokenOpen ? (
                       <div className="rounded-xl border border-[var(--border)] bg-[var(--base)]/50 p-3 space-y-2.5 animate-in fade-in duration-150">

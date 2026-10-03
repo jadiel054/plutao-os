@@ -18,12 +18,48 @@ import { useModelMode } from "@/hooks/useModelMode";
 
 type TabType = "ia" | "conectores" | "voz" | "perfil" | "notificacoes" | "seguranca" | "sobre";
 
+const VALID_TABS: TabType[] = ["ia", "conectores", "voz", "perfil", "notificacoes", "seguranca", "sobre"];
+
+function resolveInitialTab(): TabType {
+  if (typeof window !== "undefined") {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab") as TabType | null;
+      if (tabParam && VALID_TABS.includes(tabParam)) {
+        localStorage.setItem("plutao_settings_tab", tabParam);
+        return tabParam;
+      }
+      const storedTab = localStorage.getItem("plutao_settings_tab") as TabType | null;
+      if (storedTab && VALID_TABS.includes(storedTab)) {
+        return storedTab;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return "ia";
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabType>("ia");
+  const [activeTab, setActiveTab] = useState<TabType>(resolveInitialTab);
+
+  const handleTabChange = useCallback((newTab: TabType) => {
+    setActiveTab(newTab);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("plutao_settings_tab", newTab);
+      } catch {
+        /* ignore */
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", newTab);
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+  }, []);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
   const [agentName, setAgentName] = useState("Plutão");
@@ -84,16 +120,8 @@ export default function SettingsPage() {
             if (p.language) setLanguage(p.language);
           }
           const params = new URLSearchParams(window.location.search);
-          const tab = params.get("tab");
-          if (
-            tab === "conectores" ||
-            tab === "ia" ||
-            tab === "voz" ||
-            tab === "perfil" ||
-            tab === "notificacoes" ||
-            tab === "seguranca" ||
-            tab === "sobre"
-          ) {
+          const tab = params.get("tab") as TabType | null;
+          if (tab && VALID_TABS.includes(tab)) {
             setActiveTab(tab);
           }
         } catch {
@@ -230,7 +258,7 @@ export default function SettingsPage() {
             <button
               key={t.id}
               type="button"
-              onClick={() => setActiveTab(t.id)}
+              onClick={() => handleTabChange(t.id)}
               className={`px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
                 activeTab === t.id
                   ? "bg-[var(--surface)] text-[var(--selo)] border border-[var(--border)] font-semibold"
