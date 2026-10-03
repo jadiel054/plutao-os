@@ -1,6 +1,60 @@
 import type { ModelConfig, ModelMessage, ModelProviderId, ModelStepResult, ModelToolProposal } from "./types";
 
 /**
+ * Erro estruturado de chamada de modelo — carrega o PORQUÊ da falha
+ * (status HTTP, corpo truncado, model id usado, endpoint, latência).
+ * Usado pelo runtime de missões para gravar log acionável.
+ */
+export type ModelCallErrorInfo = {
+  httpStatus?: number;
+  bodySnippet?: string;
+  model?: string;
+  baseUrl?: string;
+  latencyMs?: number;
+};
+
+export class ModelCallError extends Error {
+  readonly httpStatus?: number;
+  readonly bodySnippet?: string;
+  readonly model?: string;
+  readonly baseUrl?: string;
+  readonly latencyMs?: number;
+
+  constructor(message: string, info: ModelCallErrorInfo = {}) {
+    super(message);
+    this.name = "ModelCallError";
+    this.httpStatus = info.httpStatus;
+    this.bodySnippet = info.bodySnippet;
+    this.model = info.model;
+    this.baseUrl = info.baseUrl;
+    this.latencyMs = info.latencyMs;
+  }
+
+  /** Resumo em uma linha para logs de missão (evidence/UI). */
+  summary(): string {
+    return [
+      this.message,
+      this.httpStatus != null ? `http_status=${this.httpStatus}` : null,
+      this.model ? `model=${this.model}` : null,
+      this.baseUrl ? `endpoint=${this.baseUrl}` : null,
+      this.latencyMs != null ? `latency_ms=${this.latencyMs}` : null,
+      this.bodySnippet ? `body=${this.bodySnippet}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  }
+}
+
+function toBodySnippet(body: unknown): string | undefined {
+  try {
+    const s = JSON.stringify(body);
+    return s ? s.slice(0, 300) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * OpenAI-compatible chat completions (works for OpenAI and xAI).
  */
 export async function* streamChatCompletion(
@@ -26,7 +80,13 @@ export async function* streamChatCompletion(
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
     const msg = body.error?.message || `provider HTTP ${res.status}`;
-    throw new Error(msg);
+    throw new ModelCallError(msg, {
+      httpStatus: res.status,
+      bodySnippet: toBodySnippet(body),
+      model: config.model,
+      baseUrl: config.baseUrl,
+      latencyMs: Date.now() - start,
+    });
   }
 
   if (!res.body) {
@@ -110,7 +170,13 @@ export async function chatCompletion(
 
   if (!res.ok) {
     const msg = body.error?.message || `provider HTTP ${res.status}`;
-    throw new Error(msg);
+    throw new ModelCallError(msg, {
+      httpStatus: res.status,
+      bodySnippet: toBodySnippet(body),
+      model: config.model,
+      baseUrl: config.baseUrl,
+      latencyMs,
+    });
   }
 
   const content = body.choices?.[0]?.message?.content?.trim() || "";

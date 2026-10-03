@@ -13,7 +13,7 @@
  * - MAX_ITERATIONS: limite de iterações por chamada (default: 20)
  * - Idempotência: reaproveita hash do dispatchTool()
  * - Verifica status da execution a cada iteração
- * - Não faz retry automático em erros
+ * - Retry com backoff na chamada do modelo (dentro do model step)
  */
 
 import { getOwnedExecution } from "./service";
@@ -159,6 +159,7 @@ export async function runAgentLoop(
 
   let iteration = 0;
   let stopReason: string | null = null;
+  let loopError: string | undefined;
   const toolContextMessages: ModelMessage[] = [];
 
   while (iteration < maxIterations && !stopReason) {
@@ -184,7 +185,21 @@ export async function runAgentLoop(
         stopReason: `MODEL_STEP_ERROR: ${stepResult.error}`,
       });
 
-      stopReason = `MODEL_STEP_ERROR: ${stepResult.error}`;
+      const stepErrorDetail = (stepResult as { detail?: string }).detail;
+      const stepErrorHint = (stepResult as { hint?: string }).hint;
+      loopError = [
+        stepResult.error,
+        stepErrorDetail,
+        stepErrorHint ? `hint: ${stepErrorHint}` : null,
+      ]
+        .filter(Boolean)
+        .join(" — ");
+      stopReason = [
+        `MODEL_STEP_ERROR: ${stepResult.error}`,
+        stepErrorDetail,
+      ]
+        .filter(Boolean)
+        .join(" — ");
       const errEvidence = (stepResult as { evidence?: { id?: string } }).evidence;
       if (errEvidence?.id) {
         evidenceIds.push(errEvidence.id);
@@ -281,6 +296,7 @@ export async function runAgentLoop(
     evidenceIds,
     finalStatus,
     stopReason: stopReason || "MAX_ITERATIONS_REACHED",
+    error: loopError,
     details,
   };
 }
