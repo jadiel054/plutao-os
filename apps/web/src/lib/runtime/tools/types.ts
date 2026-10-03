@@ -1,4 +1,12 @@
-export type ToolName = "note" | "filesystem" | "github" | "vercel";
+export type ToolName =
+  | "note"
+  | "filesystem"
+  | "github"
+  | "vercel"
+  | "files.export_pdf"
+  | "files.export_xlsx"
+  | "files.export_markdown"
+  | "files.export_html";
 
 export type ToolInput = {
   name: ToolName;
@@ -23,8 +31,17 @@ export type ToolFailure = {
 
 export type ToolResult = ToolSuccess | ToolFailure;
 
-export const KNOWN_TOOLS: readonly ToolName[] = ["note", "filesystem", "github", "vercel"];
+export const KNOWN_TOOLS: readonly ToolName[] = [
+  "note",
+  "filesystem",
+  "github",
+  "vercel",
+  "files.export_pdf",
+  "files.export_xlsx",
+  "files.export_markdown",
+  "files.export_html",
+];
 
 export function isToolName(v: string): v is ToolName {
-  return (KNOWN_TOOLS as readonly string[]).includes(v);
+  return (KNOWN_TOOLS as readonly string[]).includes(v as ToolName);
 }

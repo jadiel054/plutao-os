@@ -10,7 +10,8 @@ import { runNote } from "./note";
 import { runFilesystem } from "./filesystem";
 import { runGithub } from "./github";
 import { runVercel } from "./vercel";
-import { isToolName, type ToolName, type ToolResult } from "./types";
+import { runExportTool } from "./export";
+import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
 
 function inputHash(name: string, input: string): string {
@@ -31,6 +32,11 @@ async function dispatchLocal(
       return await runGithub(input, opts.userId);
     case "vercel":
       return await runVercel(input, opts.userId);
+    case "files.export_pdf":
+    case "files.export_xlsx":
+    case "files.export_markdown":
+    case "files.export_html":
+      return await runExportTool(name, input, opts.executionId);
     default: {
       const _exhaustive: never = name;
       return {
@@ -78,7 +84,7 @@ export async function dispatchTool(opts: {
   if (!isToolName(opts.name)) {
     return {
       error: "UNKNOWN_TOOL" as const,
-      known: ["note", "filesystem", "github", "vercel"] as const,
+      known: KNOWN_TOOLS,
     };
   }
 
