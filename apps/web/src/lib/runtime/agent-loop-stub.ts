@@ -161,7 +161,7 @@ export async function runStubStep(executionId: string, userId: string) {
   await db
     .update(missions)
     .set({ evidence: [...prevEv, evidenceItem], updatedAt: now })
-    .where(eq(missions.id, execution.missionId));
+    .where(and(eq(missions.id, execution.missionId), eq(missions.userId, userId)));
 
   done.add(target.id);
   const nextOpen = open.filter((t) => t.id !== target.id);

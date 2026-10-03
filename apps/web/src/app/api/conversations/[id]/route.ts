@@ -18,12 +18,8 @@ export async function checkConversationOwnership(conversationId: string, userId:
     .where(eq(conversations.id, conversationId))
     .limit(1);
 
-  if (rows.length === 0) {
+  if (rows.length === 0 || rows[0].userId !== userId) {
     return { status: 404 as const, conversation: null };
-  }
-
-  if (rows[0].userId !== userId) {
-    return { status: 403 as const, conversation: null };
   }
 
   return { status: 200 as const, conversation: rows[0] };
@@ -53,9 +49,6 @@ export async function PATCH(
   const check = await checkConversationOwnership(id, user.id);
   if (check.status === 404) {
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
-  }
-  if (check.status === 403) {
-    return NextResponse.json({ error: "Acesso negado à conversa" }, { status: 403 });
   }
 
   try {
@@ -115,9 +108,6 @@ export async function DELETE(
   const check = await checkConversationOwnership(id, user.id);
   if (check.status === 404) {
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
-  }
-  if (check.status === 403) {
-    return NextResponse.json({ error: "Acesso negado à conversa" }, { status: 403 });
   }
 
   try {

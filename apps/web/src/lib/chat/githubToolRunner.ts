@@ -332,7 +332,7 @@ Para escritas (repo_create / push_files), assim que os args existirem, execute a
         await db
           .update(missions)
           .set({ evidence: [...prevEv, evidenceItem], updatedAt: new Date() })
-          .where(eq(missions.id, opts.missionId));
+          .where(and(eq(missions.id, opts.missionId), eq(missions.userId, opts.userId)));
       }
     } catch {
       /* ignore evidence save error */

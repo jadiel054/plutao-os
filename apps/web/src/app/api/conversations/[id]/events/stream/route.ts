@@ -31,12 +31,6 @@ export async function GET(
       headers: { "Content-Type": "application/json" },
     });
   }
-  if (check.status === 403) {
-    return new Response(JSON.stringify({ error: "Acesso negado à conversa" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
 
   const lastEventIdHeader = req.headers.get("last-event-id");
   const searchParams = new URL(req.url).searchParams;

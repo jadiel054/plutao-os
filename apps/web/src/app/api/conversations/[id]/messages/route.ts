@@ -27,12 +27,8 @@ export async function GET(
       .where(eq(conversations.id, id))
       .limit(1);
 
-    if (convRows.length === 0) {
+    if (convRows.length === 0 || convRows[0].userId !== user.id) {
       return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
-    }
-
-    if (convRows[0].userId !== user.id) {
-      return NextResponse.json({ error: "Acesso negado à conversa" }, { status: 403 });
     }
 
     const msgRows = await db

@@ -256,7 +256,7 @@ export async function runModelStep(
   await db
     .update(missions)
     .set({ evidence: [...prevEv, evidenceItem], updatedAt: now })
-    .where(eq(missions.id, execution.missionId));
+    .where(and(eq(missions.id, execution.missionId), eq(missions.userId, userId)));
 
   const nextCp: CheckpointShape = {
     ...cp,
