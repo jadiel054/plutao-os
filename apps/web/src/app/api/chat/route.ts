@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, inArray, and } from "drizzle-orm";
-import { agents, artifacts as artifactsTable, users, usageCounters, conversations } from "@plutao/db";
+import { agents, artifacts as artifactsTable, users, usageCounters, conversations, missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";
@@ -15,6 +15,7 @@ import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
+import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
 import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
@@ -793,8 +794,40 @@ ${
                     }
                   }
                 }
-              } catch {
-                /* fallback to prompt completion */
+              } catch (err) {
+                console.error("[chat streaming FASE 3 error]", err);
+                const errDetail = err instanceof Error ? err.message : String(err);
+                if (missionId) {
+                  try {
+                    const hint = "Provedor indisponível ou limite de tokens atingido — verifique a chave MODEL_API_KEY no Vercel.";
+                    const item: EvidenceItem = {
+                      id: crypto.randomUUID(),
+                      type: "model_error",
+                      content: `MODEL_CALL_FAILED: ${errDetail} (hint: ${hint})`.slice(0, 600),
+                      source: "model:plutao-primary",
+                      taskId: null,
+                      missionId,
+                      createdAt: new Date().toISOString(),
+                    };
+                    const rows = await db
+                      .select({ evidence: missions.evidence })
+                      .from(missions)
+                      .where(and(eq(missions.id, missionId), eq(missions.userId, user.id)))
+                      .limit(1);
+                    if (rows[0]) {
+                      const prev = parseEvidence(rows[0].evidence);
+                      await db
+                        .update(missions)
+                        .set({ evidence: [...prev, item], updatedAt: new Date() })
+                        .where(and(eq(missions.id, missionId), eq(missions.userId, user.id)));
+                    }
+                  } catch {
+                    /* non-fatal */
+                  }
+                }
+                const errorMsg = `Não foi possível gerar a resposta final com o modelo: ${errDetail}. Verifique suas configurações de modelo.`;
+                emit("content_delta", { text: errorMsg });
+                rawStreamOutput = errorMsg;
               }
 
               let cleaned = rawStreamOutput;

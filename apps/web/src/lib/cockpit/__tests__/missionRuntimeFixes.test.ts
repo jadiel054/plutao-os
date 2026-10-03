@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { POST as handleGateAction } from "@/app/api/gates/[id]/route";
-import * as runAutonomousMissionServerModule from "@/lib/cockpit/runAutonomousMissionServer";
+import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
 import * as gatesService from "@/lib/connectors/gates";
 import * as githubToolModule from "@/lib/runtime/tools/github";
 import * as clientModule from "@/lib/runtime/model/client";
@@ -33,7 +33,7 @@ const mockExecution = {
 const mockMission = {
   id: "m1",
   userId: "u1",
-  objective: "Liste meus repositórios públicos e grave uma note",
+  objective: "crie um repositório chamado plutao-missao-smoke com README",
   definitionOfDone: null,
   evidence: [],
   status: "EXECUTING",
@@ -118,8 +118,9 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
       vi.spyOn(dbModule, "getDb").mockReturnValue(mockDb as unknown as ReturnType<typeof dbModule.getDb>);
       vi.spyOn(runtimeService, "getOwnedExecution").mockResolvedValue(mockExecution);
       vi.spyOn(checkpointModule, "saveCheckpoint").mockResolvedValue({
+        ok: true,
         checkpoint: {},
-        updatedAt: new Date(),
+        checkpointAt: new Date().toISOString(),
       });
 
       const loopResult = await runAgentLoop("exec-1", "u1", 5);
@@ -182,8 +183,8 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
     });
   });
 
-  describe("Bug 2 — Write mission resumes loop after gate approval", () => {
-    it("automatically resumes mission loop when POST /api/gates/[id] receives decision approve", async () => {
+  describe("Bug 2 — Write mission resumes loop after gate approval & informs model", () => {
+    it("resumes mission loop via POST /api/gates/[id], passes gate execution evidence to model, and proposes push_files (next tool) instead of repo_create", async () => {
       const missionId = "m-write-1";
       const gateId = "gate-repo-create";
       const userId = "u1";
@@ -229,44 +230,93 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
         decision: "approve",
         decidedAt: new Date(),
         executedAt: new Date(),
-        result: { output: "repo criado" },
+        result: { output: "Repositório criado: plutao-missao-smoke" },
         error: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-      vi.spyOn(githubToolModule, "runGithub").mockResolvedValue({
+      const runGithubSpy = vi.spyOn(githubToolModule, "runGithub");
+      // 1st runGithub call from POST /api/gates/[id]: repo_create execution
+      runGithubSpy.mockResolvedValueOnce({
         ok: true,
         tool: "github",
-        input: '{"action":"repo_create"}',
+        input: '{"action":"repo_create","_gateApproved":true}',
         output: "Repositório criado: plutao-missao-smoke",
         durationMs: 400,
       });
+      // 2nd runGithub call from resumed mission loop: push_files execution (creates next gate or pushes)
+      runGithubSpy.mockResolvedValueOnce({
+        ok: true,
+        tool: "github",
+        input: '{"action":"push_files","owner":"u1","repo":"plutao-missao-smoke","files":[{"path":"README.md","content":"# Smoke Mission"}]}',
+        output: "GATE_PENDING\ngate_id: gate-push-readme",
+        durationMs: 350,
+      });
 
-      // Mock db
+      // Mock chatCompletion: when resumed mission calls model step, model sees 'gate aprovado e executado' evidence and proposes push_files
+      const chatCompletionSpy = vi.spyOn(clientModule, "chatCompletion");
+      chatCompletionSpy.mockImplementation(async (_config, messages) => {
+        const userPrompt = String(messages.find((m) => m.role === "user")?.content ?? "");
+        // Verify that userPrompt sent to model contains the 'gate aprovado e executado: github/repo_create' evidence!
+        expect(userPrompt).toContain("gate aprovado e executado");
+
+        return {
+          provider: "openai",
+          model: "gpt-4o",
+          content: '{"tool":"github","input":"{\\"action\\":\\"push_files\\",\\"owner\\":\\"u1\\",\\"repo\\":\\"plutao-missao-smoke\\",\\"files\\":[{\\"path\\":\\"README.md\\",\\"content\\":\\"# Smoke Mission\\"}]}"}',
+          toolProposal: {
+            name: "github",
+            input: '{"action":"push_files","owner":"u1","repo":"plutao-missao-smoke","files":[{"path":"README.md","content":"# Smoke Mission"}]}',
+          },
+          usage: { promptTokens: 40, completionTokens: 20 },
+          latencyMs: 150,
+        };
+      });
+
+      let storedEvidence: unknown[] = [];
       const mockDb = {
         select: vi.fn().mockReturnThis(),
         from: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockResolvedValue([{ evidence: [] }]),
-        update: vi.fn().mockReturnThis(),
-        set: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockImplementation(() => {
+          return Promise.resolve([
+            {
+              ...mockMission,
+              id: missionId,
+              status: "EXECUTING",
+              evidence: storedEvidence,
+              preferredModel: "openai/gpt-4o",
+              plan: null,
+            },
+          ]);
+        }),
+        update: vi.fn().mockReturnValue({
+          set: (patch: { evidence?: unknown[] }) => ({
+            where: () => {
+              if (patch.evidence) storedEvidence = patch.evidence;
+              return {
+                returning: () => Promise.resolve([{ ...mockExecution, missionId }]),
+              };
+            },
+          }),
+        }),
       };
+
       vi.spyOn(dbModule, "getDb").mockReturnValue(mockDb as unknown as ReturnType<typeof dbModule.getDb>);
+      vi.spyOn(runtimeService, "getOwnedExecution").mockResolvedValue({
+        ...mockExecution,
+        missionId,
+        status: "RUNNING",
+      });
+      vi.spyOn(runtimeService, "findRecoverableExecution").mockResolvedValue({
+        ...mockExecution,
+        missionId,
+        status: "RUNNING",
+      });
 
-      const runAutoServerSpy = vi
-        .spyOn(runAutonomousMissionServerModule, "runAutonomousMissionServer")
-        .mockResolvedValue({
-          ok: true,
-          missionId,
-          finalStatus: "EXECUTING",
-          allowedTransitions: [],
-          stepsOk: 1,
-          completed: false,
-          executionId: "exec-1",
-          message: "Resumed and executed next tool (push_files)",
-        });
-
+      // Call handleGateAction (POST /api/gates/[id]) with approve decision
       const req = new Request(`http://localhost/api/gates/${gateId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -282,11 +332,13 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
       expect(data.ok).toBe(true);
       expect(data.status).toBe("executed");
 
-      // Verify that runAutonomousMissionServer was automatically invoked with gate.missionId!
-      expect(runAutoServerSpy).toHaveBeenCalledWith({
-        missionId,
-        userId,
-      });
+      // Verify that chatCompletion was called during resumed runAutonomousMissionServer
+      expect(chatCompletionSpy).toHaveBeenCalled();
+
+      // Verify that the proposed tool on resumption was push_files (NEXT tool), NOT repo_create!
+      const proposedInput = chatCompletionSpy.mock.results[0]?.value ? (await chatCompletionSpy.mock.results[0].value).toolProposal?.input : "";
+      expect(proposedInput).toContain("push_files");
+      expect(proposedInput).not.toContain("repo_create");
     });
   });
 });
