@@ -303,8 +303,7 @@ export async function runConnectedConnectorTools(opts: {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[runConnectedConnectorTools github error]", err);
       github = {
-        executed: true,
-        capability: "github",
+        executed: false,
         contextText: `[ERRO NA FERRAMENTA GITHUB]\nNão consegui iniciar a operação GitHub: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
       if (github.contextText) contextBlocks.push(github.contextText);
@@ -328,8 +327,7 @@ export async function runConnectedConnectorTools(opts: {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[runConnectedConnectorTools vercel error]", err);
       vercel = {
-        executed: true,
-        capability: "vercel",
+        executed: false,
         contextText: `[ERRO NA FERRAMENTA VERCEL]\nNão consegui iniciar a operação Vercel: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
       if (vercel.contextText) contextBlocks.push(vercel.contextText);
@@ -350,8 +348,7 @@ export async function runConnectedConnectorTools(opts: {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[runConnectedConnectorTools supabase error]", err);
       supabase = {
-        executed: true,
-        capability: "supabase",
+        executed: false,
         contextText: `[ERRO NA FERRAMENTA SUPABASE]\nNão consegui iniciar a operação Supabase: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
       if (supabase.contextText) contextBlocks.push(supabase.contextText);
@@ -372,8 +369,7 @@ export async function runConnectedConnectorTools(opts: {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[runConnectedConnectorTools telegram error]", err);
       telegram = {
-        executed: true,
-        capability: "telegram",
+        executed: false,
         contextText: `[ERRO NA FERRAMENTA TELEGRAM]\nNão consegui iniciar a operação Telegram: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
       if (telegram.contextText) contextBlocks.push(telegram.contextText);
@@ -394,8 +390,7 @@ export async function runConnectedConnectorTools(opts: {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[runConnectedConnectorTools cloudflare error]", err);
       cloudflare = {
-        executed: true,
-        capability: "cloudflare",
+        executed: false,
         contextText: `[ERRO NA FERRAMENTA CLOUDFLARE]\nNão consegui iniciar a operação Cloudflare: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
       if (cloudflare.contextText) contextBlocks.push(cloudflare.contextText);
@@ -416,8 +411,7 @@ export async function runConnectedConnectorTools(opts: {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[runConnectedConnectorTools render error]", err);
       render = {
-        executed: true,
-        capability: "render",
+        executed: false,
         contextText: `[ERRO NA FERRAMENTA RENDER]\nNão consegui iniciar a operação Render: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
       if (render.contextText) contextBlocks.push(render.contextText);

@@ -22,11 +22,13 @@ describe("Hardening do caminho de escrita do chat (Bugs 1 e 2)", () => {
       userId: "user-123",
       provider: "vercel",
       status: "connected",
+      serverUrl: null,
       capabilities: [{ name: "project_create", mode: "write" }],
       scopes: [],
       accessTokenEnc: "enc",
       refreshTokenEnc: null,
-      expiresAt: null,
+      tokenExpiresAt: null,
+      oauthState: null,
       accountLogin: "user",
       accountLabel: null,
       lastError: null,
@@ -45,7 +47,9 @@ describe("Hardening do caminho de escrita do chat (Bugs 1 e 2)", () => {
     const res = await runVercel(input, "user-123");
 
     expect(res.ok).toBe(false);
-    expect(res.error).toContain("Não consegui iniciar a operação project_create: Erro de conexão no banco de dados Neon");
+    if (!res.ok) {
+      expect(res.error).toContain("Não consegui iniciar a operação project_create: Erro de conexão no banco de dados Neon");
+    }
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       "[runVercel createWriteGate error]",
       expect.objectContaining({

@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-10-03 (Hardening do caminho de escrita do chat)
+**Última atualização:** 2026-10-03 (Hardening do caminho de escrita do chat & Fix do runtime de missões)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -15,6 +15,9 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
 | BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO** (2026-09-27) | MCP `plutao_send_message` → `list_conversations` 1→2; mesma tabela `conversations` que o drawer da UI. Migration `0016` + API REST. |
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
+| **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate em `gates.ts`, `tools/*.ts` e `connectorRuntime.ts` com log estruturado e aviso amigável `"Não consegui iniciar a operação <action>: <motivo>"`. **BUG 2:** Validação de nome do projeto Vercel (`/^[a-z0-9][a-z0-9-]{1,50}$/`, min 3 chars), rejeitando tokens inválidos (ex: `"na"`) com pedido de esclarecimento. **BUG 3:** Retorno do campo `label` amigável em `GET /api/model/status` e exibição no Cockpit via `d.label ?? `${d.provider}/${d.model}`. |
+| **Fix Runtime de Missões (Model ID & Connector Tools)** | **IMPLEMENTED / ISOLATED** (2026-10-03) | Reaplicado fix de resolução de modelo (`resolveCloudModelConfig`), retry com backoff (`callModelWithRetry`) e prompt de missão com awareness de conectores e write gates (`missionPrompt.ts`), totalmente isolado em módulos exclusivos da missão (`step.ts`, `missionPrompt.ts`, `modelCall.ts`, `label.ts`), **sem tocar em arquivos compartilhados** (`agent-loop.ts`, `client.ts`, `provider.ts`, `api/chat/route.ts`). Teste de regressão do chat incluído e passando. |
+| **Hardening de Fallback de Erro no ConnectorRuntime** | **VERIFICADO** (2026-10-03) | Blocos catch de `runConnectedConnectorTools` em `connectorRuntime.ts` retornam `executed: false` (sem `capability` e sem emitir `tool_start` pendente) em caso de exceção de conector, alimentando `contextText` para explicação amigável ao LLM. Teste dedicado `connectorRuntimeCatch.test.ts`. |
 | **GitHub Files Write (`github.files.write`)** | **VERIFICADO** (2026-10-03) | Nova capability para escrita/atualização atômica de múltiplos arquivos via Git Data API (Git Trees). Protegida com Write Gate (Princípio 1), verificação pós-escrita (read-back) com detecção de divergência e limites estritos (máx 20 arquivos, 100KB/arquivo, sem path traversal `..`). |
 | **GitHub Pro (Branches, PRs, Code Search & Tree)** | **IMPLEMENTED** (2026-10-03) | Capabilities profissionais de repositório: `github.branches.list`/`create`, `github.prs.create`/`list`/`get`, `github.code.search` e `github.tree`. Escritas (branches/PRs) 100% sob Write Gate. Regra de ouro do operador minucioso no system prompt e verificação de leitura pós-escrita. **Pendente:** smoke em produção de branch/PR real. |
 | **Exportação de arquivos (`files.export_*`)** | **VERIFICADO** (2026-10-03) | 4 ferramentas nativas de exportação no runtime (`files.export_pdf`, `files.export_xlsx`, `files.export_markdown`, `files.export_html`). Salvam no filesystem pessoal do usuário (`exports/`), sem conector/OAuth/write-gate, com sanitização contra path traversal, limite de 5MB por export, e detector de intenções PT-BR. |
@@ -47,8 +50,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
-| **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate em `gates.ts`, `tools/*.ts` e `connectorRuntime.ts` com log estruturado e aviso amigável `"Não consegui iniciar a operação <action>: <motivo>"`. **BUG 2:** Validação de nome do projeto Vercel (`/^[a-z0-9][a-z0-9-]{1,50}$/`, min 3 chars), rejeitando tokens inválidos (ex: `"na"`) com pedido de esclarecimento. **BUG 3:** Retorno do campo `label` amigável em `GET /api/model/status` e exibição no Cockpit via `d.label ?? `${d.provider}/${d.model}`. |
-| **UX de Configurações & Conectores** | **VERIFICADO** (2026-10-03) | Sincronização de abas com URL (`?tab=<id>`) e `localStorage` (`plutao_settings_tab`); feedback inline/toast pós-callback OAuth com limpeza de query (`connector_ok`/`connector_error`); cards com status `error` destacam "Tentar novamente" com resumo de `lastError`; botão "Conectar OAuth" desabilitado com spinner durante `authorizing`/`busy` para eliminar double-submit (`STATE_MISMATCH`); **Re-sync silencioso de capabilities** para conectores 'connected' na abertura das Configurações prevenindo drift com o manifesto (sem alterar tokens nem status); **Modal de confirmação ao desconectar** que exibe o limite de conectores do plano do usuário (`userPlan.connectorsMax`) e alerta extra se o usuário estiver no limite ou acima. |
+| **UX de Configurações & Conectores** | **VERIFICADO** (2026-10-03) | Sincronização de abas com URL (`?tab=<id>`) e `localStorage` (`plutao_settings_tab`); feedback inline/toast pós-callback OAuth com limpeza de query (`connector_ok`/`connector_error`); cards com status `error` destacam "Tentar novamente" com resumo de `lastError`; botão "Conectar OAuth" desabilitado com spinner durante `authorizing`/`busy` para eliminar double-submit (`STATE_MISMATCH`); **Re-sync silencioso de capabilities** para conectores 'connected' na abertura das Configurações prevenindo drift com el manifesto (sem alterar tokens nem status); **Modal de confirmação ao desconectar** que exibe o limite de conectores do plano do usuário (`userPlan.connectorsMax`) e alerta extra se o usuário estiver no limite ou acima. |
 | Tour guiado com spotlight (onboarding) | **VERIFICADO** (2026-10-03) | `GuidedTour.tsx` + SVG mask cutout overlay + 6 passos + auto-skip de elementos ausentes + trava de scroll + ESC handler + persistência em `POST /api/user/preferences` & `localStorage` (`plutao_onboarding_seen`). |
 | Billing Stripe (checkout/webhook) | **IMPLEMENTED** — TEST **6/6** (2026-09-25) | Checkout, webhook, idempotência, cancelamento em modo TEST. LIVE pendente (ativação conta operador). Migration 0012. |
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; ownership 403; testes #76. |
@@ -86,6 +88,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - Hardening do caminho de escrita do chat: todo erro na criação do gate ou execução de ferramentas vira log estruturado (`console.error`) e mensagem visível de erro no chat ("Não consegui iniciar a operação..."), sem falhas silenciosas
 - Validação estrita do nome de projeto Vercel no runner (`isValidVercelProjectName`), bloqueando nomes < 3 caracteres ou com caracteres inválidos (ex: "na") antes da criação do gate
 - Status do modelo no Cockpit exibe o label amigável retornado pela rota `/api/model/status`
+- Runtime de missões isolado: resolução de `users.preferredModel` via `resolveCloudModelConfig`, retry com backoff (`callModelWithRetry`), prompt com awareness de conectores (`missionPrompt.ts`) sem alterar arquivos compartilhados
 - `resolveCloudModelConfig(id)` mapeia catálogo → provider + apiModel + baseUrl + env keys
 - Evidence de model_step: `source: "model:plutao-primary"` (não vaza groq/openai ids)
 - MCP: OAuth 2.1+PKCE, scopes read/write, audit, rate limit, tools listadas em `docs/MCP_SERVER.md`
@@ -126,7 +129,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ### Explicitamente fora do V1
 
-- Execução durable (Inngest / filas longas)
+- Execução durable (Inngest etc.)
 - APK / lojas de app
 - Modelo próprio treinado
 - Wave C completa (Linear, Notion, Sentry, …)
