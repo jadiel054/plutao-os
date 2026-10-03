@@ -24,7 +24,7 @@ describe("BUG 3 — Rota /api/model/status", () => {
   });
 
   it("deve retornar configured: false e label: null quando modelo não estiver configurado", async () => {
-    vi.spyOn(sessionModule, "getSessionUser").mockResolvedValue({ id: "user-1" } as any);
+    vi.spyOn(sessionModule, "getSessionUser").mockResolvedValue({ id: "user-1" } as unknown as Awaited<ReturnType<typeof sessionModule.getSessionUser>>);
     vi.spyOn(configModule, "getModelConfig").mockReturnValue(null);
 
     const res = await GET();
@@ -36,7 +36,7 @@ describe("BUG 3 — Rota /api/model/status", () => {
   });
 
   it("deve retornar o campo label amigável do modelo quando configurado", async () => {
-    vi.spyOn(sessionModule, "getSessionUser").mockResolvedValue({ id: "user-1" } as any);
+    vi.spyOn(sessionModule, "getSessionUser").mockResolvedValue({ id: "user-1" } as unknown as Awaited<ReturnType<typeof sessionModule.getSessionUser>>);
     vi.spyOn(configModule, "getModelConfig").mockReturnValue({
       provider: "xai",
       model: "grok-4.6",

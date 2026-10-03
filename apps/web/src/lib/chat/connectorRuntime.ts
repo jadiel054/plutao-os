@@ -307,7 +307,7 @@ export async function runConnectedConnectorTools(opts: {
         capability: "github",
         contextText: `[ERRO NA FERRAMENTA GITHUB]\nNão consegui iniciar a operação GitHub: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
-      contextBlocks.push(github.contextText);
+      if (github.contextText) contextBlocks.push(github.contextText);
     }
   }
 
@@ -332,7 +332,7 @@ export async function runConnectedConnectorTools(opts: {
         capability: "vercel",
         contextText: `[ERRO NA FERRAMENTA VERCEL]\nNão consegui iniciar a operação Vercel: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
-      contextBlocks.push(vercel.contextText);
+      if (vercel.contextText) contextBlocks.push(vercel.contextText);
     }
   }
 
@@ -354,7 +354,7 @@ export async function runConnectedConnectorTools(opts: {
         capability: "supabase",
         contextText: `[ERRO NA FERRAMENTA SUPABASE]\nNão consegui iniciar a operação Supabase: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
-      contextBlocks.push(supabase.contextText);
+      if (supabase.contextText) contextBlocks.push(supabase.contextText);
     }
   }
 
@@ -376,7 +376,7 @@ export async function runConnectedConnectorTools(opts: {
         capability: "telegram",
         contextText: `[ERRO NA FERRAMENTA TELEGRAM]\nNão consegui iniciar a operação Telegram: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
-      contextBlocks.push(telegram.contextText);
+      if (telegram.contextText) contextBlocks.push(telegram.contextText);
     }
   }
 
@@ -398,7 +398,7 @@ export async function runConnectedConnectorTools(opts: {
         capability: "cloudflare",
         contextText: `[ERRO NA FERRAMENTA CLOUDFLARE]\nNão consegui iniciar a operação Cloudflare: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
-      contextBlocks.push(cloudflare.contextText);
+      if (cloudflare.contextText) contextBlocks.push(cloudflare.contextText);
     }
   }
 
@@ -420,7 +420,7 @@ export async function runConnectedConnectorTools(opts: {
         capability: "render",
         contextText: `[ERRO NA FERRAMENTA RENDER]\nNão consegui iniciar a operação Render: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
       };
-      contextBlocks.push(render.contextText);
+      if (render.contextText) contextBlocks.push(render.contextText);
     }
   }
 
