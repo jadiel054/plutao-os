@@ -16,6 +16,7 @@ type VoicePrefs = {
 
 type PreferencesShape = {
   voice?: VoicePrefs;
+  onboarding_seen?: boolean;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -74,6 +75,11 @@ export async function PATCH(req: NextRequest) {
       }
       if (voice) patch.voice = voice;
     }
+    if ("onboarding_seen" in body) {
+      if (typeof body.onboarding_seen === "boolean") {
+        patch.onboarding_seen = body.onboarding_seen;
+      }
+    }
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "Nada para atualizar" }, { status: 400 });
@@ -96,6 +102,9 @@ export async function PATCH(req: NextRequest) {
             },
           }
         : {}),
+      ...(typeof patch.onboarding_seen === "boolean"
+        ? { onboarding_seen: patch.onboarding_seen }
+        : {}),
     };
     const updated = await db
       .update(users)
@@ -114,4 +123,8 @@ export async function PATCH(req: NextRequest) {
     console.error("[PATCH /api/user/preferences]", e);
     return NextResponse.json({ error: "Falha ao salvar preferências" }, { status: 500 });
   }
+}
+
+export async function POST(req: NextRequest) {
+  return PATCH(req);
 }

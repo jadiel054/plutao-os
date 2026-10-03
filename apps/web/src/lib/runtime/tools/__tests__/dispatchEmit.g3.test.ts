@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const emitAction = vi.fn(async () => ({ seq: 1 }));
-const emitObservation = vi.fn(async () => ({ seq: 2 }));
+const emitAction = vi.fn<(...args: unknown[]) => Promise<{ seq: number }>>(async () => ({ seq: 1 }));
+const emitObservation = vi.fn<(...args: unknown[]) => Promise<{ seq: number }>>(async () => ({ seq: 2 }));
 
 vi.mock("@/lib/events/appendConversationEvent", () => ({
   emitAction: (...args: unknown[]) => emitAction(...args),

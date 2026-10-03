@@ -17,7 +17,7 @@ export default async function Home() {
             </span>
           </Link>
 
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs" data-tour="nav-tabs">
             {user ? (
               <>
                 <Link
@@ -63,18 +63,21 @@ export default async function Home() {
               <>
                 <Link
                   href="/chat"
+                  data-tour="open-chat"
                   className="rounded-2xl bg-[var(--selo)] text-[var(--base)] font-semibold px-6 py-3.5 text-sm hover:bg-[var(--nucleo)] transition-all shadow-lg shadow-[var(--selo)]/10"
                 >
                   Abrir Chat
                 </Link>
                 <Link
                   href="/cockpit"
+                  data-tour="open-cockpit"
                   className="rounded-2xl border border-[var(--border)] font-medium px-6 py-3.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--selo)]/40 transition-all"
                 >
                   Abrir Cockpit
                 </Link>
                 <Link
                   href="/configuracoes"
+                  data-tour="settings-link"
                   className="rounded-2xl border border-transparent font-medium px-6 py-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-all"
                 >
                   Configurações

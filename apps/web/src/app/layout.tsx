@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ViewModeBootstrap } from "@/components/ViewModeBootstrap";
+import { GuidedTour } from "@/components/GuidedTour";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -78,6 +79,7 @@ export default function RootLayout({
         <ViewModeBootstrap />
         <ServiceWorkerRegister />
         <OfflineBanner />
+        <GuidedTour />
         {children}
       </body>
     </html>
