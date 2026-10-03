@@ -10,6 +10,7 @@ import { runNote } from "./note";
 import { runFilesystem } from "./filesystem";
 import { runGithub } from "./github";
 import { runVercel } from "./vercel";
+import { runSupabase } from "./supabase";
 import { runExportTool } from "./export";
 import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
@@ -32,6 +33,8 @@ async function dispatchLocal(
       return await runGithub(input, opts.userId);
     case "vercel":
       return await runVercel(input, opts.userId);
+    case "supabase":
+      return await runSupabase(input, opts.userId);
     case "files.export_pdf":
     case "files.export_xlsx":
     case "files.export_markdown":

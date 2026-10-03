@@ -163,6 +163,7 @@ export async function POST(req: NextRequest) {
           vercelConnected: false,
           vercelLogin: null,
           vercelToken: null,
+          supabaseConnected: false,
         }
       : await loadConnectorRuntime(user.id);
 

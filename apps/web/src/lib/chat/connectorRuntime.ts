@@ -12,6 +12,7 @@ import {
 import { CONNECTOR_CATALOG, type ConnectorCapability, type ConnectorPublicView } from "@plutao/domain";
 import { githubManifest } from "@/lib/connectors/manifests/github";
 import { vercelManifest } from "@/lib/connectors/manifests/vercel";
+import { supabaseManifest } from "@/lib/connectors/manifests/supabase";
 import {
   detectAndExecuteGitHubTool,
   type GitHubToolExecutionResult,
@@ -20,6 +21,10 @@ import {
   detectAndExecuteVercelTool,
   type VercelToolExecutionResult,
 } from "@/lib/chat/vercelToolRunner";
+import {
+  detectAndExecuteSupabaseTool,
+  type SupabaseToolExecutionResult,
+} from "@/lib/chat/supabaseToolRunner";
 import {
   detectAndExecuteGenericTool,
   type GenericToolExecutionResult,
@@ -37,11 +42,13 @@ export type ConnectorRuntimeSnapshot = {
   vercelConnected: boolean;
   vercelLogin: string | null;
   vercelToken: string | null;
+  supabaseConnected: boolean;
 };
 
 export type ConnectorToolRunResult = {
   github: GitHubToolExecutionResult;
   vercel: VercelToolExecutionResult;
+  supabase?: SupabaseToolExecutionResult;
   generic?: GenericToolExecutionResult;
   exportTool?: ExportToolExecutionResult;
   contextBlocks: string[];
@@ -60,7 +67,9 @@ function enrichCapabilities(
       ? githubManifest
       : provider === "vercel"
         ? vercelManifest
-        : null;
+        : provider === "supabase"
+          ? supabaseManifest
+          : null;
   if (!manifest) return stored;
   const byName = new Map(stored.map((c) => [c.name, c]));
   for (const m of manifest.capabilities) {
@@ -109,6 +118,7 @@ export async function loadConnectorRuntime(
   let vercelConnected = false;
   let vercelLogin: string | null = null;
   let vercelToken: string | null = null;
+  let supabaseConnected = false;
 
   try {
     const ghTok = await getAccessToken(userId, "github");
@@ -117,6 +127,13 @@ export async function loadConnectorRuntime(
       const row = await getConnectorRow(userId, "github");
       githubLogin = row?.accountLogin ?? null;
     }
+  } catch {
+    /* migration pending */
+  }
+
+  try {
+    const sbTok = await getAccessToken(userId, "supabase");
+    supabaseConnected = Boolean(sbTok);
   } catch {
     /* migration pending */
   }
@@ -186,6 +203,7 @@ export async function loadConnectorRuntime(
     vercelConnected,
     vercelLogin,
     vercelToken,
+    supabaseConnected,
   };
 }
 
@@ -199,6 +217,7 @@ export async function runConnectedConnectorTools(opts: {
 
   let github: GitHubToolExecutionResult = { executed: false };
   let vercel: VercelToolExecutionResult = { executed: false };
+  let supabase: SupabaseToolExecutionResult = { executed: false };
   let generic: GenericToolExecutionResult = { executed: false };
   let exportTool: ExportToolExecutionResult = { executed: false };
   const contextBlocks: string[] = [];
@@ -238,7 +257,18 @@ export async function runConnectedConnectorTools(opts: {
     }
   }
 
-  if (!github.executed && !vercel.executed) {
+  if (snapshot.supabaseConnected) {
+    supabase = await detectAndExecuteSupabaseTool({
+      text: userText,
+      userId,
+      missionId: missionId ?? null,
+    });
+    if ((supabase.executed || supabase.missingArgs) && supabase.contextText) {
+      contextBlocks.push(supabase.contextText);
+    }
+  }
+
+  if (!github.executed && !vercel.executed && !supabase.executed) {
     generic = await detectAndExecuteGenericTool({
       text: userText,
       userId,
@@ -256,9 +286,12 @@ export async function runConnectedConnectorTools(opts: {
   if (vercel.suggestedFollowUps) {
     suggestedFollowUps.push(...vercel.suggestedFollowUps);
   }
+  if (supabase.suggestedFollowUps) {
+    suggestedFollowUps.push(...supabase.suggestedFollowUps);
+  }
   if (generic.suggestedFollowUps) {
     suggestedFollowUps.push(...generic.suggestedFollowUps);
   }
 
-  return { github, vercel, generic, exportTool, contextBlocks, suggestedFollowUps };
+  return { github, vercel, supabase, generic, exportTool, contextBlocks, suggestedFollowUps };
 }

@@ -38,7 +38,11 @@ export async function POST(
   }
 
   try {
-    const body = (await req.json().catch(() => ({}))) as { token?: string };
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string;
+      projectUrl?: string;
+      serviceRoleKey?: string;
+    };
     const rawToken = body.token?.trim() || "";
 
     if (!rawToken || rawToken.length < 5) {
@@ -56,11 +60,20 @@ export async function POST(
     const { state } = await beginOAuth(user.id, provider);
     const capabilities = getDefaultCapabilities(provider);
 
+    let refreshToken: string | null = null;
+    if (provider === "supabase" && (body.projectUrl?.trim() || body.serviceRoleKey?.trim())) {
+      refreshToken = JSON.stringify({
+        projectUrl: body.projectUrl?.trim() || null,
+        serviceRoleKey: body.serviceRoleKey?.trim() || null,
+      });
+    }
+
     const result = await completeOAuth({
       userId: user.id,
       provider,
       state,
       accessToken: rawToken,
+      refreshToken,
       accountLogin: verified.login,
       accountLabel: verified.name || verified.login,
       scopes: [],

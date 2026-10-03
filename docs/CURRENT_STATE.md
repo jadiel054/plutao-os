@@ -37,6 +37,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Vercel conector | **VERIFICADO** | Conectado e tools em chat. |
 | Neon conector (manifest) | **IMPLEMENTED** | Código; smoke token/OAuth pendente. |
 | Stripe conector (manifest) | **IMPLEMENTED** | `verifyUrl` `/v1/account`; label email/`acct_` (#77). Smoke reconectar pendente. |
+| **Supabase conector** | **IMPLEMENTED (smoke pendente)** | PAT dual-pattern + project_url/service_role_key cifrados; capabilities `projects_list`, `tables_list`, `table_read` (SELECT apenas, máx 100 linhas), e `sql_exec` (Write Gate obrigatório + blocklist DROP/TRUNCATE/ALTER em DATABASE/SCHEMA + máx 10k chars). |
 | **Conectores conectados (operador)** | **4/4 connected** (2026-09-27) | GitHub, Vercel, e demais no catálogo ativo do operador — revalidar após deploys. |
 | **MCP fase 2** | **VERIFICADO** (2026-09-27) | OAuth consent dual-scope (`mcp:read`+`mcp:write`); `plutao_send_message`; auditoria `audit_events`; rate limit; `system_status.model` = `plutao-primary`; persistência chat (BUG-03 fechado). |
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
@@ -67,6 +68,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - Tools só executam se o conector estiver **conectado**
 - Write gate GitHub: aprovação humana via WriteGateCard antes de create/push/github.files.write
 - Capability `github.files.write`: cliente `githubFiles.ts` com suporte a atômico Git Trees API, limites de 20 arquivos e 100KB por arquivo, além de verificação pós-escrita (read-back) e prevenção contra path traversal `..`
+- Conector Supabase: PAT + par opcional project_url / service_role_key cifrados; capabilities `supabase.projects_list`, `supabase.tables_list`, `supabase.table_read` (SELECT apenas, limite máx 100 linhas), `supabase.sql_exec` (Write Gate obrigatório com preview de 200 chars, limite máx 10k chars, defesa com blocklist explícita contra DROP/TRUNCATE/ALTER em DATABASE/SCHEMA)
 - Marcos "GitHub Pro": `githubBranches.ts` (list/create + validação de chars/`..` e existência), `githubPulls.ts` (create/list/get + validação de head/base e política de merge humano), `githubCode.ts` (code search + tree) e `operating-principles.ts` (regra de ouro do operador minucioso no system prompt)
 - Exportação nativa de arquivos (`export.ts` + `exportToolRunner.ts`): PDF via `pdf-lib` (A4, quebras de página, rodapé "Gerado pelo Plutão OS"), XLSX via `exceljs`, Markdown com frontmatter YAML, e HTML autônomo com tema escuro acinzentado. Sanitização de caminhos salvos em `/exports/`, limite de 5MB, e intenções PT-BR ativadas direto no chat ("gerar pdf", "exportar planilha", "criar markdown/html")
 - `resolveCloudModelConfig(id)` mapeia catálogo → provider + apiModel + baseUrl + env keys

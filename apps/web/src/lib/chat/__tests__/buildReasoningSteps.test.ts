@@ -45,6 +45,7 @@ describe("buildReasoningSteps", () => {
         vercelConnected: true,
         vercelLogin: "jadiel054",
         vercelToken: "vcl_123",
+        supabaseConnected: false,
       },
     });
 
