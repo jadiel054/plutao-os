@@ -1,11 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const emitAction = vi.fn(async () => ({ seq: 1 }));
-const emitObservation = vi.fn(async () => ({ seq: 2 }));
+const emitAction = vi.fn<any>(async () => ({ seq: 1 }));
+const emitObservation = vi.fn<any>(async () => ({ seq: 2 }));
 
 vi.mock("@/lib/events/appendConversationEvent", () => ({
-  emitAction: (...args: unknown[]) => emitAction(...args),
-  emitObservation: (...args: unknown[]) => emitObservation(...args),
+  emitAction: (...args: any[]) => emitAction(...args),
+  emitObservation: (...args: any[]) => emitObservation(...args),
 }));
 
 vi.mock("@/lib/missions/planEvents", () => ({

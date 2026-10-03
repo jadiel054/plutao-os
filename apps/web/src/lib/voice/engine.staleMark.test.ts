@@ -6,18 +6,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const IDB_KEY = "plutao_voice_pack_ready_v1";
 
-const speakSupertonic = vi.fn(async () => {
+const speakSupertonic = vi.fn<any>(async () => {
   throw new Error("speakSupertonic não deveria ser chamado com assets ausentes");
 });
-const isSupertonicReady = vi.fn(async () => false);
-const clearSupertonic = vi.fn(async () => undefined);
-const downloadSupertonic = vi.fn(async () => undefined);
+const isSupertonicReady = vi.fn<any>(async () => false);
+const clearSupertonic = vi.fn<any>(async () => undefined);
+const downloadSupertonic = vi.fn<any>(async () => undefined);
 
 vi.mock("./supertonic/runtime", () => ({
   isSupertonicReady: () => isSupertonicReady(),
-  speakSupertonic: (...args: unknown[]) => speakSupertonic(...args),
+  speakSupertonic: (...args: any[]) => speakSupertonic(...args),
   clearSupertonic: () => clearSupertonic(),
-  downloadSupertonic: (...args: unknown[]) => downloadSupertonic(...args),
+  downloadSupertonic: (...args: any[]) => downloadSupertonic(...args),
 }));
 
 vi.mock("./audioPlayback", () => ({
@@ -99,7 +99,7 @@ describe("speakText — stale ready mark vs assets ausentes", () => {
 
   it("com assets presentes: chama speakSupertonic e retorna engine supertonic", async () => {
     isSupertonicReady.mockResolvedValue(true);
-    speakSupertonic.mockResolvedValue(undefined);
+    speakSupertonic.mockResolvedValue(undefined as never);
 
     const { speakText } = await import("./engine");
 

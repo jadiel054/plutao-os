@@ -63,9 +63,10 @@ export function Header({ userEmail, onNotify, variant = "default", onOpenMenu, o
               )}
             </Link>
 
-            <nav className={`desktop-top-nav hidden md:flex items-center gap-1 text-xs ${isChat ? "md:hidden" : ""}`}>
+            <nav className={`desktop-top-nav hidden md:flex items-center gap-1 text-xs ${isChat ? "md:hidden" : ""}`} data-tour="nav-tabs">
               <Link
                 href="/chat"
+                data-tour="open-chat"
                 className={`px-3 py-1.5 rounded-lg transition-colors ${
                   pathname === "/chat"
                     ? "bg-[var(--base)] text-[var(--selo)] font-medium border border-[var(--border)]"
@@ -76,6 +77,7 @@ export function Header({ userEmail, onNotify, variant = "default", onOpenMenu, o
               </Link>
               <Link
                 href="/cockpit"
+                data-tour="open-cockpit"
                 className={`px-3 py-1.5 rounded-lg transition-colors ${
                   pathname === "/cockpit"
                     ? "bg-[var(--base)] text-[var(--selo)] font-medium border border-[var(--border)]"
@@ -96,6 +98,7 @@ export function Header({ userEmail, onNotify, variant = "default", onOpenMenu, o
               </Link>
               <Link
                 href="/configuracoes"
+                data-tour="settings-link"
                 className={`px-3 py-1.5 rounded-lg transition-colors ${
                   pathname === "/configuracoes"
                     ? "bg-[var(--base)] text-[var(--selo)] font-medium border border-[var(--border)]"
