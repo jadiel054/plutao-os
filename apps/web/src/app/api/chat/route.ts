@@ -166,6 +166,7 @@ export async function POST(req: NextRequest) {
           supabaseConnected: false,
           telegramConnected: false,
           cloudflareConnected: false,
+          renderConnected: false,
         }
       : await loadConnectorRuntime(user.id);
 

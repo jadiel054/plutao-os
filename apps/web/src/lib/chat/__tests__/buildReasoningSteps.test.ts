@@ -48,6 +48,7 @@ describe("buildReasoningSteps", () => {
         supabaseConnected: false,
         telegramConnected: false,
         cloudflareConnected: false,
+        renderConnected: false,
       },
     });
 

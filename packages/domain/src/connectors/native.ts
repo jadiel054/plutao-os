@@ -156,6 +156,16 @@ export const NATIVE_CONNECTORS_WAVE_C: NativeConnectorDefinition[] = [
     capabilityHints: ["workers", "kv", "r2", "dns"],
   },
   {
+    id: "render",
+    name: "Render",
+    category: "deploy",
+    wave: "A",
+    mcpUrl: "https://api.render.com/v1",
+    authMode: "pat",
+    whyNative: "Deploy de serviços e web services em nuvem além da Vercel.",
+    capabilityHints: ["services", "deploys", "env_vars"],
+  },
+  {
     id: "linear",
     name: "Linear",
     category: "work",
