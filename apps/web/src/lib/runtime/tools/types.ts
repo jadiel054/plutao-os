@@ -6,6 +6,7 @@ export type ToolName =
   | "supabase"
   | "telegram"
   | "cloudflare"
+  | "render"
   | "files.export_pdf"
   | "files.export_xlsx"
   | "files.export_markdown"
@@ -42,6 +43,7 @@ export const KNOWN_TOOLS: readonly ToolName[] = [
   "supabase",
   "telegram",
   "cloudflare",
+  "render",
   "files.export_pdf",
   "files.export_xlsx",
   "files.export_markdown",

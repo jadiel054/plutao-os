@@ -7,6 +7,7 @@ import { stripeManifest } from "./stripe";
 import { supabaseManifest } from "./supabase";
 import { telegramManifest } from "./telegram";
 import { cloudflareManifest } from "./cloudflare";
+import { renderManifest } from "./render";
 
 export * from "./types";
 export { githubManifest } from "./github";
@@ -16,6 +17,7 @@ export { stripeManifest } from "./stripe";
 export { supabaseManifest } from "./supabase";
 export { telegramManifest } from "./telegram";
 export { cloudflareManifest } from "./cloudflare";
+export { renderManifest } from "./render";
 
 export const CONNECTOR_MANIFESTS: Record<ConnectorProviderId, ConnectorManifest> = {
   github: githubManifest,
@@ -25,6 +27,7 @@ export const CONNECTOR_MANIFESTS: Record<ConnectorProviderId, ConnectorManifest>
   supabase: supabaseManifest,
   telegram: telegramManifest,
   cloudflare: cloudflareManifest,
+  render: renderManifest,
 };
 
 export function getConnectorManifest(provider: string): ConnectorManifest | undefined {

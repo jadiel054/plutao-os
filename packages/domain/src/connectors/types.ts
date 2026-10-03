@@ -14,7 +14,8 @@ export type ConnectorProviderId =
   | "stripe"
   | "supabase"
   | "telegram"
-  | "cloudflare";
+  | "cloudflare"
+  | "render";
 
 export type ConnectorStatus =
   | "disconnected"
@@ -114,6 +115,14 @@ export const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
       "Zones, DNS, Pages e Workers da sua conta Cloudflare via API Token cifrado.",
     defaultScopes: [],
     defaultServerUrl: "https://api.cloudflare.com/client/v4",
+  },
+  {
+    provider: "render",
+    displayName: "Render",
+    description:
+      "Serviços, deploys e variáveis de ambiente da sua conta Render via API Key cifrada.",
+    defaultScopes: [],
+    defaultServerUrl: "https://api.render.com/v1",
   },
 ];
 
