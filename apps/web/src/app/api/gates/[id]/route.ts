@@ -9,6 +9,7 @@ import { runGithub } from "@/lib/runtime/tools/github";
 import { runVercel } from "@/lib/runtime/tools/vercel";
 import { runCloudflare } from "@/lib/runtime/tools/cloudflare";
 import { runRender } from "@/lib/runtime/tools/render";
+import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
 import { getDb } from "@/lib/db";
 import { missions } from "@plutao/db";
 import { and, eq } from "drizzle-orm";
@@ -132,6 +133,17 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     `gate aprovado e executado: ${gate.provider}/${gate.capability}\n${result.output}`,
     "tool_result"
   );
+
+  if (gate.missionId) {
+    try {
+      await runAutonomousMissionServer({
+        missionId: gate.missionId,
+        userId: user.id,
+      });
+    } catch (e) {
+      console.error("[api/gates/[id]/route] Error resuming mission after gate approval:", e);
+    }
+  }
 
   return NextResponse.json({ ok: true, status: "executed", output: result.output });
 }
