@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { getModelConfig } from "@/lib/runtime/model/config";
-import { formatModelLabel } from "@/lib/runtime/model/label";
 
 export const runtime = "nodejs";
 
@@ -17,15 +16,12 @@ export async function GET() {
       configured: false,
       provider: null,
       model: null,
-      label: null,
     });
   }
   return NextResponse.json({
     configured: true,
     provider: cfg.provider,
     model: cfg.model,
-    // Label pronto para UI — evita "openai/openai/gpt-oss-120b" (prefixo duplicado)
-    label: formatModelLabel(cfg.provider, cfg.model),
     baseUrl: cfg.baseUrl,
   });
 }

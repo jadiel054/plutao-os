@@ -13,7 +13,7 @@
  * - MAX_ITERATIONS: limite de iterações por chamada (default: 20)
  * - Idempotência: reaproveita hash do dispatchTool()
  * - Verifica status da execution a cada iteração
- * - Retry com backoff na chamada do modelo (dentro do model step)
+ * - Não faz retry automático em erros
  */
 
 import { getOwnedExecution } from "./service";
@@ -69,7 +69,8 @@ function toolResultToMessage(
   return {
     role: "user",
     content: `Tool ${toolName} result: ${successResult.output || "(empty)"}`,
-    source: "tool_result",
+    sourc
+e: "tool_result",
   };
 }
 
@@ -144,7 +145,8 @@ export async function runAgentLoop(
   }
 
   const initialStatus = execution.status as ExecutionStatus;
-  if (!RECOVERABLE.has(initialStatus)) {
+  if (!REC
+OVERABLE.has(initialStatus)) {
     return {
       ok: false,
       executionId,
@@ -159,7 +161,6 @@ export async function runAgentLoop(
 
   let iteration = 0;
   let stopReason: string | null = null;
-  let loopError: string | undefined;
   const toolContextMessages: ModelMessage[] = [];
 
   while (iteration < maxIterations && !stopReason) {
@@ -185,21 +186,7 @@ export async function runAgentLoop(
         stopReason: `MODEL_STEP_ERROR: ${stepResult.error}`,
       });
 
-      const stepErrorDetail = (stepResult as { detail?: string }).detail;
-      const stepErrorHint = (stepResult as { hint?: string }).hint;
-      loopError = [
-        stepResult.error,
-        stepErrorDetail,
-        stepErrorHint ? `hint: ${stepErrorHint}` : null,
-      ]
-        .filter(Boolean)
-        .join(" — ");
-      stopReason = [
-        `MODEL_STEP_ERROR: ${stepResult.error}`,
-        stepErrorDetail,
-      ]
-        .filter(Boolean)
-        .join(" — ");
+      stopReason = `MODEL_STEP_ERROR: ${stepResult.error}`;
       const errEvidence = (stepResult as { evidence?: { id?: string } }).evidence;
       if (errEvidence?.id) {
         evidenceIds.push(errEvidence.id);
@@ -229,7 +216,8 @@ export async function runAgentLoop(
 
     const toolDispatch = await stepResult.toolDispatch;
 
-    if (toolDispatch && isIdempotentToolDispatch(toolDispatch)) {
+    if (toolDispatch && isIdempotentTo
+olDispatch(toolDispatch)) {
       stopReason = "IDEMPOTENT_TOOL_CALL";
       details.push({
         iteration,
@@ -296,7 +284,6 @@ export async function runAgentLoop(
     evidenceIds,
     finalStatus,
     stopReason: stopReason || "MAX_ITERATIONS_REACHED",
-    error: loopError,
     details,
   };
 }
