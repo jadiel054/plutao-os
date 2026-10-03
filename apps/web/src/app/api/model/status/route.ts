@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { getModelConfig } from "@/lib/runtime/model/config";
+import { PRESET_MODELS } from "@plutao/domain";
 
 export const runtime = "nodejs";
 
@@ -16,12 +17,22 @@ export async function GET() {
       configured: false,
       provider: null,
       model: null,
+      label: null,
     });
   }
+
+  const matched = PRESET_MODELS.find(
+    (m) =>
+      m.id.toLowerCase().includes(cfg.model.toLowerCase()) ||
+      m.name.toLowerCase().includes(cfg.model.toLowerCase())
+  );
+  const label = matched?.name ?? `${cfg.provider}/${cfg.model}`;
+
   return NextResponse.json({
     configured: true,
     provider: cfg.provider,
     model: cfg.model,
+    label,
     baseUrl: cfg.baseUrl,
   });
 }

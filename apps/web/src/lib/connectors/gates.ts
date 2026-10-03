@@ -19,27 +19,41 @@ export type CreateGateInput = {
 };
 
 export async function createWriteGate(input: CreateGateInput) {
-  const db = createDb();
-  const [row] = await db
-    .insert(writeGates)
-    .values({
-      userId: input.userId,
-      missionId: input.missionId ?? null,
-      executionId: input.executionId ?? null,
+  try {
+    const db = createDb();
+    const [row] = await db
+      .insert(writeGates)
+      .values({
+        userId: input.userId,
+        missionId: input.missionId ?? null,
+        executionId: input.executionId ?? null,
+        provider: input.provider,
+        capability: input.capability,
+        target: input.target,
+        summary: input.summary,
+        payload: input.payload,
+        contentPreview: input.contentPreview ?? null,
+        status: "pending",
+      })
+      .returning();
+    if (!row) throw new Error("failed to create write_gate");
+
+    // TODO: Notificação e aprovação de write-gates via Telegram (ponte com Telegram conector)
+
+    return row;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[createWriteGate error]", {
       provider: input.provider,
       capability: input.capability,
       target: input.target,
       summary: input.summary,
-      payload: input.payload,
-      contentPreview: input.contentPreview ?? null,
-      status: "pending",
-    })
-    .returning();
-  if (!row) throw new Error("failed to create write_gate");
-
-  // TODO: Notificação e aprovação de write-gates via Telegram (ponte com Telegram conector)
-
-  return row;
+      userId: input.userId,
+      missionId: input.missionId ?? null,
+      error: errMsg,
+    });
+    throw err;
+  }
 }
 
 export async function getWriteGate(gateId: string, userId: string) {
