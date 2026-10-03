@@ -14,6 +14,7 @@ import { githubManifest } from "@/lib/connectors/manifests/github";
 import { vercelManifest } from "@/lib/connectors/manifests/vercel";
 import { supabaseManifest } from "@/lib/connectors/manifests/supabase";
 import { telegramManifest } from "@/lib/connectors/manifests/telegram";
+import { cloudflareManifest } from "@/lib/connectors/manifests/cloudflare";
 import {
   detectAndExecuteGitHubTool,
   type GitHubToolExecutionResult,
@@ -30,6 +31,10 @@ import {
   detectAndExecuteTelegramTool,
   type TelegramToolExecutionResult,
 } from "@/lib/chat/telegramToolRunner";
+import {
+  detectAndExecuteCloudflareTool,
+  type CloudflareToolExecutionResult,
+} from "@/lib/chat/cloudflareToolRunner";
 import {
   detectAndExecuteGenericTool,
   type GenericToolExecutionResult,
@@ -49,6 +54,7 @@ export type ConnectorRuntimeSnapshot = {
   vercelToken: string | null;
   supabaseConnected: boolean;
   telegramConnected: boolean;
+  cloudflareConnected: boolean;
 };
 
 export type ConnectorToolRunResult = {
@@ -56,6 +62,7 @@ export type ConnectorToolRunResult = {
   vercel: VercelToolExecutionResult;
   supabase?: SupabaseToolExecutionResult;
   telegram?: TelegramToolExecutionResult;
+  cloudflare?: CloudflareToolExecutionResult;
   generic?: GenericToolExecutionResult;
   exportTool?: ExportToolExecutionResult;
   contextBlocks: string[];
@@ -78,7 +85,9 @@ function enrichCapabilities(
           ? supabaseManifest
           : provider === "telegram"
             ? telegramManifest
-            : null;
+            : provider === "cloudflare"
+              ? cloudflareManifest
+              : null;
   if (!manifest) return stored;
   const byName = new Map(stored.map((c) => [c.name, c]));
   for (const m of manifest.capabilities) {
@@ -129,6 +138,7 @@ export async function loadConnectorRuntime(
   let vercelToken: string | null = null;
   let supabaseConnected = false;
   let telegramConnected = false;
+  let cloudflareConnected = false;
 
   try {
     const ghTok = await getAccessToken(userId, "github");
@@ -137,6 +147,13 @@ export async function loadConnectorRuntime(
       const row = await getConnectorRow(userId, "github");
       githubLogin = row?.accountLogin ?? null;
     }
+  } catch {
+    /* migration pending */
+  }
+
+  try {
+    const cfTok = await getAccessToken(userId, "cloudflare");
+    cloudflareConnected = Boolean(cfTok);
   } catch {
     /* migration pending */
   }
@@ -222,6 +239,7 @@ export async function loadConnectorRuntime(
     vercelToken,
     supabaseConnected,
     telegramConnected,
+    cloudflareConnected,
   };
 }
 
@@ -237,6 +255,7 @@ export async function runConnectedConnectorTools(opts: {
   let vercel: VercelToolExecutionResult = { executed: false };
   let supabase: SupabaseToolExecutionResult = { executed: false };
   let telegram: TelegramToolExecutionResult = { executed: false };
+  let cloudflare: CloudflareToolExecutionResult = { executed: false };
   let generic: GenericToolExecutionResult = { executed: false };
   let exportTool: ExportToolExecutionResult = { executed: false };
   const contextBlocks: string[] = [];
@@ -298,7 +317,18 @@ export async function runConnectedConnectorTools(opts: {
     }
   }
 
-  if (!github.executed && !vercel.executed && !supabase.executed && !telegram.executed) {
+  if (snapshot.cloudflareConnected) {
+    cloudflare = await detectAndExecuteCloudflareTool({
+      text: userText,
+      userId,
+      missionId: missionId ?? null,
+    });
+    if ((cloudflare.executed || cloudflare.missingArgs) && cloudflare.contextText) {
+      contextBlocks.push(cloudflare.contextText);
+    }
+  }
+
+  if (!github.executed && !vercel.executed && !supabase.executed && !telegram.executed && !cloudflare.executed) {
     generic = await detectAndExecuteGenericTool({
       text: userText,
       userId,
@@ -322,9 +352,12 @@ export async function runConnectedConnectorTools(opts: {
   if (telegram.suggestedFollowUps) {
     suggestedFollowUps.push(...telegram.suggestedFollowUps);
   }
+  if (cloudflare.suggestedFollowUps) {
+    suggestedFollowUps.push(...cloudflare.suggestedFollowUps);
+  }
   if (generic.suggestedFollowUps) {
     suggestedFollowUps.push(...generic.suggestedFollowUps);
   }
 
-  return { github, vercel, supabase, telegram, generic, exportTool, contextBlocks, suggestedFollowUps };
+  return { github, vercel, supabase, telegram, cloudflare, generic, exportTool, contextBlocks, suggestedFollowUps };
 }

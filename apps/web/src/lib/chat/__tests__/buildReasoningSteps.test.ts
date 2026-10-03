@@ -47,6 +47,7 @@ describe("buildReasoningSteps", () => {
         vercelToken: "vcl_123",
         supabaseConnected: false,
         telegramConnected: false,
+        cloudflareConnected: false,
       },
     });
 

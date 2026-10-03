@@ -5,6 +5,7 @@ export type ToolName =
   | "vercel"
   | "supabase"
   | "telegram"
+  | "cloudflare"
   | "files.export_pdf"
   | "files.export_xlsx"
   | "files.export_markdown"
@@ -40,6 +41,7 @@ export const KNOWN_TOOLS: readonly ToolName[] = [
   "vercel",
   "supabase",
   "telegram",
+  "cloudflare",
   "files.export_pdf",
   "files.export_xlsx",
   "files.export_markdown",

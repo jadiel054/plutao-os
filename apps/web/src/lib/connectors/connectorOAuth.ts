@@ -177,12 +177,13 @@ export async function verifyToken(
   const res = await fetch(verifyUrl, { headers });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 
-  if (!res.ok || (provider === "telegram" && data.ok === false)) {
+  if (!res.ok || (provider === "telegram" && data.ok === false) || (provider === "cloudflare" && data.success === false)) {
     const errObj = typeof data.error === "object" && data.error ? (data.error as { message?: string }) : undefined;
+    const firstError = Array.isArray(data.errors) && data.errors[0] ? (data.errors[0] as { message?: string }).message : undefined;
     const description = typeof data.description === "string" ? data.description : undefined;
     return {
       ok: false,
-      error: String(description || data.message || errObj?.message || `verify_token_${res.status}`),
+      error: String(firstError || description || data.message || errObj?.message || `verify_token_${res.status}`),
     };
   }
 

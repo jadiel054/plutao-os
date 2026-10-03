@@ -420,19 +420,25 @@ export function SettingsConnectorsSection({
 
                     {isTokenOpen ? (
                       <div className="rounded-xl border border-[var(--border)] bg-[var(--base)]/50 p-3 space-y-2.5 animate-in fade-in duration-150">
-                        <p className="text-[11px] text-[var(--text-muted)]">
-                          {manifest.tokenConfig?.label || "Token / API Key"}: Obtenha em{" "}
-                          {manifest.tokenConfig?.url ? (
-                            <a
-                              href={manifest.tokenConfig.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[var(--selo)] underline font-medium"
-                            >
-                              {manifest.displayName} Console
-                            </a>
+                        <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                          {manifest.tokenConfig?.helperText ? (
+                            manifest.tokenConfig.helperText
                           ) : (
-                            manifest.displayName
+                            <>
+                              {manifest.tokenConfig?.label || "Token / API Key"}: Obtenha em{" "}
+                              {manifest.tokenConfig?.url ? (
+                                <a
+                                  href={manifest.tokenConfig.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[var(--selo)] underline font-medium"
+                                >
+                                  {manifest.displayName} Console
+                                </a>
+                              ) : (
+                                manifest.displayName
+                              )}
+                            </>
                           )}
                           . Armazenado com criptografia server-side.
                         </p>
