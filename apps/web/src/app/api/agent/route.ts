@@ -34,8 +34,8 @@ export async function GET() {
       .insert(agents)
       .values({
         userId: user.id,
-        name: "Plutão",
-        identity: "Assistente pessoal autônomo do usuário",
+        name: "Nix",
+        identity: "o operador do Plutão OS, assistente pessoal do usuário",
         personality: null,
         createdAt: now,
         updatedAt: now,
@@ -84,7 +84,7 @@ export async function PUT(req: NextRequest) {
         .insert(agents)
         .values({
           userId: user.id,
-          name: name || "Plutão",
+          name: name || "Nix",
           identity: identity,
           personality: personality,
           createdAt: now,

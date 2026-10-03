@@ -104,8 +104,8 @@ function ChatPageInner() {
   const [guestMessagesRemaining, setGuestMessagesRemaining] = useState<number | null>(null);
   const [guestSecondsRemaining, setGuestSecondsRemaining] = useState<number | null>(null);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
-  const [agentName, setAgentName] = useState("Plutão");
-  const [agentIdentity, setAgentIdentity] = useState("Assistente Pessoal Autônomo");
+  const [agentName, setAgentName] = useState("Nix");
+  const [agentIdentity, setAgentIdentity] = useState("operador do Plutão OS, assistente pessoal do usuário");
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [pendingArtifacts, setPendingArtifacts] = useState<ArtifactRef[]>([]);
@@ -1461,6 +1461,11 @@ function ChatPageInner() {
             >
               Cancelar edição
             </button>
+          </div>
+        )}
+        {messages.length > 0 && (
+          <div className="text-center text-[11px] text-[var(--text-muted)] py-0.5 pointer-events-none select-none">
+            {agentName} é uma IA e pode cometer erros.
           </div>
         )}
         <form onSubmit={handleSend} className="space-y-2">

@@ -19,7 +19,7 @@ import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
 import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
 import { emitConnectorToolEvents } from "./emitConnectorToolEvents";
-import { OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
+import { NIX_IDENTITY, OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
 
 export const runtime = "nodejs";
 
@@ -353,8 +353,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let agentName = "Plutão";
-    let agentIdentity = "Assistente pessoal autônomo do usuário";
+    let agentName = "Nix";
+    let agentIdentity = "o operador do Plutão OS, assistente pessoal do usuário";
     try {
       const agentRows = await db
         .select({
@@ -393,7 +393,7 @@ export async function POST(req: NextRequest) {
       artifactBlocks = parts.join("\n\n");
     }
 
-    const systemPrompt = `Você é o ${agentName}, ${agentIdentity}.
+    const systemPrompt = `${NIX_IDENTITY}
 
 FORMATO DE RESPOSTA OBRIGATÓRIO:
 Você DEVE iniciar TODA resposta gerando o bloco de raciocínio antes da resposta final ao usuário:

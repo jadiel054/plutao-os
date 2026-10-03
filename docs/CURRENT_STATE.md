@@ -23,6 +23,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. Evidence `source` mascarado `model:plutao-primary` (Frente F). |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
 | Tools note / filesystem | **IMPLEMENTED** | Dispatcher + evidência. |
+| Identidade do Agente (Nix) | **VERIFICADO** | System prompt configurado com `"Você é Nix, o operador do Plutão OS, assistente pessoal do usuário."`. UI exibe disclaimer discreto condicional "Nix é uma IA e pode cometer erros." quando há mensagens. |
 | Chat Núcleo + system prompt | **VERIFICADO** | Respostas reais em produção. |
 | Chat — awareness de conectores | **VERIFICADO** | Status + capabilities no prompt. |
 | Chat — tools GitHub | **VERIFICADO** | Lista de repositórios com OAuth real (`@jadiel054`). |

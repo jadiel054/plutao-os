@@ -126,6 +126,7 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// TODO: Se a identidade/personalidade do agente Nix ou campos customizados do agente precisarem de colunas dedicadas no futuro, estenda esta tabela via Drizzle migration.
 export const agents = pgTable("agents", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")

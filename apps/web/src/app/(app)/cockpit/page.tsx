@@ -78,8 +78,8 @@ export default function CockpitPage() {
   const [cpNote, setCpNote] = useState("");
   const [modelConfigured, setModelConfigured] = useState(false);
   const [modelInfo, setModelInfo] = useState("");
-  const [agentName, setAgentName] = useState("Plutão");
-  const [agentIdentity, setAgentIdentity] = useState("");
+  const [agentName, setAgentName] = useState("Nix");
+  const [agentIdentity, setAgentIdentity] = useState("operador do Plutão OS, assistente pessoal do usuário");
 
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
