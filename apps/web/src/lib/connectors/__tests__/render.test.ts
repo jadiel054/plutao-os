@@ -289,7 +289,7 @@ describe("Render Connector & Tools Suite", () => {
           target: input.target,
           summary: input.summary,
           payload: input.payload,
-          contentPreview: input.contentPreview,
+          contentPreview: input.contentPreview ?? null,
           status: "pending",
           decision: null,
           decidedAt: null,

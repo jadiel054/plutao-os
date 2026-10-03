@@ -46,6 +46,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
+| **UX de Configurações & Conectores** | **VERIFICADO** (2026-10-03) | Sincronização de abas com URL (`?tab=<id>`) e `localStorage` (`plutao_settings_tab`); feedback inline/toast pós-callback OAuth com limpeza de query (`connector_ok`/`connector_error`); cards com status `error` destacam "Tentar novamente" com resumo de `lastError`; botão "Conectar OAuth" desabilitado com spinner durante `authorizing`/`busy` para eliminar double-submit (`STATE_MISMATCH`). |
 | Tour guiado com spotlight (onboarding) | **VERIFICADO** (2026-10-03) | `GuidedTour.tsx` + SVG mask cutout overlay + 6 passos + auto-skip de elementos ausentes + trava de scroll + ESC handler + persistência em `POST /api/user/preferences` & `localStorage` (`plutao_onboarding_seen`). |
 | Billing Stripe (checkout/webhook) | **IMPLEMENTED** — TEST **6/6** (2026-09-25) | Checkout, webhook, idempotência, cancelamento em modo TEST. LIVE pendente (ativação conta operador). Migration 0012. |
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; ownership 403; testes #76. |
