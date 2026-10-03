@@ -289,72 +289,138 @@ export async function runConnectedConnectorTools(opts: {
   }
 
   if (snapshot.githubConnected) {
-    github = await detectAndExecuteGitHubTool({
-      text: userText,
-      userId,
-      githubLogin: snapshot.githubLogin,
-      missionId: missionId ?? null,
-    });
-    if ((github.executed || github.missingArgs) && github.contextText) {
-      contextBlocks.push(github.contextText);
+    try {
+      github = await detectAndExecuteGitHubTool({
+        text: userText,
+        userId,
+        githubLogin: snapshot.githubLogin,
+        missionId: missionId ?? null,
+      });
+      if ((github.executed || github.missingArgs) && github.contextText) {
+        contextBlocks.push(github.contextText);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[runConnectedConnectorTools github error]", err);
+      github = {
+        executed: true,
+        capability: "github",
+        contextText: `[ERRO NA FERRAMENTA GITHUB]\nNão consegui iniciar a operação GitHub: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
+      };
+      if (github.contextText) contextBlocks.push(github.contextText);
     }
   }
 
   if (snapshot.vercelConnected && snapshot.vercelToken) {
-    vercel = await detectAndExecuteVercelTool({
-      text: userText,
-      userText,
-      userId,
-      accessToken: snapshot.vercelToken,
-      accountLogin: snapshot.vercelLogin,
-      missionId: missionId ?? null,
-    });
-    if ((vercel.executed || vercel.missingArgs) && vercel.contextText) {
-      contextBlocks.push(vercel.contextText);
+    try {
+      vercel = await detectAndExecuteVercelTool({
+        text: userText,
+        userText,
+        userId,
+        accessToken: snapshot.vercelToken,
+        accountLogin: snapshot.vercelLogin,
+        missionId: missionId ?? null,
+      });
+      if ((vercel.executed || vercel.missingArgs) && vercel.contextText) {
+        contextBlocks.push(vercel.contextText);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[runConnectedConnectorTools vercel error]", err);
+      vercel = {
+        executed: true,
+        capability: "vercel",
+        contextText: `[ERRO NA FERRAMENTA VERCEL]\nNão consegui iniciar a operação Vercel: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
+      };
+      if (vercel.contextText) contextBlocks.push(vercel.contextText);
     }
   }
 
   if (snapshot.supabaseConnected) {
-    supabase = await detectAndExecuteSupabaseTool({
-      text: userText,
-      userId,
-      missionId: missionId ?? null,
-    });
-    if ((supabase.executed || supabase.missingArgs) && supabase.contextText) {
-      contextBlocks.push(supabase.contextText);
+    try {
+      supabase = await detectAndExecuteSupabaseTool({
+        text: userText,
+        userId,
+        missionId: missionId ?? null,
+      });
+      if ((supabase.executed || supabase.missingArgs) && supabase.contextText) {
+        contextBlocks.push(supabase.contextText);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[runConnectedConnectorTools supabase error]", err);
+      supabase = {
+        executed: true,
+        capability: "supabase",
+        contextText: `[ERRO NA FERRAMENTA SUPABASE]\nNão consegui iniciar a operação Supabase: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
+      };
+      if (supabase.contextText) contextBlocks.push(supabase.contextText);
     }
   }
 
   if (snapshot.telegramConnected) {
-    telegram = await detectAndExecuteTelegramTool({
-      text: userText,
-      userId,
-      missionId: missionId ?? null,
-    });
-    if ((telegram.executed || telegram.missingArgs) && telegram.contextText) {
-      contextBlocks.push(telegram.contextText);
+    try {
+      telegram = await detectAndExecuteTelegramTool({
+        text: userText,
+        userId,
+        missionId: missionId ?? null,
+      });
+      if ((telegram.executed || telegram.missingArgs) && telegram.contextText) {
+        contextBlocks.push(telegram.contextText);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[runConnectedConnectorTools telegram error]", err);
+      telegram = {
+        executed: true,
+        capability: "telegram",
+        contextText: `[ERRO NA FERRAMENTA TELEGRAM]\nNão consegui iniciar a operação Telegram: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
+      };
+      if (telegram.contextText) contextBlocks.push(telegram.contextText);
     }
   }
 
   if (snapshot.cloudflareConnected) {
-    cloudflare = await detectAndExecuteCloudflareTool({
-      text: userText,
-      userId,
-      missionId: missionId ?? null,
-    });
-    if ((cloudflare.executed || cloudflare.missingArgs) && cloudflare.contextText) {
-      contextBlocks.push(cloudflare.contextText);
+    try {
+      cloudflare = await detectAndExecuteCloudflareTool({
+        text: userText,
+        userId,
+        missionId: missionId ?? null,
+      });
+      if ((cloudflare.executed || cloudflare.missingArgs) && cloudflare.contextText) {
+        contextBlocks.push(cloudflare.contextText);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[runConnectedConnectorTools cloudflare error]", err);
+      cloudflare = {
+        executed: true,
+        capability: "cloudflare",
+        contextText: `[ERRO NA FERRAMENTA CLOUDFLARE]\nNão consegui iniciar a operação Cloudflare: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
+      };
+      if (cloudflare.contextText) contextBlocks.push(cloudflare.contextText);
     }
   }
 
   if (snapshot.renderConnected) {
-    render = await detectAndExecuteRenderTool({
-      text: userText,
-      userId,
-      missionId: missionId ?? null,
-    });
-    if ((render.executed || render.missingArgs) && render.contextText) {
-      contextBlocks.push(render.contextText);
+    try {
+      render = await detectAndExecuteRenderTool({
+        text: userText,
+        userId,
+        missionId: missionId ?? null,
+      });
+      if ((render.executed || render.missingArgs) && render.contextText) {
+        contextBlocks.push(render.contextText);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[runConnectedConnectorTools render error]", err);
+      render = {
+        executed: true,
+        capability: "render",
+        contextText: `[ERRO NA FERRAMENTA RENDER]\nNão consegui iniciar a operação Render: ${errMsg}\nInforme este erro de forma clara ao usuário.`,
+      };
+      if (render.contextText) contextBlocks.push(render.contextText);
     }
   }
 

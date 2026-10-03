@@ -49,7 +49,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
-| **UX de Configurações & Conectores** | **VERIFICADO** (2026-10-03) | Sincronização de abas com URL (`?tab=<id>`) e `localStorage` (`plutao_settings_tab`); feedback inline/toast pós-callback OAuth com limpeza de query (`connector_ok`/`connector_error`); cards com status `error` destacam "Tentar novamente" com resumo de `lastError`; botão "Conectar OAuth" desabilitado com spinner durante `authorizing`/`busy` para eliminar double-submit (`STATE_MISMATCH`); **Re-sync silencioso de capabilities** para conectores 'connected' na abertura das Configurações prevenindo drift com o manifesto (sem alterar tokens nem status); **Modal de confirmação ao desconectar** que exibe o limite de conectores do plano do usuário (`userPlan.connectorsMax`) e alerta extra se o usuário estiver no limite ou acima. |
+| **UX de Configurações & Conectores** | **VERIFICADO** (2026-10-03) | Sincronização de abas com URL (`?tab=<id>`) e `localStorage` (`plutao_settings_tab`); feedback inline/toast pós-callback OAuth com limpeza de query (`connector_ok`/`connector_error`); cards com status `error` destacam "Tentar novamente" com resumo de `lastError`; botão "Conectar OAuth" desabilitado com spinner durante `authorizing`/`busy` para eliminar double-submit (`STATE_MISMATCH`); **Re-sync silencioso de capabilities** para conectores 'connected' na abertura das Configurações prevenindo drift com el manifesto (sem alterar tokens nem status); **Modal de confirmação ao desconectar** que exibe o limite de conectores do plano do usuário (`userPlan.connectorsMax`) e alerta extra se o usuário estiver no limite ou acima. |
 | Tour guiado com spotlight (onboarding) | **VERIFICADO** (2026-10-03) | `GuidedTour.tsx` + SVG mask cutout overlay + 6 passos + auto-skip de elementos ausentes + trava de scroll + ESC handler + persistência em `POST /api/user/preferences` & `localStorage` (`plutao_onboarding_seen`). |
 | Billing Stripe (checkout/webhook) | **IMPLEMENTED** — TEST **6/6** (2026-09-25) | Checkout, webhook, idempotência, cancelamento em modo TEST. LIVE pendente (ativação conta operador). Migration 0012. |
 | B2. Ações por conversa | **IMPLEMENTED** | Rename, pin, share, delete, move project; ownership 403; testes #76. |
@@ -128,7 +128,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ### Explicitamente fora do V1
 
-- Execução durable (Inngest / filas longas)
+- Execução durable (Inngest etc.)
 - APK / lojas de app
 - Modelo próprio treinado
 - Wave C completa (Linear, Notion, Sentry, …)
