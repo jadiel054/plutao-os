@@ -11,6 +11,7 @@ import {
 } from "@plutao/domain";
 import { getDb } from "@/lib/db";
 import { encryptToken, decryptToken } from "./crypto";
+import { getDefaultCapabilities } from "./connectorOAuth";
 
 function asCapabilities(raw: unknown): ConnectorCapability[] {
   if (!Array.isArray(raw)) return [];
@@ -52,6 +53,24 @@ function toPublic(row: typeof connectors.$inferSelect): ConnectorPublicView {
 export async function listConnectorsForUser(userId: string): Promise<ConnectorPublicView[]> {
   const db = getDb();
   const rows = await db.select().from(connectors).where(eq(connectors.userId, userId));
+
+  for (const row of rows) {
+    if (row.status === "connected") {
+      const provider = row.provider as ConnectorProviderId;
+      const expectedCaps = getDefaultCapabilities(provider);
+      const currentCaps = asCapabilities(row.capabilities);
+
+      if (JSON.stringify(currentCaps) !== JSON.stringify(expectedCaps)) {
+        await db
+          .update(connectors)
+          .set({ capabilities: expectedCaps, updatedAt: new Date() })
+          .where(and(eq(connectors.id, row.id), eq(connectors.userId, userId)));
+
+        row.capabilities = expectedCaps;
+      }
+    }
+  }
+
   const byProvider = new Map(rows.map((r) => [r.provider, r]));
 
   return CONNECTOR_CATALOG.map((entry) => {
