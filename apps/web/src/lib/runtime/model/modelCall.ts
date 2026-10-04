@@ -68,6 +68,53 @@ export type CallModelRetryOptions = {
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Tenta parsear instrução de espera ("try again in Xms" ou "try again in Xs") do erro
+ * e/ou do header / propriedade Retry-After.
+ */
+export function parseRetryHint(err: unknown): number | null {
+  if (!err) return null;
+
+  let messageStr = "";
+  if (typeof err === "string") {
+    messageStr = err;
+  } else if (err instanceof Error) {
+    messageStr = err.message;
+  } else if (typeof err === "object") {
+    messageStr = String((err as { message?: unknown }).message ?? "");
+  }
+
+  // Tentar extrair do body/mensagem "try again in Xms" ou "try again in Xs" ou "try again in X.Y s"
+  const matchMs = messageStr.match(/try again in\s+(\d+(?:\.\d+)?)\s*ms/i);
+  if (matchMs && matchMs[1]) {
+    const ms = parseFloat(matchMs[1]);
+    if (!isNaN(ms) && ms >= 0) return Math.round(ms);
+  }
+
+  const matchSec = messageStr.match(/try again in\s+(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?/i);
+  if (matchSec && matchSec[1]) {
+    const sec = parseFloat(matchSec[1]);
+    if (!isNaN(sec) && sec >= 0) return Math.round(sec * 1000);
+  }
+
+  // Tentar extrair do header/propriedade retryAfter
+  if (typeof err === "object" && err !== null) {
+    const rawRetryHeader =
+      (err as { retryAfter?: unknown }).retryAfter ??
+      (err as { headers?: Record<string, unknown> }).headers?.["retry-after"];
+    if (rawRetryHeader != null) {
+      const headerStr = String(rawRetryHeader).trim();
+      const val = parseFloat(headerStr);
+      if (!isNaN(val) && val >= 0) {
+        // Se for inteiro/float pequeno (em segundos), converter para ms, senão tratar como ms se > 1000
+        return val < 1000 ? Math.round(val * 1000) : Math.round(val);
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function callModelWithRetry(
   provider: ModelProviderLike,
   messages: ModelMessage[],
@@ -75,6 +122,7 @@ export async function callModelWithRetry(
 ): Promise<CallModelWithRetryResult> {
   const sleep = opts.sleep ?? defaultSleep;
   const attempts = Math.max(1, opts.retries + 1);
+  const baseBackoff = opts.backoffMs ?? 800;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -93,7 +141,12 @@ export async function callModelWithRetry(
     } catch (e) {
       lastError = e;
       if (attempt < attempts) {
-        await sleep(opts.backoffMs ?? 800);
+        const hintMs = parseRetryHint(e);
+        const exponentialBackoff = baseBackoff * Math.pow(2, attempt - 1);
+        const jitter = Math.random() * 200;
+        const totalWait = hintMs !== null ? hintMs + exponentialBackoff + jitter : exponentialBackoff + jitter;
+
+        await sleep(Math.round(totalWait));
       }
     }
   }

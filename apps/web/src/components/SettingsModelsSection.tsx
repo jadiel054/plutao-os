@@ -281,9 +281,14 @@ export function SettingsModelsSection({ onNotify }: Props) {
                 isDownloaded={downloadedModelIds.includes(m.id)}
                 isActive={activeModelId === m.id}
                 progress={progresses[m.id]}
-                onActivate={(id) => {
-                  activateModel(id);
-                  onNotify(`Modelo ${m.name} ativado`, "success");
+                onActivate={async (id) => {
+                  try {
+                    await activateModel(id);
+                    onNotify(`Modelo ${m.name} ativado com sucesso`, "success");
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : "Erro ao ativar modelo";
+                    onNotify(msg, "error");
+                  }
                 }}
                 onStartDownload={(model) => {
                   startDownload(model);

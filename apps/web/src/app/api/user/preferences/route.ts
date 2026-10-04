@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { users } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth/session";
+import { PRESET_MODELS } from "@plutao/domain";
 
 export const runtime = "nodejs";
 
@@ -44,12 +45,13 @@ export async function GET() {
     const user = await requireUser();
     const db = getDb();
     const rows = await db
-      .select({ preferences: users.preferences })
+      .select({ preferences: users.preferences, preferredModel: users.preferredModel })
       .from(users)
       .where(eq(users.id, user.id))
       .limit(1);
     const preferences = (rows[0]?.preferences as PreferencesShape) ?? {};
-    return NextResponse.json({ preferences });
+    const preferredModel = rows[0]?.preferredModel ?? null;
+    return NextResponse.json({ preferences, preferredModel });
   } catch (e) {
     if (e instanceof AuthError) {
       return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
@@ -81,13 +83,21 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    if (Object.keys(patch).length === 0) {
+    let preferredModelToUpdate: string | undefined = undefined;
+    if ("preferredModel" in body) {
+      if (typeof body.preferredModel !== "string" || !PRESET_MODELS.some((m) => m.id === body.preferredModel)) {
+        return NextResponse.json({ error: "Modelo preferido inválido" }, { status: 400 });
+      }
+      preferredModelToUpdate = body.preferredModel;
+    }
+
+    if (Object.keys(patch).length === 0 && preferredModelToUpdate === undefined) {
       return NextResponse.json({ error: "Nada para atualizar" }, { status: 400 });
     }
 
     const db = getDb();
     const existing = await db
-      .select({ preferences: users.preferences })
+      .select({ preferences: users.preferences, preferredModel: users.preferredModel })
       .from(users)
       .where(eq(users.id, user.id))
       .limit(1);
@@ -106,16 +116,26 @@ export async function PATCH(req: NextRequest) {
         ? { onboarding_seen: patch.onboarding_seen }
         : {}),
     };
+
+    const updateFields: Record<string, unknown> = {
+      preferences: merged,
+      updatedAt: new Date(),
+    };
+
+    if (preferredModelToUpdate !== undefined) {
+      updateFields.preferredModel = preferredModelToUpdate;
+    }
+
     const updated = await db
       .update(users)
-      .set({
-        preferences: merged,
-        updatedAt: new Date(),
-      })
+      .set(updateFields)
       .where(eq(users.id, user.id))
-      .returning({ preferences: users.preferences });
+      .returning({ preferences: users.preferences, preferredModel: users.preferredModel });
 
-    return NextResponse.json({ preferences: updated[0]?.preferences ?? {} });
+    return NextResponse.json({
+      preferences: updated[0]?.preferences ?? {},
+      preferredModel: updated[0]?.preferredModel ?? null,
+    });
   } catch (e) {
     if (e instanceof AuthError) {
       return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
