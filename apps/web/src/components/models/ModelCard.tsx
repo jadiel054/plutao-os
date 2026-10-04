@@ -65,24 +65,35 @@ export function ModelCard({
             {/* Recommended Badge */}
             {model.isRecommended && (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
-              Recomendado
+                Recomendado
+              </span>
+            )}
+
+            {/* Coming Soon Badge */}
+            {model.comingSoon && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
+                Em Breve
               </span>
             )}
           </div>
 
           {/* Status Badge */}
           <div>
-            {isActive ? (
+            {model.comingSoon ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--base)] text-[var(--text-muted)] border border-[var(--border)]">
+                Em Breve
+              </span>
+            ) : isActive ? (
               <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-[var(--selo)] text-[var(--base)] shadow-xs">
                 ATIVO
               </span>
             ) : isDownloading ? (
               <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-amber-500 text-black animate-pulse">
-              BAIXANDO...
+                BAIXANDO...
               </span>
             ) : isDownloaded || model.providerType === "cloud" ? (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              Pronto
+                Pronto
               </span>
             ) : (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--base)] text-[var(--text-muted)] border border-[var(--border)]">
@@ -152,14 +163,22 @@ export function ModelCard({
 
       {/* Actions Toolbar */}
       <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
-        {/* Main Action: Activate or Download */}
-        {isActive ? (
+        {/* Main Action: Activate, Download, or Coming Soon */}
+        {model.comingSoon ? (
+          <button
+            type="button"
+            disabled
+            className="flex-1 py-2 rounded-xl bg-[var(--base)] text-[var(--text-muted)] text-xs font-semibold cursor-not-allowed text-center border border-[var(--border)] opacity-60"
+          >
+            Em Breve
+          </button>
+        ) : isActive ? (
           <button
             type="button"
             disabled
             className="flex-1 py-2 rounded-xl bg-[var(--selo)]/20 text-[var(--selo)] text-xs font-semibold cursor-default text-center border border-[var(--selo)]/40"
           >
-          Modelo Ativo
+            Modelo Ativo
           </button>
         ) : model.providerType === "cloud" || isDownloaded ? (
           <button
@@ -167,7 +186,7 @@ export function ModelCard({
             onClick={() => onActivate(model.id)}
             className="flex-1 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] hover:bg-[var(--nucleo)] text-xs font-semibold transition-all shadow-xs cursor-pointer"
           >
-          Usar Modelo
+            Usar Modelo
           </button>
         ) : (
           <button
@@ -183,9 +202,10 @@ export function ModelCard({
         {/* Test Button */}
         <button
           type="button"
+          disabled={model.comingSoon}
           onClick={() => onOpenTest(model)}
-          className="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-xs font-medium text-[var(--text-primary)] transition-all cursor-pointer flex items-center gap-1"
-          title="Testar resposta do modelo em tempo real"
+          className="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-xs font-medium text-[var(--text-primary)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+          title={model.comingSoon ? "Modelo em breve" : "Testar resposta do modelo em tempo real"}
         >
           Testar
         </button>
