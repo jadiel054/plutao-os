@@ -61,6 +61,26 @@ export function useModelManager() {
     } catch {
       /* ignore storage error */
     }
+
+    // Carregar preferência do servidor
+    fetch("/api/user/preferences", { cache: "no-store" })
+      .then((res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (data?.preferredModel && typeof data.preferredModel === "string") {
+          setActiveModelId(data.preferredModel);
+          try {
+            localStorage.setItem(ACTIVE_MODEL_KEY, data.preferredModel);
+          } catch {
+            /* ignore */
+          }
+        }
+      })
+      .catch(() => {
+        /* ignore fetch error */
+      });
   }, []);
 
   // Save downloaded models list
@@ -76,11 +96,26 @@ export function useModelManager() {
   }, []);
 
   // Activate Model
-  const activateModel = useCallback((modelId: string) => {
-    setActiveModelId(modelId);
+  const activateModel = useCallback(async (modelId: string) => {
+    const response = await fetch("/api/user/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferredModel: modelId }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const errMessage = data?.error || `Falha ao salvar preferência de modelo (HTTP ${response.status})`;
+      throw new Error(errMessage);
+    }
+
+    const data = await response.json().catch(() => ({}));
+    const activeId = data?.preferredModel ?? modelId;
+
+    setActiveModelId(activeId);
     if (typeof window !== "undefined") {
       try {
-        localStorage.setItem(ACTIVE_MODEL_KEY, modelId);
+        localStorage.setItem(ACTIVE_MODEL_KEY, activeId);
       } catch {
         /* ignore */
       }
