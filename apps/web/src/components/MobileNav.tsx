@@ -11,6 +11,7 @@ export function MobileNav() {
     { href: "/", label: "Home", kind: "home" as const },
     { href: "/chat", label: "Chat", kind: "chat" as const },
     { href: "/cockpit", label: "Cockpit", kind: "cockpit" as const },
+    { href: "/modelos", label: "Modelos", kind: "modelos" as const },
     { href: "/planos", label: "Planos", kind: "planos" as const },
     { href: "/configuracoes", label: "Config", kind: "config" as const },
   ];
@@ -35,7 +36,7 @@ export function MobileNav() {
                 <BrandMark size={20} className={isActive ? "" : "opacity-70"} />
               ) : (
                 <span className="text-[11px] font-semibold tracking-wide uppercase opacity-90 h-5 flex items-center">
-                  {item.kind === "chat" ? "Chat" : item.kind === "cockpit" ? "Ckpt" : item.kind === "planos" ? "Planos" : "Cfg"}
+                  {item.kind === "chat" ? "Chat" : item.kind === "cockpit" ? "Ckpt" : item.kind === "modelos" ? "IA" : item.kind === "planos" ? "Planos" : "Cfg"}
                 </span>
               )}
               <span className="text-[10px] font-medium">{item.label}</span>
