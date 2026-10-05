@@ -34,7 +34,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: apps/android
-        run: npm ci --workspaces=false
+        run: npm ci --workspaces=false --include=dev
+
+      - name: Debug Capacitor CLI installation
+        run: ls -la apps/android/node_modules/.bin/ | head -20
 
       - name: Add Android platform
         working-directory: apps/android
