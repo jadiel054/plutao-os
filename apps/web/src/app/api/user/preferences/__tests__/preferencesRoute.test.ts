@@ -10,7 +10,11 @@ vi.mock("@/lib/auth/session", () => ({
 }));
 
 // Mock do db
-const mockUserRecord = {
+const mockUserRecord: {
+  id: string;
+  preferences: { onboarding_seen?: boolean };
+  preferredModel: string;
+} = {
   id: "user-123",
   preferences: { onboarding_seen: true },
   preferredModel: "groq/gpt-oss-120b",
@@ -64,7 +68,7 @@ describe("API /api/user/preferences — preferredModel server-side", () => {
   });
 
   it("PATCH grava preferredModel quando válido no PRESET_MODELS", async () => {
-    const validModel = PRESET_MODELS[0].id;
+    const validModel = PRESET_MODELS.find((m) => !m.comingSoon)!.id;
     const req = new NextRequest("http://localhost/api/user/preferences", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -83,6 +87,20 @@ describe("API /api/user/preferences — preferredModel server-side", () => {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ preferredModel: "invalid/non-existent-model-id" }),
+    });
+
+    const res = await PATCH(req);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe("Modelo preferido inválido");
+  });
+
+  it("PATCH rejeita preferredModel marcado como comingSoon com HTTP 400", async () => {
+    const comingSoonModel = PRESET_MODELS.find((m) => m.comingSoon)?.id ?? "Xenova/Llama-3.2-3B-Instruct-q4";
+    const req = new NextRequest("http://localhost/api/user/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferredModel: comingSoonModel }),
     });
 
     const res = await PATCH(req);
