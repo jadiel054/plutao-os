@@ -10,3 +10,5 @@ coverage/
 *.tsbuildinfo
 *.backup
 *.zlib.*
+apps/android/android/
+apps/android/node_modules/
