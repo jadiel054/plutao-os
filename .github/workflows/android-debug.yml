@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      - feat/ci-pin-debug-keystore
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -51,6 +53,59 @@ jobs:
         working-directory: apps/android
         run: node scripts/apply-branding.mjs
 
+      # ---------------------------------------------------------------------
+      # Assinatura fixa do build debug (ver apps/android/README.md).
+      #
+      # O Android Gradle Plugin gera uma debug.keystore NOVA a cada runner: cada
+      # APK debug saía com um certificado diferente e o Android recusava a
+      # instalação por cima do APK anterior ("pacote em conflito"). Aqui o secret
+      # é decodificado para o caminho padrão que o AGP usa em build debug
+      # ($HOME/.android/debug.keystore, alias androiddebugkey, senha android),
+      # garantindo a MESMA chave em todos os runs.
+      #
+      # A keystore nunca entra no repositório: vive só no GitHub Secrets e é
+      # materializada em tempo de build. Nada do conteúdo é impresso no log.
+      # ---------------------------------------------------------------------
+      - name: Restore pinned debug keystore
+        env:
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+          ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEYSTORE_PASSWORD }}
+          ANDROID_DEBUG_KEY_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          store_pass="${ANDROID_DEBUG_KEYSTORE_PASSWORD:-android}"
+          key_pass="${ANDROID_DEBUG_KEY_PASSWORD:-android}"
+          if [ -z "${ANDROID_DEBUG_KEYSTORE_BASE64:-}" ]; then
+            echo "::error title=Debug keystore ausente::O secret ANDROID_DEBUG_KEYSTORE_BASE64 não está configurado neste repositório. Sem ele o AGP volta a gerar uma chave nova por run e o APK é recusado na instalação por cima. Configure em Settings → Secrets and variables → Actions (procedimento em apps/android/README.md)."
+            exit 1
+          fi
+          if [ "$store_pass" != "$key_pass" ]; then
+            echo "::error title=Senhas divergentes::ANDROID_DEBUG_KEYSTORE_PASSWORD e ANDROID_DEBUG_KEY_PASSWORD precisam ser iguais (formato JKS; padrão de debug do AGP: android)."
+            exit 1
+          fi
+          umask 077
+          install -d -m 700 "$HOME/.android"
+          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          # Falha alto e cedo se o secret estiver corrompido ou com senha errada.
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass "$store_pass" -alias androiddebugkey > /dev/null
+          echo "Debug keystore pinada restaurada em \$HOME/.android/debug.keystore"
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass "$store_pass" -alias androiddebugkey | grep -E "SHA1:|SHA256:"
+
+      - name: Configure Gradle debug signing
+        env:
+          ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEYSTORE_PASSWORD }}
+          ANDROID_DEBUG_KEY_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          store_pass="${ANDROID_DEBUG_KEYSTORE_PASSWORD:-android}"
+          key_pass="${ANDROID_DEBUG_KEY_PASSWORD:-android}"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=androiddebugkey\nkeyPassword=%s\n' \
+            "$HOME/.android/debug.keystore" "$store_pass" "$key_pass" \
+            > apps/android/android/debug-keystore.properties
+          python3 apps/android/scripts/configure-debug-signing.py
+          echo "Gradle debug signing configured to use the restored keystore"
+
       - name: Make Gradle wrapper executable
         working-directory: apps/android/android
         run: chmod +x gradlew
@@ -58,6 +113,22 @@ jobs:
       - name: Build debug APK
         working-directory: apps/android/android
         run: ./gradlew assembleDebug
+
+      - name: Show debug APK signing certificate
+        run: |
+          set -euo pipefail
+          APK=apps/android/android/app/build/outputs/apk/debug/app-debug.apk
+          echo "APK: $APK"
+          sha256sum "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -n "$APKSIGNER" ]; then
+            # Não filtrar com grep: a formatação varia entre Build Tools, e um
+            # grep sem match retornava 1 mesmo com o APK corretamente assinado.
+            # A saída pública do próprio apksigner já contém o fingerprint.
+            "$APKSIGNER" verify --print-certs "$APK"
+          else
+            keytool -printcert -jarfile "$APK"
+          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

@@ -12,6 +12,8 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const storedState = req.cookies.get("google_oauth_state")?.value;
+  const nextPath = req.cookies.get("google_oauth_next")?.value || "/cockpit";
+  const mobile = req.cookies.get("google_oauth_mobile")?.value === "1";
 
   if (!code || !state || !storedState || state !== storedState) {
     return NextResponse.redirect(`${baseUrl}/login?error=OAuthStateInvalid`);
@@ -75,9 +77,22 @@ export async function GET(req: NextRequest) {
       ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
     });
 
-    const res = NextResponse.redirect(`${baseUrl}/cockpit`);
+    if (mobile) {
+      const handoff = new URL("plutao://oauth/callback");
+      handoff.searchParams.set("token", token);
+      handoff.searchParams.set("next", nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/cockpit");
+      const res = NextResponse.redirect(handoff.toString());
+      res.cookies.delete("google_oauth_state");
+      res.cookies.delete("google_oauth_next");
+      res.cookies.delete("google_oauth_mobile");
+      return res;
+    }
+    const safeNext = nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/cockpit";
+    const res = NextResponse.redirect(`${baseUrl}${safeNext}`);
     await setSessionCookie(token, expiresAt);
     res.cookies.delete("google_oauth_state");
+    res.cookies.delete("google_oauth_next");
+    res.cookies.delete("google_oauth_mobile");
 
     return res;
   } catch (err) {

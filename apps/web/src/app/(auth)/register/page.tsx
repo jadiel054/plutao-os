@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, MouseEvent, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
 import { migrateGuestChatLocalStorage } from "@/lib/auth/migrateGuestChatLocalStorage";
+import { isNativeCapacitor, openOAuthInSystemBrowser } from "@/lib/auth/mobileOAuth";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -41,6 +42,14 @@ export default function RegisterPage() {
     }
   }
 
+  async function onOAuthClick(e: MouseEvent<HTMLAnchorElement>) {
+    if (!isNativeCapacitor()) return;
+    e.preventDefault();
+    const url = new URL(e.currentTarget.href, window.location.origin);
+    url.searchParams.set("mobile", "1");
+    await openOAuthInSystemBrowser(url.toString());
+  }
+
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-4 bg-[var(--base)] text-[var(--text-primary)]">
       <div className="w-full max-w-sm space-y-6">
@@ -56,6 +65,7 @@ export default function RegisterPage() {
         <div className="space-y-2.5">
           <a
             href="/api/auth/google/authorize"
+            onClick={(e) => void onOAuthClick(e)}
             className="flex items-center justify-center gap-3 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] font-medium py-2.5 text-sm transition-colors text-[var(--text-primary)] cursor-pointer"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -81,6 +91,7 @@ export default function RegisterPage() {
 
           <a
             href="/api/auth/github/authorize"
+            onClick={(e) => void onOAuthClick(e)}
             className="flex items-center justify-center gap-3 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-hover)] font-medium py-2.5 text-sm transition-colors text-[var(--text-primary)] cursor-pointer"
           >
             <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">

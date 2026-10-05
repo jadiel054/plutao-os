@@ -12,3 +12,8 @@ coverage/
 *.zlib.*
 apps/android/android/
 apps/android/node_modules/
+
+# Assinatura Android — NUNCA versionar chaves privadas (ver apps/android/README.md)
+*.keystore
+*.jks
+*.p12
