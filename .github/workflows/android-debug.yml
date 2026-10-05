@@ -90,6 +90,47 @@ jobs:
           echo "Debug keystore pinada restaurada em \$HOME/.android/debug.keystore"
           keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass "$store_pass" -alias androiddebugkey | grep -E "SHA1:|SHA256:"
 
+      - name: Configure Gradle debug signing
+        env:
+          ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEYSTORE_PASSWORD }}
+          ANDROID_DEBUG_KEY_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          store_pass="${ANDROID_DEBUG_KEYSTORE_PASSWORD:-android}"
+          key_pass="${ANDROID_DEBUG_KEY_PASSWORD:-android}"
+          cat > apps/android/android/debug-keystore.properties <<EOF
+storeFile=$HOME/.android/debug.keystore
+storePassword=$store_pass
+keyAlias=androiddebugkey
+keyPassword=$key_pass
+EOF
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("apps/android/android/app/build.gradle")
+          text = path.read_text()
+          if "debug-keystore.properties" not in text:
+              prefix = '''def pinnedDebugProperties = new Properties()
+def pinnedDebugFile = rootProject.file("debug-keystore.properties")
+if (pinnedDebugFile.exists()) {
+    pinnedDebugProperties.load(new FileInputStream(pinnedDebugFile))
+}
+'''
+              signing = '''    signingConfigs {
+        debug {
+            storeFile file(pinnedDebugProperties["storeFile"])
+            storePassword pinnedDebugProperties["storePassword"]
+            keyAlias pinnedDebugProperties["keyAlias"]
+            keyPassword pinnedDebugProperties["keyPassword"]
+        }
+    }
+'''
+              text = text.replace("android {\n", prefix + "android {\n" + signing, 1)
+              text = text.replace("    buildTypes {\n", "    buildTypes {\n        debug { signingConfig signingConfigs.debug }\n", 1)
+              path.write_text(text)
+          PY
+          echo "Gradle debug signing configured to use the restored keystore"
+
       - name: Make Gradle wrapper executable
         working-directory: apps/android/android
         run: chmod +x gradlew
@@ -104,7 +145,7 @@ jobs:
           APK=apps/android/android/app/build/outputs/apk/debug/app-debug.apk
           echo "APK: $APK"
           sha256sum "$APK"
-          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print 2>/dev/null | sort -V | tail -1 || true)"
           if [ -n "$APKSIGNER" ]; then
             # Não filtrar com grep: a formatação varia entre Build Tools, e um
             # grep sem match retornava 1 mesmo com o APK corretamente assinado.
