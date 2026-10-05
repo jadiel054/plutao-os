@@ -100,37 +100,10 @@ jobs:
           set -euo pipefail
           store_pass="${ANDROID_DEBUG_KEYSTORE_PASSWORD:-android}"
           key_pass="${ANDROID_DEBUG_KEY_PASSWORD:-android}"
-          cat > apps/android/android/debug-keystore.properties <<EOF
-storeFile=$HOME/.android/debug.keystore
-storePassword=$store_pass
-keyAlias=androiddebugkey
-keyPassword=$key_pass
-EOF
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("apps/android/android/app/build.gradle")
-          text = path.read_text()
-          if "debug-keystore.properties" not in text:
-              prefix = '''def pinnedDebugProperties = new Properties()
-def pinnedDebugFile = rootProject.file("debug-keystore.properties")
-if (pinnedDebugFile.exists()) {
-    pinnedDebugProperties.load(new FileInputStream(pinnedDebugFile))
-}
-'''
-              signing = '''    signingConfigs {
-        debug {
-            storeFile file(pinnedDebugProperties["storeFile"])
-            storePassword pinnedDebugProperties["storePassword"]
-            keyAlias pinnedDebugProperties["keyAlias"]
-            keyPassword pinnedDebugProperties["keyPassword"]
-        }
-    }
-'''
-              text = text.replace("android {\n", prefix + "android {\n" + signing, 1)
-              text = text.replace("    buildTypes {\n", "    buildTypes {\n        debug { signingConfig signingConfigs.debug }\n", 1)
-              path.write_text(text)
-          PY
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=androiddebugkey\nkeyPassword=%s\n' \
+            "$HOME/.android/debug.keystore" "$store_pass" "$key_pass" \
+            > apps/android/android/debug-keystore.properties
+          python3 apps/android/scripts/configure-debug-signing.py
           echo "Gradle debug signing configured to use the restored keystore"
 
       - name: Make Gradle wrapper executable
