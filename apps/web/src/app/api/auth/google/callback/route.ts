@@ -3,6 +3,7 @@ import { getOrCreateUserByEmail } from "@/lib/auth/social";
 import { createSession } from "@/lib/auth/session";
 import { setSessionCookie } from "@/lib/auth/cookies";
 import { handleGuestMigrationOnAuth } from "@/lib/auth/guest";
+import { createTwoFactorChallenge, isTwoFactorEnabled, TWO_FACTOR_CHALLENGE_COOKIE } from "@/lib/security/totp";
 
 export const runtime = "nodejs";
 
@@ -69,6 +70,22 @@ export async function GET(req: NextRequest) {
     // 3. Link or create user, ensure waitlist inclusion
     const user = await getOrCreateUserByEmail(email, name);
     await handleGuestMigrationOnAuth(req, user.id);
+
+    if (await isTwoFactorEnabled(user.id)) {
+      const safeNext = nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/cockpit";
+      const res = NextResponse.redirect(`${baseUrl}/login?next=${encodeURIComponent(safeNext)}&two_factor=1`);
+      res.cookies.set(TWO_FACTOR_CHALLENGE_COOKIE, createTwoFactorChallenge(user.id), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        maxAge: 5 * 60,
+      });
+      res.cookies.delete("google_oauth_state");
+      res.cookies.delete("google_oauth_next");
+      res.cookies.delete("google_oauth_mobile");
+      return res;
+    }
 
     // 4. Create session and set cookie
     const { token, expiresAt } = await createSession({

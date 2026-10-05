@@ -157,6 +157,36 @@ export const sessions = pgTable(
   (t) => [index("sessions_user_id_idx").on(t.userId)]
 );
 
+export const totpSecrets = pgTable(
+  "totp_secrets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    secretEnc: text("secret_enc").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  },
+  (t) => [index("totp_secrets_user_id_idx").on(t.userId)]
+);
+
+export const backupCodes = pgTable(
+  "backup_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("backup_codes_user_id_idx").on(t.userId)]
+);
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")

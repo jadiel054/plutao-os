@@ -6,6 +6,7 @@ import { getOrCreateUserByEmail } from "@/lib/auth/social";
 import { createSession } from "@/lib/auth/session";
 import { setSessionCookie } from "@/lib/auth/cookies";
 import { handleGuestMigrationOnAuth } from "@/lib/auth/guest";
+import { createTwoFactorChallenge, isTwoFactorEnabled, TWO_FACTOR_CHALLENGE_COOKIE } from "@/lib/security/totp";
 
 export const runtime = "nodejs";
 
@@ -48,6 +49,18 @@ export async function GET(req: NextRequest) {
     // Get or create user by email
     const user = await getOrCreateUserByEmail(tokenRow.email);
     await handleGuestMigrationOnAuth(req, user.id);
+
+    if (await isTwoFactorEnabled(user.id)) {
+      const res = NextResponse.redirect(`${baseUrl}/login?two_factor=1`);
+      res.cookies.set(TWO_FACTOR_CHALLENGE_COOKIE, createTwoFactorChallenge(user.id), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        maxAge: 5 * 60,
+      });
+      return res;
+    }
 
     // Create session & cookie
     const { token: sessionToken, expiresAt } = await createSession({

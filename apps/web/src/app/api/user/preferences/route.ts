@@ -18,6 +18,7 @@ type VoicePrefs = {
 type PreferencesShape = {
   voice?: VoicePrefs;
   onboarding_seen?: boolean;
+  biometric_lock?: boolean;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -82,6 +83,9 @@ export async function PATCH(req: NextRequest) {
         patch.onboarding_seen = body.onboarding_seen;
       }
     }
+    if ("biometric_lock" in body && typeof body.biometric_lock === "boolean") {
+      patch.biometric_lock = body.biometric_lock;
+    }
 
     let preferredModelToUpdate: string | undefined = undefined;
     if ("preferredModel" in body) {
@@ -115,6 +119,9 @@ export async function PATCH(req: NextRequest) {
         : {}),
       ...(typeof patch.onboarding_seen === "boolean"
         ? { onboarding_seen: patch.onboarding_seen }
+        : {}),
+      ...(typeof patch.biometric_lock === "boolean"
+        ? { biometric_lock: patch.biometric_lock }
         : {}),
     };
 

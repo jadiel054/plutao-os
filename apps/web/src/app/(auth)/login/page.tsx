@@ -19,6 +19,8 @@ function LoginForm() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [requiresTwoFactor, setRequiresTwoFactor] = useState(() => searchParams.get("two_factor") === "1");
   const [magicLinkEmail, setMagicLinkEmail] = useState("");
   const [showMagicForm, setShowMagicForm] = useState(false);
 
@@ -39,6 +41,11 @@ function LoginForm() {
         body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
+      if (res.status === 202 && data.requiresTwoFactor) {
+        setRequiresTwoFactor(true);
+        setMessage("Digite o código do autenticador. Você também pode usar um código de backup.");
+        return;
+      }
       if (!res.ok) {
         setError(data.error ?? "Falha no login");
         return;
@@ -50,6 +57,33 @@ function LoginForm() {
       router.refresh();
     } catch {
       setError("Erro de rede ao conectar ao servidor");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onSubmitTwoFactor(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setMessage(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: twoFactorCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Código 2FA inválido");
+        return;
+      }
+      const realEmail = typeof data.user?.email === "string" ? data.user.email : email;
+      migrateGuestChatLocalStorage(realEmail);
+      router.push(nextPath);
+      router.refresh();
+    } catch {
+      setError("Erro de rede ao validar o segundo fator");
     } finally {
       setLoading(false);
     }
@@ -143,7 +177,30 @@ function LoginForm() {
           <div className="flex-grow border-t border-[var(--border)]"></div>
         </div>
 
-        {showMagicForm ? (
+        {requiresTwoFactor ? (
+          <form onSubmit={onSubmitTwoFactor} className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl">
+            <div>
+              <h2 className="text-sm font-semibold">Verificação em duas etapas</h2>
+              <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">Use o código de 6 dígitos do Google Authenticator/Aegis ou um código de backup.</p>
+            </div>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
+              placeholder="123456 ou XXXX-XXXX"
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--selo)] transition-colors"
+            />
+            <button type="submit" disabled={loading} className="w-full rounded-xl bg-[var(--selo)] text-[var(--base)] font-semibold py-3 text-sm disabled:opacity-50 cursor-pointer">
+              {loading ? "Validando…" : "Continuar"}
+            </button>
+            <button type="button" onClick={() => { setRequiresTwoFactor(false); setTwoFactorCode(""); setMessage(null); }} className="w-full text-xs text-[var(--selo)] hover:underline">
+              Voltar e usar outra conta
+            </button>
+          </form>
+        ) : showMagicForm ? (
           <form onSubmit={onSubmitMagicLink} className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-[var(--text-primary)]">Entrar com Magic Link</span>
