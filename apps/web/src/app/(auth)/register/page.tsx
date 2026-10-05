@@ -12,6 +12,7 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -23,7 +24,7 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name || null, email, password }),
+        body: JSON.stringify({ name: name || null, email, password, termsAccepted }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -144,6 +145,13 @@ export default function RegisterPage() {
               placeholder="••••••••"
               className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-2.5 text-sm outline-none focus:border-[var(--selo)] transition-colors text-[var(--text-primary)]"
             />
+          </label>
+
+          <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--base)]/50 p-3 text-xs leading-5 text-[var(--text-secondary)]">
+            <input type="checkbox" required checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-[var(--selo)]" />
+            <span>
+              Li e aceito os <Link href="/legal/termos" target="_blank" className="text-[var(--selo)] hover:underline">Termos de Uso</Link> e a <Link href="/legal/privacidade" target="_blank" className="text-[var(--selo)] hover:underline">Política de Privacidade</Link>.
+            </span>
           </label>
 
           {error && (
