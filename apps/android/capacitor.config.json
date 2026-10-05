@@ -6,5 +6,15 @@
     "url": "https://plutao-os.vercel.app",
     "allowNavigation": ["plutao-os.vercel.app"],
     "cleartext": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": true,
+      "backgroundColor": "#0a0a0f",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER",
+      "showSpinner": false
+    }
   }
 }

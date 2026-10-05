@@ -47,6 +47,10 @@ jobs:
         working-directory: apps/android
         run: ./node_modules/.bin/cap sync android
 
+      - name: Apply Plutão Android branding
+        working-directory: apps/android
+        run: node scripts/apply-branding.mjs
+
       - name: Make Gradle wrapper executable
         working-directory: apps/android/android
         run: chmod +x gradlew
