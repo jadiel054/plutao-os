@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import { users } from "@plutao/db";
+import { consentRecords, users } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { hashPassword } from "@/lib/auth/password";
 import { createSession } from "@/lib/auth/session";
 import { setSessionCookie } from "@/lib/auth/cookies";
 import { handleGuestMigrationOnAuth } from "@/lib/auth/guest";
+import { CONSENT_POLICY_VERSION } from "@/lib/consent";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,9 @@ export async function POST(req: NextRequest) {
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const name = body.name ? String(body.name).trim() : null;
+    if (body.termsAccepted !== true) {
+      return NextResponse.json({ error: "Você precisa aceitar os Termos de Uso para criar a conta." }, { status: 400 });
+    }
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ error: "E-mail inválido" }, { status: 400 });
@@ -47,6 +51,12 @@ export async function POST(req: NextRequest) {
       .returning({ id: users.id, email: users.email, name: users.name });
 
     const user = inserted[0];
+    await db.insert(consentRecords).values({
+      userId: user.id,
+      scope: "terms_of_use",
+      policyVersion: CONSENT_POLICY_VERSION,
+      granted: true,
+    });
     await handleGuestMigrationOnAuth(req, user.id);
 
     const { token, expiresAt } = await createSession({

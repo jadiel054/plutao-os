@@ -14,6 +14,7 @@ import { SettingsNotificationsSection } from "@/components/SettingsNotifications
 import { SettingsConnectorsSection } from "@/components/SettingsConnectorsSection";
 import { SettingsMcpGrantsSection } from "@/components/SettingsMcpGrantsSection";
 import { SettingsVoiceSection } from "@/components/SettingsVoiceSection";
+import { ConsentCenterShortcut } from "@/components/ConsentCenterShortcut";
 import { useModelMode } from "@/hooks/useModelMode";
 
 type TabType = "ia" | "conectores" | "voz" | "perfil" | "notificacoes" | "seguranca" | "sobre";
@@ -298,6 +299,7 @@ export default function SettingsPage() {
           )}
           {activeTab === "seguranca" && (
             <>
+              <ConsentCenterShortcut />
               <SettingsMcpGrantsSection onNotify={addToast} />
               <DataControlsSection
                 userEmail={userEmail}
