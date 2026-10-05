@@ -106,12 +106,12 @@ jobs:
           sha256sum "$APK"
           APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
           if [ -n "$APKSIGNER" ]; then
-            # apksigner 35 prints `Signer #1 certificate SHA-256 digest:`
-            # (without parentheses around the algorithm). Keep this grep
-            # tolerant across Android Build Tools versions.
-            "$APKSIGNER" verify --print-certs "$APK" | grep -E "Signer #[0-9]+ certificate SHA-(1|256) digest|Verified using"
+            # Não filtrar com grep: a formatação varia entre Build Tools, e um
+            # grep sem match retornava 1 mesmo com o APK corretamente assinado.
+            # A saída pública do próprio apksigner já contém o fingerprint.
+            "$APKSIGNER" verify --print-certs "$APK"
           else
-            keytool -printcert -jarfile "$APK" | grep -E "SHA1:|SHA256:"
+            keytool -printcert -jarfile "$APK"
           fi
 
       - name: Upload debug APK
