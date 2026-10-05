@@ -163,3 +163,38 @@ Deve concluir sem `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Se esse erro aparecer,
 o dispositivo tem um APK assinado com outra chave: desinstale
 (`adb uninstall app.plutao.os`) ou compare o certificado dos dois APKs antes de
 desinstalar.
+
+
+## Canal próprio de atualização e release
+
+O workflow `.github/workflows/android-release.yml` roda em tags `v*`. Ele gera um APK
+release assinado, publica o asset imutável `plutao-VERSAO.apk` no GitHub Release e
+anexa `release-metadata.json` com `versionCode`, `versionName`, notas, data,
+tamanho, SHA-256 do APK e fingerprint da assinatura. O `versionCode` é o número
+de commits que alteraram `apps/android`, portanto cresce quando o app muda.
+
+### Secrets de release
+
+Criar em **Settings → Secrets and variables → Actions → New repository secret**:
+
+- `ANDROID_RELEASE_KEYSTORE_BASE64`
+- `ANDROID_RELEASE_KEYSTORE_PASSWORD`
+- `ANDROID_RELEASE_KEY_PASSWORD`
+
+A keystore de release é crítica e nunca deve ser commitada, logada ou colocada no
+artifact. Sem ela não é possível assinar uma atualização que o Android aceite por
+cima da instalação existente. O fingerprint público deve ser registrado no
+inventário de releases; senhas e base64 devem permanecer em um gerenciador de
+segredos.
+
+### Disparo e atualização manual
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+A rota `/download` mostra o histórico, o tamanho, o SHA-256 e o fingerprint para
+conferência humana. O app apenas avisa sobre uma atualização e abre essa rota; ele
+nunca baixa ou instala APK automaticamente. O Android continua controlando o
+fluxo de instalação.
