@@ -1,0 +1,10 @@
+{
+  "appId": "app.plutao.os",
+  "appName": "Plutão",
+  "webDir": "www",
+  "server": {
+    "url": "https://plutao-os.vercel.app",
+    "allowNavigation": ["plutao-os.vercel.app"],
+    "cleartext": false
+  }
+}
