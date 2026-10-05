@@ -85,7 +85,8 @@ export async function PATCH(req: NextRequest) {
 
     let preferredModelToUpdate: string | undefined = undefined;
     if ("preferredModel" in body) {
-      if (typeof body.preferredModel !== "string" || !PRESET_MODELS.some((m) => m.id === body.preferredModel)) {
+      const targetModel = PRESET_MODELS.find((m) => m.id === body.preferredModel);
+      if (typeof body.preferredModel !== "string" || !targetModel || targetModel.comingSoon) {
         return NextResponse.json({ error: "Modelo preferido inválido" }, { status: 400 });
       }
       preferredModelToUpdate = body.preferredModel;

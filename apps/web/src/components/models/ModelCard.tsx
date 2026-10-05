@@ -72,7 +72,11 @@ export function ModelCard({
 
           {/* Status Badge */}
           <div>
-            {isActive ? (
+            {model.comingSoon ? (
+              <span className="text-[10px] font-mono font-semibold px-2.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                Em Breve
+              </span>
+            ) : isActive ? (
               <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-[var(--selo)] text-[var(--base)] shadow-xs">
                 ATIVO
               </span>
@@ -153,7 +157,15 @@ export function ModelCard({
       {/* Actions Toolbar */}
       <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
         {/* Main Action: Activate or Download */}
-        {isActive ? (
+        {model.comingSoon ? (
+          <button
+            type="button"
+            disabled
+            className="flex-1 py-2 rounded-xl bg-[var(--base)] text-[var(--text-muted)] text-xs font-medium cursor-not-allowed text-center border border-[var(--border)] opacity-60"
+          >
+            Em Breve
+          </button>
+        ) : isActive ? (
           <button
             type="button"
             disabled
@@ -183,9 +195,10 @@ export function ModelCard({
         {/* Test Button */}
         <button
           type="button"
+          disabled={model.comingSoon}
           onClick={() => onOpenTest(model)}
-          className="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-xs font-medium text-[var(--text-primary)] transition-all cursor-pointer flex items-center gap-1"
-          title="Testar resposta do modelo em tempo real"
+          className="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--base)] hover:bg-[var(--surface)] text-xs font-medium text-[var(--text-primary)] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1"
+          title={model.comingSoon ? "Modelo em breve indisponível para teste" : "Testar resposta do modelo em tempo real"}
         >
           Testar
         </button>

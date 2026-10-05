@@ -22,6 +22,7 @@ export interface AIModel {
   license: string;
   tier?: "economy" | "premium";
   isRecommended?: boolean;
+  comingSoon?: boolean;
   hfRepo?: string;
   quantization?: string;
 }
@@ -59,6 +60,7 @@ export const PRESET_MODELS: AIModel[] = [
     speedRating: 4,
     license: "Llama 3.2 Community",
     isRecommended: true,
+    comingSoon: true,
     hfRepo: "Xenova/Llama-3.2-3B-Instruct-q4",
     quantization: "Q4_K_M",
   },
@@ -75,6 +77,7 @@ export const PRESET_MODELS: AIModel[] = [
     hardware: "webgpu",
     speedRating: 5,
     license: "MIT",
+    comingSoon: true,
     hfRepo: "Xenova/Phi-3-mini-4k-instruct-q4",
     quantization: "Q4_0",
   },
@@ -92,6 +95,7 @@ export const PRESET_MODELS: AIModel[] = [
     speedRating: 5,
     license: "Apache-2.0",
     isRecommended: true,
+    comingSoon: true,
     hfRepo: "Xenova/Qwen2.5-1.5B-Instruct",
     quantization: "Q4_K_M",
   },
@@ -108,6 +112,7 @@ export const PRESET_MODELS: AIModel[] = [
     hardware: "cpu",
     speedRating: 5,
     license: "Apache-2.0",
+    comingSoon: true,
     hfRepo: "Xenova/all-MiniLM-L6-v2",
     quantization: "ONNX FP32",
   },

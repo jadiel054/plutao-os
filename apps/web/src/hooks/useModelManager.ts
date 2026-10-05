@@ -25,6 +25,25 @@ export interface TestResult {
   error?: string;
 }
 
+export function startDownloadAction(
+  model: AIModel,
+  setProgresses: React.Dispatch<React.SetStateAction<Record<string, ModelDownloadProgress>>>
+) {
+  if (model.providerType === "cloud" || model.comingSoon) return;
+
+  setProgresses((prev) => ({
+    ...prev,
+    [model.id]: {
+      modelId: model.id,
+      status: "downloading",
+      progress: 0,
+      loadedBytes: 0,
+      totalBytes: model.sizeBytes || 1000000000,
+      speedMBs: 0,
+    },
+  }));
+}
+
 export function useModelManager() {
   const [downloadedModelIds, setDownloadedModelIds] = useState<string[]>([]);
   const [activeModelId, setActiveModelId] = useState<string>("groq/gpt-oss-120b");
@@ -51,8 +70,8 @@ export function useModelManager() {
       if (savedDownloaded) {
         setDownloadedModelIds(JSON.parse(savedDownloaded));
       } else {
-        // Default local model standard
-        const initial = ["Xenova/Llama-3.2-3B-Instruct-q4"];
+        // Modelos locais agora requerem download explicito pelo usuario
+        const initial: string[] = [];
         setDownloadedModelIds(initial);
         localStorage.setItem(DOWNLOADED_MODELS_KEY, JSON.stringify(initial));
       }
@@ -125,66 +144,10 @@ export function useModelManager() {
     }
   }, []);
 
-  // Start Download with realistic simulated progress
+  // Start Download (simulacao por setInterval removida)
   const startDownload = useCallback((model: AIModel) => {
-    if (model.providerType === "cloud") return;
-
-    setProgresses((prev) => ({
-      ...prev,
-      [model.id]: {
-        modelId: model.id,
-        status: "downloading",
-        progress: 0,
-        loadedBytes: 0,
-        totalBytes: model.sizeBytes || 1000000000,
-        speedMBs: 12.5,
-      },
-    }));
-
-    const total = model.sizeBytes || 1000000000;
-    let loaded = 0;
-    const interval = setInterval(() => {
-      loaded += total / 20; // 20 steps (~4s total download simulation)
-      if (loaded >= total) {
-        loaded = total;
-        clearInterval(interval);
-        setProgresses((prev) => ({
-          ...prev,
-          [model.id]: {
-            modelId: model.id,
-            status: "downloaded",
-            progress: 100,
-            loadedBytes: total,
-            totalBytes: total,
-            speedMBs: 0,
-          },
-        }));
-
-        setDownloadedModelIds((prev) => {
-          if (!prev.includes(model.id)) {
-            const next = [...prev, model.id];
-            saveDownloadedIds(next);
-            return next;
-          }
-          return prev;
-        });
-      } else {
-        const pct = Math.round((loaded / total) * 100);
-        const speed = +(10 + Math.random() * 8).toFixed(1);
-        setProgresses((prev) => ({
-          ...prev,
-          [model.id]: {
-            modelId: model.id,
-            status: "downloading",
-            progress: pct,
-            loadedBytes: loaded,
-            totalBytes: total,
-            speedMBs: speed,
-          },
-        }));
-      }
-    }, 200);
-  }, [saveDownloadedIds]);
+    startDownloadAction(model, setProgresses);
+  }, []);
 
   // Pause / Cancel Download
   const cancelDownload = useCallback((modelId: string) => {
