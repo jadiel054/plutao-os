@@ -13,6 +13,7 @@ import {
   uuid,
   jsonb,
   integer,
+  bigint,
   boolean,
   index,
   uniqueIndex,
@@ -36,6 +37,40 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const modelCatalog = pgTable(
+  "model_catalog",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    author: text("author").notNull(),
+    license: text("license"),
+    approxSizeBytes: bigint("approx_size_bytes", { mode: "number" }).notNull(),
+    pipelineTag: text("pipeline_tag"),
+    tags: jsonb("tags").notNull().default([]),
+    sourceUrl: text("source_url").notNull(),
+    downloadUrl: text("download_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("model_catalog_pipeline_idx").on(t.pipelineTag)]
+);
+
+export const riskAcceptances = pgTable(
+  "risk_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    modelRef: text("model_ref").notNull(),
+    reasonShown: text("reason_shown").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("risk_acceptances_user_id_idx").on(t.userId),
+    index("risk_acceptances_model_ref_idx").on(t.modelRef),
+  ]
+);
 
 export const magicLinkTokens = pgTable(
   "magic_link_tokens",

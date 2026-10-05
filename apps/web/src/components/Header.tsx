@@ -83,8 +83,18 @@ export function Header({ userEmail, onNotify, variant = "default", onOpenMenu, o
                     ? "bg-[var(--base)] text-[var(--selo)] font-medium border border-[var(--border)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--base)]"
                 }`}
+                >
+                  Cockpit
+                </Link>
+              <Link
+                href="/modelos"
+                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  pathname === "/modelos"
+                    ? "bg-[var(--base)] text-[var(--selo)] font-medium border border-[var(--border)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--base)]"
+                }`}
               >
-                Cockpit
+                Modelos
               </Link>
               <Link
                 href="/planos"
