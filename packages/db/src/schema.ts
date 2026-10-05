@@ -38,6 +38,24 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const consentRecords = pgTable(
+  "consent_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scope: text("scope").notNull(),
+    policyVersion: text("policy_version").notNull(),
+    granted: boolean("granted").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("consent_records_user_scope_idx").on(t.userId, t.scope),
+    index("consent_records_user_id_idx").on(t.userId),
+  ]
+);
+
 export const modelCatalog = pgTable(
   "model_catalog",
   {
