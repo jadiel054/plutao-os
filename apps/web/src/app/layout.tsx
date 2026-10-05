@@ -5,6 +5,7 @@ import { OfflineBanner } from "@/components/OfflineBanner";
 import { ViewModeBootstrap } from "@/components/ViewModeBootstrap";
 import { GuidedTour } from "@/components/GuidedTour";
 import { MobileOAuthBridge } from "@/components/MobileOAuthBridge";
+import { UpdateChecker } from "@/components/UpdateChecker";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -82,6 +83,7 @@ export default function RootLayout({
         <OfflineBanner />
         <GuidedTour />
         <MobileOAuthBridge />
+        <UpdateChecker />
         {children}
       </body>
     </html>
