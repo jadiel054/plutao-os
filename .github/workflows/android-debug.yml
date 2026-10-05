@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/ci-pin-debug-keystore
   pull_request:
   workflow_dispatch:
 
