@@ -55,10 +55,15 @@ async function readReleaseMetadata(release: GitHubRelease): Promise<UpdateReleas
   }
 }
 
+function isProductionRelease(release: GitHubRelease) {
+  // Tags de teste nunca podem aparecer no APK instalado nem no card in-app.
+  return !release.prerelease && !/(^|[-.])(test|teste|dev|alpha|beta|rc)([-.]|$)/i.test(release.tag_name);
+}
+
 export async function getUpdateManifest(): Promise<UpdateManifest> {
   try {
     const releases = await githubFetch<GitHubRelease[]>(`${apiBase}/releases?per_page=10`);
-    const published = releases.filter((release) => !release.draft && !release.prerelease);
+    const published = releases.filter((release) => !release.draft && isProductionRelease(release));
     const resolved = (await Promise.all(published.map(readReleaseMetadata))).filter(
       (release): release is UpdateRelease => release !== null,
     );
