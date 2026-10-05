@@ -31,6 +31,22 @@ gh workflow run android-debug.yml --ref <branch>
 gh run watch
 ```
 
+## Login Google no Android: navegador → app
+
+No APK, o botão Google (e GitHub) abre o provedor no navegador do sistema para
+que o login rápido funcione corretamente. Depois da autenticação, o callback do
+servidor redireciona para o deep link `plutao://oauth/callback`; o Android
+reabre o APK, o `MobileOAuthBridge` consome o handoff e instala o cookie de
+sessão dentro do WebView. Assim o usuário volta ao Cockpit do app, não fica em
+uma aba `plutao-os.vercel.app`.
+
+O handoff usa um token de sessão de uso único: o endpoint
+`/api/auth/mobile/complete` apaga o token original antes de criar o cookie
+HTTP-only final no WebView. O token nunca é impresso em log. O filtro Android e
+o patch do manifesto são reaplicados por `scripts/apply-branding.mjs`, porque
+`android/` é regenerado a cada run e não pode ser editado manualmente como fonte
+de verdade.
+
 ## Assinatura debug: a keystore é PINADA (não gerada no CI)
 
 **Problema que isto resolve.** Por padrão, o Android Gradle Plugin cria uma

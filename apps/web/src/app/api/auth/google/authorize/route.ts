@@ -15,6 +15,9 @@ export async function GET(req: NextRequest) {
   }
 
   const state = randomBytes(16).toString("hex");
+  const rawNext = req.nextUrl.searchParams.get("next");
+  const nextPath = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/cockpit";
+  const mobile = req.nextUrl.searchParams.get("mobile") === "1";
   const redirectUri = `${baseUrl}/api/auth/google/callback`;
 
   const googleAuthUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -32,6 +35,20 @@ export async function GET(req: NextRequest) {
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 10, // 10 minutes
+  });
+  res.cookies.set("google_oauth_next", nextPath, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 10,
+  });
+  res.cookies.set("google_oauth_mobile", mobile ? "1" : "0", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 10,
   });
 
   return res;

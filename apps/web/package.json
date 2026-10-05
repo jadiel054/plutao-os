@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/browser": "^6.0.2",
+    "@capacitor/core": "^6.2.1",
     "@modelcontextprotocol/server": "^2.0.0",
     "@plutao/db": "*",
     "@plutao/domain": "*",
