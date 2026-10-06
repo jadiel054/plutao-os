@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getUpdateManifest, UpdateRelease } from "@/lib/updates/releases";
+import { DownloadApkButton } from "@/components/DownloadApkButton";
 
 export const revalidate = 60;
 
@@ -24,7 +25,7 @@ function ReleaseCard({ release, featured = false }: { release: UpdateRelease; fe
         <div><dt className="text-[var(--text-muted)]">SHA-256 do APK</dt><dd className="mt-1 break-all font-mono text-[var(--text-secondary)]">{release.sha256}</dd></div>
         {release.signingSha256 && <div><dt className="text-[var(--text-muted)]">Fingerprint da assinatura</dt><dd className="mt-1 break-all font-mono text-[var(--text-secondary)]">{release.signingSha256}</dd></div>}
       </dl>
-      <a href={release.apkUrl} className="mt-4 inline-flex rounded-xl bg-[var(--selo)] px-4 py-2.5 text-sm font-semibold text-[var(--base)] hover:bg-[var(--nucleo)]">Baixar APK</a>
+      <DownloadApkButton url={`/api/updates/download/${encodeURIComponent(release.versionName)}`} />
     </article>
   );
 }
