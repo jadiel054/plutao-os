@@ -1,5 +1,3 @@
-import * as XLSX from "xlsx";
-
 /**
  * Extrai texto legível de arquivos PDF em Buffer.
  */
@@ -21,39 +19,44 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
 }
 
 /**
- * Converte planilhas Excel (.xlsx, .xls) em tabelas Markdown estruturadas para o LLM.
+ * Converte planilhas Excel Open XML (.xlsx) em tabelas Markdown estruturadas para o LLM.
  */
-export function extractTextFromExcel(buffer: Buffer): string {
+export async function extractTextFromExcel(buffer: Buffer): Promise<string> {
   try {
-    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const excelJsModule = await import("exceljs");
+    const ExcelJS = excelJsModule.default ?? excelJsModule;
+    const workbook = new ExcelJS.Workbook();
+    // ExcelJS e @types/node podem declarar Buffers com ArrayBuffer genérico
+    // diferente; em runtime ambos recebem o mesmo Buffer Node.js.
+    await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
     const sheetParts: string[] = [];
 
-    for (const sheetName of workbook.SheetNames) {
-      const sheet = workbook.Sheets[sheetName];
-      if (!sheet) continue;
-
-      const rows = XLSX.utils.sheet_to_json<Array<string | number | boolean>>(sheet, {
-        header: 1,
-        blankrows: false,
+    for (const worksheet of workbook.worksheets) {
+      const rows: unknown[][] = [];
+      worksheet.eachRow({ includeEmpty: false }, (row) => {
+        if (rows.length < 1000) {
+          const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+          rows.push(values);
+        }
       });
 
       if (!rows || rows.length === 0) continue;
 
       const formattedRows: string[] = [];
-      formattedRows.push(`### Planilha: ${sheetName}`);
+      formattedRows.push(`### Planilha: ${worksheet.name}`);
 
       const headerRow = rows[0] || [];
       if (headerRow.length > 0) {
-        const headerCols = headerRow.map((cell) => String(cell ?? "").trim().replace(/\|/g, "\\|"));
+        const headerCols = headerRow.map((cell) => cellToText(cell));
         formattedRows.push(`| ${headerCols.join(" | ")} |`);
         formattedRows.push(`| ${headerCols.map(() => "---").join(" | ")} |`);
 
         for (let i = 1; i < rows.length; i++) {
           const rowData = rows[i] || [];
-          if (rowData.length === 0 && i > 50) break; // cap huge empty spaces
+          if (rowData.length === 0 && i > 50) break;
           const cols = headerCols.map((_, colIdx) => {
             const cellVal = rowData[colIdx];
-            return String(cellVal ?? "").trim().replace(/\|/g, "\\|");
+            return cellToText(cellVal);
           });
           formattedRows.push(`| ${cols.join(" | ")} |`);
         }
@@ -67,4 +70,13 @@ export function extractTextFromExcel(buffer: Buffer): string {
     console.error("[extractTextFromExcel error]", err);
     return "";
   }
+}
+
+function cellToText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") {
+    if ("text" in value && typeof value.text === "string") return value.text.trim().replace(/\|/g, "\\|");
+    if ("result" in value) return String(value.result ?? "").trim().replace(/\|/g, "\\|");
+  }
+  return String(value).trim().replace(/\|/g, "\\|");
 }

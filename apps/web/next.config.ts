@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@plutao/db", "@plutao/domain"],
 
   // Client-only TTS engines (dynamic import). Keep off the Node server bundle.
-  serverExternalPackages: ["@realtimex/piper-tts-web", "kokoro-js"],
+  serverExternalPackages: ["@realtimex/piper-tts-web", "kokoro-js", "exceljs"],
 
   // Piper WASM glue does require("fs") for the Node path; browser needs empty shim.
   // NÃO aliasar `path` — quebra path.normalize no prerender (ex. /404).

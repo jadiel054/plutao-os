@@ -45,6 +45,13 @@ export async function POST(req: NextRequest) {
       const detected = detectArtifactType(fileName);
       const mimeType = file.type || detected.type;
 
+      if (ext === "xls" || mimeType === "application/vnd.ms-excel") {
+        return NextResponse.json(
+          { error: "Formato .xls legado não suportado; envie a planilha em .xlsx." },
+          { status: 415 }
+        );
+      }
+
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
@@ -72,12 +79,11 @@ export async function POST(req: NextRequest) {
         content = pdfText.trim() || `[Documento PDF: ${fileName}]`;
       } else if (
         ext === "xlsx" ||
-        ext === "xls" ||
         mimeType.includes("spreadsheet") ||
         mimeType.includes("excel")
       ) {
         isBinary = true;
-        const excelText = extractTextFromExcel(buffer);
+        const excelText = await extractTextFromExcel(buffer);
         content = excelText.trim() || `[Planilha Excel: ${fileName}]`;
       } else if (
         mimeType.startsWith("image/") ||
