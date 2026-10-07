@@ -5,7 +5,7 @@ import {
   issueAuthorizationCode,
   normalizeScopes,
 } from "@/lib/mcp/tokens";
-import { createGrant, storeAuthCode } from "@/lib/mcp/grants";
+import { createGrant, findOAuthClient, storeAuthCode } from "@/lib/mcp/grants";
 
 export const runtime = "nodejs";
 
@@ -31,6 +31,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
   if (!isRedirectUriAllowed(redirectUri)) {
+    return NextResponse.json({ error: "invalid_redirect_uri" }, { status: 400 });
+  }
+  const registeredClient = await findOAuthClient(clientId);
+  if (registeredClient && !registeredClient.redirectUris.includes(redirectUri)) {
     return NextResponse.json({ error: "invalid_redirect_uri" }, { status: 400 });
   }
 

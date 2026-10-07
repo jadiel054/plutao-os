@@ -4,7 +4,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { createDb, mcpAuthCodes, mcpOauthGrants } from "@plutao/db";
+import { createDb, mcpAuthCodes, mcpOauthClients, mcpOauthGrants } from "@plutao/db";
 
 export function hashToken(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -12,6 +12,35 @@ export function hashToken(value: string): string {
 
 export function newRefreshTokenPlain(): string {
   return `prt_${randomBytes(32).toString("base64url")}`;
+}
+
+export async function createOAuthClient(input: {
+  clientId: string;
+  clientName: string | null;
+  redirectUris: string[];
+  grantTypes: string[];
+  responseTypes: string[];
+  tokenEndpointAuthMethod: "none";
+}): Promise<void> {
+  const db = createDb();
+  await db.insert(mcpOauthClients).values({
+    clientId: input.clientId,
+    clientName: input.clientName,
+    redirectUris: input.redirectUris,
+    grantTypes: input.grantTypes,
+    responseTypes: input.responseTypes,
+    tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
+  });
+}
+
+export async function findOAuthClient(clientId: string) {
+  const db = createDb();
+  const [client] = await db
+    .select()
+    .from(mcpOauthClients)
+    .where(eq(mcpOauthClients.clientId, clientId))
+    .limit(1);
+  return client ?? null;
 }
 
 export async function createGrant(input: {

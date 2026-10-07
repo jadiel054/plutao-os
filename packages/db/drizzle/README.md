@@ -17,7 +17,9 @@ Reflects the Neon database **plutao** as of 2026-09-09:
 | `0003_artifacts` | Artifacts table | Mission/workspace files metadata |
 | `0004_connectors` | MCP/OAuth `connectors` table | Tokens encrypted at app layer. **Required before GitHub OAuth works.** See `docs/CONECTORES_M5.md`. |
 
-Journal: `meta/_journal.json` lists all tags through `0004_connectors`.
+Journal: `meta/_journal.json` lists all applied and pending migration tags.
+
+| `0020_mcp_oauth_clients` | OAuth 2.0 Dynamic Client Registration for MCP (RFC 7591) | Apply before deploying the dynamic registration endpoint. Existing manually configured client IDs remain supported. |
 
 ## Operator procedure (existing Neon)
 

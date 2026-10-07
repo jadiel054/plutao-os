@@ -10,6 +10,7 @@ import {
 import {
   attachRefreshToken,
   consumeAuthCodeRow,
+  findOAuthClient,
   findGrantByRefreshToken,
   newRefreshTokenPlain,
   touchGrant,
@@ -78,6 +79,10 @@ export async function POST(req: NextRequest) {
     if (!refreshToken || !clientId) {
       return tokenError("invalid_request", "refresh_token e client_id obrigatórios");
     }
+    const registeredClient = await findOAuthClient(clientId);
+    if (registeredClient && !registeredClient.grantTypes.includes("refresh_token")) {
+      return tokenError("unsupported_grant_type", "refresh_token não registrado para este cliente");
+    }
     const grant = await findGrantByRefreshToken(refreshToken);
     if (!grant) {
       return tokenError("invalid_grant", "refresh_token inválido ou revogado");
@@ -110,6 +115,10 @@ export async function POST(req: NextRequest) {
   if (!code || !redirectUri || !clientId || !codeVerifier) {
     return tokenError("invalid_request", "code, redirect_uri, client_id e code_verifier obrigatórios");
   }
+  const registeredClient = await findOAuthClient(clientId);
+  if (registeredClient && !registeredClient.grantTypes.includes("authorization_code")) {
+    return tokenError("unsupported_grant_type", "authorization_code não registrado para este cliente");
+  }
 
   let peeked;
   try {
@@ -141,16 +150,16 @@ export async function POST(req: NextRequest) {
     scope: consumed.scope,
     grantId: consumed.grantId,
   });
-  const refreshPlain = newRefreshTokenPlain();
-  await attachRefreshToken(consumed.grantId, refreshPlain, refreshExpiresAt());
+  const supportsRefresh = !registeredClient || registeredClient.grantTypes.includes("refresh_token");
+  const refreshPlain = supportsRefresh ? newRefreshTokenPlain() : undefined;
+  if (refreshPlain) await attachRefreshToken(consumed.grantId, refreshPlain, refreshExpiresAt());
 
   return tokenOk({
     access_token: issued.accessToken,
     token_type: issued.tokenType,
     expires_in: issued.expiresIn,
     scope: issued.scope,
-    refresh_token: refreshPlain,
-    refresh_expires_in: refreshTtlSec(),
+    ...(refreshPlain ? { refresh_token: refreshPlain, refresh_expires_in: refreshTtlSec() } : {}),
   });
 }
 
