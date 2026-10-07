@@ -13,6 +13,7 @@ import { chatCompletion } from "@/lib/runtime/model/client";
 import type { ModelMessage } from "@/lib/runtime/model/types";
 import { hasMcpScope, getMcpAuth } from "./auth";
 import { checkMcpRateLimit, writeMcpAudit } from "./audit";
+import { sanitizeTitle } from "@/lib/security/sanitize";
 import { emitUserMessage, emitAssistantMessage } from "@/lib/events/appendConversationEvent";
 
 const MAX_CONTENT = 4000;
@@ -180,7 +181,6 @@ export type SendMessageInput = {
  * Requer scope mcp:write. Sem conversationId cria conversa com source mcp.
  */
 export async function toolSendMessage(userId: string, input: SendMessageInput) {
-  const auth = getMcpAuth();
   if (!hasMcpScope("mcp:write")) {
     return textResult(
       {
@@ -193,18 +193,8 @@ export async function toolSendMessage(userId: string, input: SendMessageInput) {
     );
   }
 
-  const grantKey = auth.grantId || auth.clientId || userId;
-  const rl = checkMcpRateLimit(grantKey);
-  if (!rl.ok) {
-    return textResult(
-      {
-        error: "rate_limited",
-        message: `Limite de 30 calls/min por grant. Tente em ~${rl.retryAfterSec}s.`,
-        retryAfterSec: rl.retryAfterSec,
-      },
-      true
-    );
-  }
+  // H5 — rate limit agora é aplicado no wrapper `withMcpGuards`, que cobre
+  // TODAS as tools (antes só `plutao_send_message` era limitada).
 
   const content = String(input.content ?? "").trim();
   if (!content) {
@@ -235,7 +225,8 @@ export async function toolSendMessage(userId: string, input: SendMessageInput) {
     }
     conversationId = existing[0].id;
   } else {
-    const title = content.slice(0, 40) || "MCP";
+    // H3 — título de conversa visível via MCP: sanitizado contra segredos.
+    const title = sanitizeTitle(content.slice(0, 40)) || "MCP";
     const now = new Date();
     const created = await db
       .insert(conversations)
@@ -312,7 +303,7 @@ export async function toolSendMessage(userId: string, input: SendMessageInput) {
         conversationId,
         role: "user",
         content,
-        metadata: { source: "mcp", client_id: auth.clientId },
+        metadata: { source: "mcp", client_id: getMcpAuth().clientId },
         createdAt: now,
       },
       {
@@ -355,6 +346,41 @@ export async function toolSendMessage(userId: string, input: SendMessageInput) {
 }
 
 /** Wrapper de auditoria para handlers de tool. */
+/**
+ * H5 — guard aplicado a TODAS as tools MCP: rate limit por grant + auditoria.
+ * Substitui o uso direto de `withMcpAudit` na rota.
+ */
+export async function withMcpGuards<T extends { content: unknown[]; isError?: boolean }>(
+  tool: string,
+  params: unknown,
+  fn: () => Promise<T>
+): Promise<T> {
+  const auth = getMcpAuth();
+  const grantKey = auth.grantId || auth.clientId || auth.userId;
+  const rl = checkMcpRateLimit(grantKey);
+  if (!rl.ok) {
+    await writeMcpAudit({
+      userId: auth.userId,
+      clientId: auth.clientId,
+      grantId: auth.grantId,
+      tool,
+      params,
+      status: "rate_limited",
+      latencyMs: 0,
+      errorMessage: `rate limit excedido (retryAfter=${rl.retryAfterSec}s)`,
+    });
+    return textResult(
+      {
+        error: "rate_limited",
+        message: `Limite de 30 calls/min por grant. Tente em ~${rl.retryAfterSec}s.`,
+        retryAfterSec: rl.retryAfterSec,
+      },
+      true
+    ) as unknown as T;
+  }
+  return withMcpAudit(tool, params, fn);
+}
+
 export async function withMcpAudit<T extends { content: unknown[]; isError?: boolean }>(
   tool: string,
   params: unknown,

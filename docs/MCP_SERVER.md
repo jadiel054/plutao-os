@@ -89,7 +89,7 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 - [x] Refresh token + rotação
 - [x] Revogação de grants (API + UI Privacidade)
 - [x] Write tools (`mcp:write`) com gate no call time
-- [x] Rate limit por grant: 30 calls/min
+- [x] Rate limit por grant: 30 calls/min **em todas as tools** (guard `withMcpGuards`)
 - [x] Auditoria de todo call (audit_events `mcp.tool_call`)
 - [x] `system_status.model` mascarado (`plutao-primary`)
 - [x] Evidence de missão (`model_step.source`) mascarado (`model:plutao-primary`) — não grava `model:groq:…`
@@ -123,7 +123,9 @@ Todo call (read e write) grava em `audit_events`:
 
 ### Rate limit
 
-30 calls / 60s por grant (janela em memória de processo). Acima: `rate_limited` + `retryAfterSec`.
+30 calls / 60s por grant (janela em memória de processo), aplicado a **todas** as tools pelo
+wrapper `withMcpGuards` — não só a `plutao_send_message`. Acima: `rate_limited` + `retryAfterSec`,
+e o bloqueio é registrado em `audit_events` com status `rate_limited`.
 
 ---
 
@@ -132,7 +134,8 @@ Todo call (read e write) grava em `audit_events`:
 - `apps/web/src/lib/mcp/tokens.ts` — codes + access tokens HMAC; `MCP_SCOPES`
 - `apps/web/src/lib/mcp/auth.ts` — Bearer verify + ALS + `hasMcpScope`
 - `apps/web/src/lib/mcp/tools.ts` — tools + send_message
-- `apps/web/src/lib/mcp/audit.ts` — audit + rate limit
+- `apps/web/src/lib/mcp/audit.ts` — audit (erros passam pelo sanitizador central) + rate limit
+- `apps/web/src/lib/mcp/tools.ts#withMcpGuards` — rate limit + auditoria para todas as tools
 - `apps/web/src/lib/mcp/grants.ts` — grants DB
 - `apps/web/src/app/api/mcp/route.ts`
 - `apps/web/src/app/api/oauth/*`

@@ -1,4 +1,5 @@
 import type { ConnectorManifest, CapabilityManifest } from "./manifests/types";
+import { capabilityBlockReason } from "@/lib/capabilities/registry";
 
 export type RestCapabilityResult =
   | { ok: true; output: string; rawData?: unknown }
@@ -16,6 +17,13 @@ export async function runRestCapability(
   args: Record<string, unknown>,
   token: string
 ): Promise<RestCapabilityResult> {
+  // H9 — registro de capacidades: capability não registrada/desabilitada/sem
+  // controle implementado é recusada ANTES de qualquer chamada HTTP.
+  const blocked = capabilityBlockReason(manifest.provider, capName);
+  if (blocked) {
+    return { ok: false, error: blocked };
+  }
+
   const cap = manifest.capabilities.find((c) => c.name === capName);
   if (!cap) {
     return {

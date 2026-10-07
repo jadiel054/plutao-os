@@ -50,10 +50,11 @@ describe("Hardening do caminho de escrita do chat (Bugs 1 e 2)", () => {
     if (!res.ok) {
       expect(res.error).toContain("Não consegui iniciar a operação project_create: Erro de conexão no banco de dados Neon");
     }
+    // H1 — a criação do gate agora vive no guard compartilhado.
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "[runVercel createWriteGate error]",
+      "[guardWrite createWriteGate error]",
       expect.objectContaining({
-        action: "project_create",
+        capability: "project_create",
         error: "Erro de conexão no banco de dados Neon",
       })
     );

@@ -22,6 +22,12 @@ import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials"
 import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
 import { emitConnectorToolEvents } from "./emitConnectorToolEvents";
 import { NIX_IDENTITY, OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
+import {
+  sanitizeTitle,
+  sanitizeValue,
+  sanitizeError,
+  sanitizeErrorForClient,
+} from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
 
@@ -61,7 +67,11 @@ async function getOrCreateConversation(
       }
     }
 
-    const title = initialText && initialText.trim() ? initialText.trim().slice(0, 40) : "Nova conversa";
+    // H3 — título é exposto via MCP (plutao_list_conversations): sanitizado.
+    const title =
+      initialText && initialText.trim()
+        ? sanitizeTitle(initialText.trim().slice(0, 40)) || "Nova conversa"
+        : "Nova conversa";
     const now = new Date();
     const created = await db
       .insert(conversations)
@@ -125,7 +135,10 @@ export async function POST(req: NextRequest) {
     user = await getAuthOrGuestUser();
   } catch (err) {
     if (err instanceof GuestRateLimitError) {
-      return NextResponse.json({ error: err.message }, { status: 429 });
+      return NextResponse.json(
+        { error: sanitizeErrorForClient(err, { fallback: "Limite de uso atingido." }).error },
+        { status: 429 }
+      );
     }
     console.error("[POST /api/chat auth error]", err);
     return NextResponse.json({ error: "Erro de autenticação no servidor" }, { status: 500 });
@@ -888,7 +901,15 @@ ${
             if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);
             if (toolRunRes.vercel.trace) toolTraces.push(toolRunRes.vercel.trace);
 
-            const trace = toolTraces.length > 0 ? { toolCalls: toolTraces } : undefined;
+            // H3 — sanitização central do trace antes de sair no SSE.
+            const trace =
+              toolTraces.length > 0
+                ? {
+                    toolCalls: sanitizeValue(toolTraces, {
+                      extraSensitiveKeys: ["value"],
+                    }),
+                  }
+                : undefined;
 
             const steps: Array<
               | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
@@ -972,9 +993,12 @@ ${
               trace,
             });
           } catch (err) {
-            emit("error", {
-              error: err instanceof Error ? err.message : "Erro no streaming de resposta",
+            // H3 — erro para o cliente sem stack/segredo, com ref de correlação.
+            const safeError = sanitizeErrorForClient(err, {
+              fallback: "Erro no streaming de resposta",
             });
+            console.error("[api/chat] stream error", { ref: safeError.ref, error: sanitizeError(err) });
+            emit("error", { error: safeError.error, ref: safeError.ref });
           } finally {
             controller.close();
           }
@@ -1038,7 +1062,7 @@ ${
       const isGemini = effectiveModelConfig.provider === "gemini";
       const fallbackConfig = isGemini ? getModelConfig() : null;
 
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = sanitizeError(err);
       const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
 
       if (isGemini && fallbackConfig && !isClient4xx) {
@@ -1150,7 +1174,15 @@ ${
     if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);
     if (toolRunRes.vercel.trace) toolTraces.push(toolRunRes.vercel.trace);
 
-    const trace = toolTraces.length > 0 ? { toolCalls: toolTraces } : undefined;
+    // H3 — sanitização central do trace antes de sair no SSE.
+            const trace =
+              toolTraces.length > 0
+                ? {
+                    toolCalls: sanitizeValue(toolTraces, {
+                      extraSensitiveKeys: ["value"],
+                    }),
+                  }
+                : undefined;
 
     const activeReasoningSteps =
       extractedReasoningSteps.length > 0 ? extractedReasoningSteps : reasoningSteps;

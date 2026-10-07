@@ -28,12 +28,21 @@ export const writeGates = pgTable(
     target: text("target").notNull(),
     summary: text("summary").notNull(),
     payload: jsonb("payload").notNull().default({}),
+    /**
+     * H1 — hash canônico (sha256) do payload aprovado.
+     * A execução só acontece se o hash do payload a executar for idêntico.
+     */
+    payloadHash: text("payload_hash"),
     contentPreview: text("content_preview"),
     status: text("status").notNull().default("pending"),
     decision: text("decision"),
     result: jsonb("result"),
     error: text("error"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** H1 — marca de consumo único, preenchida no claim atômico. */
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    /** Capability que consumiu o gate (rastreabilidade). */
+    consumedBy: text("consumed_by"),
     executedAt: timestamp("executed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -43,6 +52,7 @@ export const writeGates = pgTable(
     index("write_gates_mission_id_idx").on(t.missionId),
     index("write_gates_status_idx").on(t.status),
     index("write_gates_user_status_idx").on(t.userId, t.status),
+    index("write_gates_status_consumed_idx").on(t.status, t.consumedAt),
   ]
 );
 

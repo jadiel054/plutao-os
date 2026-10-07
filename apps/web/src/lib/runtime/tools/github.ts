@@ -1,7 +1,10 @@
 /**
  * Tool github — REST via token OAuth do conector do usuário.
- * Reads: executam direto.
- * Writes: criam write_gate (pending) até aprovação humana; depois executam.
+ *
+ * Reads: executam direto (sujeitos ao registro de capacidades).
+ * Writes (H1/H9): exigem write_gate aprovado por humano, validado no servidor
+ * (id + usuário + status approved + hash do payload + uso único). O booleano
+ * `_gateApproved` foi REMOVIDO: não existe mais caminho de escrita sem gate.
  */
 
 import { getConnectorRow } from "@/lib/connectors/service";
@@ -13,7 +16,8 @@ import { githubWriteFilesWithToken } from "@/lib/connectors/githubFiles";
 import { githubBranchesList, githubBranchesCreate } from "@/lib/connectors/githubBranches";
 import { githubPullsCreate, githubPullsList, githubPullsGet } from "@/lib/connectors/githubPulls";
 import { githubCodeSearch, githubTree } from "@/lib/connectors/githubCode";
-import { createWriteGate } from "@/lib/connectors/gates";
+import { guardWrite, type GateFinalize } from "@/lib/connectors/writeGateGuard";
+import { capabilityBlockReason } from "@/lib/capabilities/registry";
 import type { ConnectorCapability } from "@plutao/domain";
 import type { ToolResult } from "./types";
 
@@ -82,7 +86,7 @@ type GhPayload = {
   query?: string;
   tree_sha?: string;
   recursive?: boolean;
-  _gateApproved?: boolean;
+  /** H1 — id do write_gate aprovado. Único campo de autorização aceito. */
   _gateId?: string;
   missionId?: string;
 };
@@ -109,7 +113,10 @@ function parseInput(raw: string): GhPayload | { error: string } {
       owner: j.owner ? String(j.owner) : undefined,
       repo: j.repo ? String(j.repo) : undefined,
       number: typeof j.number === "number" ? j.number : undefined,
-      state: j.state === "closed" || j.state === "all" || j.state === "open" ? (j.state as "open" | "closed" | "all") : undefined,
+      state:
+        j.state === "closed" || j.state === "all" || j.state === "open"
+          ? (j.state as "open" | "closed" | "all")
+          : undefined,
       per_page: typeof j.per_page === "number" ? Math.min(30, Math.max(1, j.per_page)) : 10,
       name: j.name ? String(j.name) : undefined,
       private: typeof j.private === "boolean" ? j.private : undefined,
@@ -125,7 +132,6 @@ function parseInput(raw: string): GhPayload | { error: string } {
       query: j.query ? String(j.query) : undefined,
       tree_sha: j.tree_sha ? String(j.tree_sha) : undefined,
       recursive: typeof j.recursive === "boolean" ? j.recursive : true,
-      _gateApproved: j._gateApproved === true,
       _gateId: j._gateId ? String(j._gateId) : undefined,
       missionId: j.missionId ? String(j.missionId) : undefined,
     };
@@ -142,11 +148,67 @@ function previewFiles(files?: Array<{ path: string; content: string }>): string 
     .join("\n");
 }
 
+/**
+ * Payload normalizado que representa a INTENÇÃO de escrita aprovada.
+ * É este objeto (e apenas ele) que entra no hash do gate.
+ */
+function buildWritePayload(parsed: GhPayload): Record<string, unknown> {
+  return {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    name: parsed.name,
+    private: parsed.private,
+    description: parsed.description,
+    files: parsed.files,
+    message: parsed.message,
+    branch: parsed.branch,
+    from_branch: parsed.from_branch,
+    title: parsed.title,
+    body: parsed.body,
+    head: parsed.head,
+    base: parsed.base,
+  };
+}
+
+function describeWrite(
+  parsed: GhPayload,
+  row: { accountLogin: string | null }
+): { target: string; summary: string; contentPreview: string | null } {
+  const target =
+    parsed.action === "repo_create"
+      ? `github.com/new/${parsed.name || "repo"}`
+      : `${parsed.owner || row.accountLogin || "?"}/${parsed.repo || "?"}`;
+
+  let summary = `Push de ${parsed.files?.length ?? 0} arquivo(s) em ${target}`;
+  if (parsed.action === "repo_create") {
+    summary = `Criar repositório "${parsed.name}" (${parsed.private ? "privado" : "público"})`;
+  } else if (parsed.action === "github.branches.create" || parsed.action === "branches_create") {
+    summary = `Criar branch "${parsed.branch}" em ${target}`;
+  } else if (parsed.action === "github.prs.create" || parsed.action === "prs_create") {
+    summary = `Abrir PR "${parsed.title}" (${parsed.head} → ${parsed.base}) em ${target}`;
+  }
+
+  const contentPreview =
+    parsed.action === "push_files" || parsed.action === "github.files.write"
+      ? previewFiles(parsed.files)
+      : parsed.description || parsed.body || null;
+
+  return { target, summary, contentPreview };
+}
+
+type WriteOutcome = { ok: true; output: string } | { ok: false; error: string };
+
 export async function runGithub(input: string, userId: string): Promise<ToolResult> {
   const started = Date.now();
   const parsed = parseInput(input);
   if ("error" in parsed) {
     return { ok: false, tool: "github", input, error: parsed.error, durationMs: Date.now() - started };
+  }
+
+  // H9 — capacidade precisa estar registrada e habilitada (fail-closed).
+  const blocked = capabilityBlockReason("github", parsed.action);
+  if (blocked) {
+    return { ok: false, tool: "github", input, error: blocked, durationMs: Date.now() - started };
   }
 
   const row = await getConnectorRow(userId, "github");
@@ -162,6 +224,7 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
 
   const caps = parseCapabilities(row.capabilities);
   const manifestCap = githubManifest.capabilities.find((c) => c.name === parsed.action);
+  // H7 — fail-closed: sem capacidade no conector do usuário nem no manifesto, recusa.
   const cap =
     caps.find((c) => c.name === parsed.action) ||
     (manifestCap
@@ -171,11 +234,17 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
           kind: "rest_api" as const,
           mode: manifestCap.mode,
         }
-      : null) ||
-    // Fallback cap check for short names if manifest lists full prefixed names
-    (WRITE_ACTIONS.includes(parsed.action as (typeof WRITE_ACTIONS)[number])
-      ? { name: parsed.action, mode: "write" as const, kind: "rest_api" as const }
-      : { name: parsed.action, mode: "read" as const, kind: "rest_api" as const });
+      : null);
+
+  if (!cap) {
+    return {
+      ok: false,
+      tool: "github",
+      input,
+      error: `Capability '${parsed.action}' não está autorizada no conector GitHub do usuário.`,
+      durationMs: Date.now() - started,
+    };
+  }
 
   let token: string | null = null;
   try {
@@ -196,144 +265,98 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
   const isWrite =
     cap.mode === "write" || WRITE_ACTIONS.includes(parsed.action as (typeof WRITE_ACTIONS)[number]);
 
-  if (isWrite && !parsed._gateApproved) {
-    const target =
-      parsed.action === "repo_create"
-        ? `github.com/new/${parsed.name || "repo"}`
-        : `${parsed.owner || row.accountLogin || "?"}/${parsed.repo || "?"}`;
-
-    let summary = `Push de ${parsed.files?.length ?? 0} arquivo(s) em ${target}`;
+  const performWrite = async (): Promise<WriteOutcome> => {
     if (parsed.action === "repo_create") {
-      summary = `Criar repositório "${parsed.name}" (${parsed.private ? "privado" : "público"})`;
-    } else if (parsed.action === "github.branches.create" || parsed.action === "branches_create") {
-      summary = `Criar branch "${parsed.branch}" em ${target}`;
-    } else if (parsed.action === "github.prs.create" || parsed.action === "prs_create") {
-      summary = `Abrir PR "${parsed.title}" (${parsed.head} → ${parsed.base}) em ${target}`;
-    }
-
-    const contentPreview =
-      parsed.action === "push_files" || parsed.action === "github.files.write"
-        ? previewFiles(parsed.files)
-        : parsed.description || parsed.body || null;
-
-    try {
-      const gate = await createWriteGate({
-        userId,
-        missionId: parsed.missionId ?? null,
-        provider: "github",
-        capability: parsed.action,
-        target,
-        summary,
-        payload: {
-          action: parsed.action,
-          owner: parsed.owner,
-          repo: parsed.repo,
-          name: parsed.name,
-          private: parsed.private,
-          description: parsed.description,
-          files: parsed.files,
-          message: parsed.message,
-          branch: parsed.branch,
-          from_branch: parsed.from_branch,
-          title: parsed.title,
-          body: parsed.body,
-          head: parsed.head,
-          base: parsed.base,
-        },
-        contentPreview,
+      const res = await githubCreateRepo(token, {
+        name: parsed.name || "plutao-project",
+        private: parsed.private,
+        description: parsed.description,
       });
-
-      return {
-        ok: true,
-        tool: "github",
-        input,
-        output: [
-          "GATE_PENDING",
-          `gate_id: ${gate.id}`,
-          `capability: ${parsed.action}`,
-          `target: ${target}`,
-          `summary: ${summary}`,
-          "Aguardando aprovação humana no chat (Princípio 1). Não execute write sem aprovação.",
-        ].join("\n"),
-        durationMs: Date.now() - started,
-      };
-    } catch (e) {
-      const reason = e instanceof Error ? e.message : "Falha ao criar write_gate";
-      console.error("[runGithub createWriteGate error]", { action: parsed.action, input, error: reason });
-      return {
-        ok: false,
-        tool: "github",
-        input,
-        error: `Não consegui iniciar a operação ${parsed.action}: ${reason}`,
-        durationMs: Date.now() - started,
-      };
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
     }
-  }
 
-  // Execute Action Handlers
-  if (parsed.action === "repo_create") {
-    const res = await githubCreateRepo(token, {
-      name: parsed.name || "plutao-project",
-      private: parsed.private,
-      description: parsed.description,
+    if (parsed.action === "push_files" || parsed.action === "github.files.write") {
+      const owner = parsed.owner || row.accountLogin || "";
+      const res = await githubWriteFilesWithToken(token, {
+        owner,
+        repo: parsed.repo || "",
+        files: parsed.files || [],
+        message: parsed.message,
+        branch: parsed.branch,
+      });
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
+    }
+
+    if (parsed.action === "github.branches.create" || parsed.action === "branches_create") {
+      const owner = parsed.owner || row.accountLogin || "";
+      const res = await githubBranchesCreate(token, {
+        owner,
+        repo: parsed.repo || "",
+        branch: parsed.branch || "",
+        from_branch: parsed.from_branch,
+      });
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
+    }
+
+    if (parsed.action === "github.prs.create" || parsed.action === "prs_create") {
+      const owner = parsed.owner || row.accountLogin || "";
+      const res = await githubPullsCreate(token, {
+        owner,
+        repo: parsed.repo || "",
+        title: parsed.title || "Pull Request via Plutão OS",
+        body: parsed.body,
+        head: parsed.head || "",
+        base: parsed.base || "main",
+      });
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
+    }
+
+    return { ok: false, error: `Write '${parsed.action}' não reconhecida.` };
+  };
+
+  // ---- Caminho de escrita: gate obrigatório, validado no servidor ----
+  if (isWrite) {
+    const { target, summary, contentPreview } = describeWrite(parsed, row);
+    const guard = await guardWrite({
+      userId,
+      provider: "github",
+      capability: parsed.action,
+      target,
+      summary,
+      payload: buildWritePayload(parsed),
+      contentPreview,
+      missionId: parsed.missionId ?? null,
+      gateId: parsed._gateId,
     });
-    if (!res.ok) {
-      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
-    }
-    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
-  }
 
-  if (parsed.action === "push_files" || parsed.action === "github.files.write") {
-    const owner = parsed.owner || row.accountLogin || "";
-    const res = await githubWriteFilesWithToken(token, {
-      owner,
-      repo: parsed.repo || "",
-      files: parsed.files || [],
-      message: parsed.message,
-      branch: parsed.branch,
+    if (guard.kind === "refused") {
+      return { ok: false, tool: "github", input, error: guard.error, durationMs: Date.now() - started };
+    }
+    if (guard.kind === "gate_pending") {
+      return { ok: true, tool: "github", input, output: guard.output, durationMs: Date.now() - started };
+    }
+
+    const finalize: GateFinalize = guard.finalize;
+    const outcome = await performWrite();
+    await finalize({
+      ok: outcome.ok,
+      output: outcome.ok ? outcome.output : null,
+      error: outcome.ok ? null : outcome.error,
     });
-    if (!res.ok) {
-      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
+
+    if (!outcome.ok) {
+      return { ok: false, tool: "github", input, error: outcome.error, durationMs: Date.now() - started };
     }
-    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
+    return { ok: true, tool: "github", input, output: outcome.output, durationMs: Date.now() - started };
   }
 
+  // ---- Caminho de leitura ----
   if (parsed.action === "github.branches.list" || parsed.action === "branches_list") {
     const owner = parsed.owner || row.accountLogin || "";
     const res = await githubBranchesList(token, {
       owner,
       repo: parsed.repo || "",
       per_page: parsed.per_page,
-    });
-    if (!res.ok) {
-      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
-    }
-    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
-  }
-
-  if (parsed.action === "github.branches.create" || parsed.action === "branches_create") {
-    const owner = parsed.owner || row.accountLogin || "";
-    const res = await githubBranchesCreate(token, {
-      owner,
-      repo: parsed.repo || "",
-      branch: parsed.branch || "",
-      from_branch: parsed.from_branch,
-    });
-    if (!res.ok) {
-      return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };
-    }
-    return { ok: true, tool: "github", input, output: res.output, durationMs: Date.now() - started };
-  }
-
-  if (parsed.action === "github.prs.create" || parsed.action === "prs_create") {
-    const owner = parsed.owner || row.accountLogin || "";
-    const res = await githubPullsCreate(token, {
-      owner,
-      repo: parsed.repo || "",
-      title: parsed.title || "Pull Request via Plutão OS",
-      body: parsed.body,
-      head: parsed.head || "",
-      base: parsed.base || "main",
     });
     if (!res.ok) {
       return { ok: false, tool: "github", input, error: res.error, durationMs: Date.now() - started };

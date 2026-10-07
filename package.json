@@ -2,14 +2,15 @@
   "name": "plutao",
   "version": "0.1.0",
   "private": true,
-  "description": "Plutão — Personal Autonomous AI Operating System",
+  "description": "Plut\u00e3o \u2014 Personal Autonomous AI Operating System",
   "scripts": {
     "dev": "npm run dev -w apps/web",
     "build": "npm run build -w apps/web",
     "start": "npm run start -w apps/web",
     "lint": "npm run lint -w apps/web",
     "typecheck": "npm run typecheck -w packages/domain --if-present && npm run typecheck -w packages/db --if-present && npm run typecheck -w apps/web --if-present",
-    "test": "vitest run"
+    "test": "vitest run",
+    "docs:capabilities": "UPDATE_DOCS=1 vitest run apps/web/src/lib/capabilities/__tests__/capabilitiesDoc.test.ts"
   },
   "workspaces": [
     "apps/*",
