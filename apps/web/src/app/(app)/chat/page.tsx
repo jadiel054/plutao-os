@@ -1550,7 +1550,7 @@ function ChatPageInner() {
               ref={fileInputRef}
               onChange={(e) => void handleFileSelect(e)}
               multiple
-              accept=".md,.markdown,.txt,.csv,.html,.htm,.css,.json,.js,.ts,.jsx,.tsx,.py,.log,.xml,.yaml,.yml,.pdf,.xlsx,.xls,image/*"
+              accept=".md,.markdown,.txt,.csv,.html,.htm,.css,.json,.js,.ts,.jsx,.tsx,.py,.log,.xml,.yaml,.yml,.pdf,.xlsx,image/*"
               className="hidden"
             />
             <ChatAttachMenu

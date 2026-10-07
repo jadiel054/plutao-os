@@ -7,26 +7,20 @@
  * write gates (writes criam GATE_PENDING e seguem para aprovação humana).
  */
 
-export type MissionAgentInfo = {
-  name: string;
-  identity: string | null;
-  personality: string | null;
-} | null;
+import {
+  DEFAULT_AGENT_PROFILE,
+  buildIdentityBlock,
+  type AgentProfile,
+} from "@/lib/agente/identity";
+
+export type MissionAgentInfo = AgentProfile | null;
 
 export function buildSystemPrompt(
   agent: MissionAgentInfo,
   connectorBlock: string,
   missionId?: string | null
 ): string {
-  const identityLines = agent
-    ? [
-        `Agent name: ${agent.name}`,
-        agent.identity ? `Identity: ${agent.identity}` : null,
-        agent.personality ? `Personality: ${agent.personality}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n")
-    : "Agent: Plutão (default)";
+  const identityLines = buildIdentityBlock(agent ?? DEFAULT_AGENT_PROFILE);
 
   const missionIdLine = missionId
     ? `\nCurrent missionId (include it in every tool JSON payload as "missionId"): ${missionId}\n`

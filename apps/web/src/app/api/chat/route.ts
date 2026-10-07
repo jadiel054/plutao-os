@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, inArray, and } from "drizzle-orm";
-import { artifacts as artifactsTable, users, usageCounters, conversations, missions } from "@plutao/db";
+import { artifacts as artifactsTable, users, usageCounters, conversations } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";
@@ -15,7 +15,6 @@ import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
-import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { recordModelError } from "@/lib/missions/recordModelError";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
@@ -28,6 +27,7 @@ import {
 } from "@/lib/agente/identity";
 import {
   sanitizeTitle,
+  sanitizeText,
   sanitizeValue,
   sanitizeError,
   sanitizeErrorForClient,
@@ -51,6 +51,15 @@ type AttachedArtifactMeta = {
 
 const MAX_MESSAGE_LENGTH = 4000;
 const MAX_TOTAL_HISTORY_LENGTH = 16000;
+const TRACE_EXTRA_SENSITIVE_KEYS = ["value", "fullInput", "fullOutput"] as const;
+
+function safeTraceInput(input: unknown): unknown {
+  return sanitizeValue(input, { extraSensitiveKeys: TRACE_EXTRA_SENSITIVE_KEYS });
+}
+
+function safeTraceOutput(output: string): string {
+  return sanitizeText(output);
+}
 
 async function getOrCreateConversation(
   db: ReturnType<typeof getDb>,
@@ -604,7 +613,7 @@ ${
                       const line = rawLine.trim();
                       if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                         const stepIndex = dynamicReasoningSteps.length + 1;
-                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                         dynamicReasoningSteps.push(stepItem);
                         emit("reasoning_step", stepItem);
                       }
@@ -618,7 +627,7 @@ ${
                       const line = rawLine.trim();
                       if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                         const stepIndex = dynamicReasoningSteps.length + 1;
-                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                         dynamicReasoningSteps.push(stepItem);
                         emit("reasoning_step", stepItem);
                       }
@@ -654,7 +663,7 @@ ${
                         const line = rawLine.trim();
                         if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                           const stepIndex = dynamicReasoningSteps.length + 1;
-                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                           dynamicReasoningSteps.push(stepItem);
                           emit("reasoning_step", stepItem);
                         }
@@ -668,7 +677,7 @@ ${
                         const line = rawLine.trim();
                         if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                           const stepIndex = dynamicReasoningSteps.length + 1;
-                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                           dynamicReasoningSteps.push(stepItem);
                           emit("reasoning_step", stepItem);
                         }
@@ -688,7 +697,7 @@ ${
                 const line = rawLine.trim();
                 if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                   const stepIndex = dynamicReasoningSteps.length + 1;
-                  const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                  const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                   dynamicReasoningSteps.push(stepItem);
                   emit("reasoning_step", stepItem);
                 }
@@ -696,10 +705,9 @@ ${
             }
 
             // Fallback reasoning steps if LLM did not generate <raciocinio> tags
-            const finalReasoningSteps =
-              dynamicReasoningSteps.length > 0
-                ? dynamicReasoningSteps
-                : reasoningSteps;
+            const finalReasoningSteps = (
+              dynamicReasoningSteps.length > 0 ? dynamicReasoningSteps : reasoningSteps
+            ).map((step) => ({ ...step, text: sanitizeText(step.text) }));
 
             // ==========================================
             // FASE 2 — EXECUÇÃO (Tools de conectores - APÓS RACIOCÍNIO)
@@ -717,16 +725,16 @@ ${
                 id: toolId,
                 provider: "github",
                 capability: toolRunRes.github.capability,
-                summaryInput: toolRunRes.github.trace?.input,
+                summaryInput: safeTraceInput(toolRunRes.github.trace?.input),
               });
 
               if (toolRunRes.github.trace) {
                 emit("tool_result", {
                   id: toolId,
                   status: toolRunRes.github.trace.status,
-                  summaryOutput: toolRunRes.github.trace.output.slice(0, 300),
-                  fullInput: toolRunRes.github.trace.input,
-                  fullOutput: toolRunRes.github.trace.output,
+                  summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.github.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
                   durationMs: toolRunRes.github.trace.durationMs,
                 });
               }
@@ -738,16 +746,16 @@ ${
                 id: toolId,
                 provider: "vercel",
                 capability: toolRunRes.vercel.capability,
-                summaryInput: toolRunRes.vercel.trace?.input,
+                summaryInput: safeTraceInput(toolRunRes.vercel.trace?.input),
               });
 
               if (toolRunRes.vercel.trace) {
                 emit("tool_result", {
                   id: toolId,
                   status: toolRunRes.vercel.trace.status,
-                  summaryOutput: toolRunRes.vercel.trace.output.slice(0, 300),
-                  fullInput: toolRunRes.vercel.trace.input,
-                  fullOutput: toolRunRes.vercel.trace.output,
+                  summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
                   durationMs: toolRunRes.vercel.trace.durationMs,
                 });
               }
@@ -772,35 +780,16 @@ ${
                 },
               ];
 
-              let inStreamAnswerBlock = false;
               let rawStreamOutput = "";
 
               try {
                 const answerGenerator = streamChatCompletion(streamModelConfig, responsePayloadMessages);
                 for await (const chunk of answerGenerator) {
                   rawStreamOutput += chunk;
-                  if (!inStreamAnswerBlock) {
-                    if (rawStreamOutput.includes("<resposta>")) {
-                      inStreamAnswerBlock = true;
-                      const idx = rawStreamOutput.indexOf("<resposta>");
-                      const firstText = rawStreamOutput.slice(idx + "<resposta>".length);
-                      if (firstText) {
-                        emit("content_delta", { text: firstText });
-                      }
-                    } else if (!rawStreamOutput.includes("<")) {
-                      // Direct output without tags
-                      emit("content_delta", { text: chunk });
-                    }
-                  } else {
-                    const cleanChunk = chunk.replace("</resposta>", "");
-                    if (cleanChunk) {
-                      emit("content_delta", { text: cleanChunk });
-                    }
-                  }
                 }
               } catch (err) {
                 console.error("[chat streaming FASE 3 error]", err);
-                const errDetail = err instanceof Error ? err.message : String(err);
+                const errDetail = sanitizeError(err, "erro no modelo");
                 if (missionId) {
                   await recordModelError({
                     missionId,
@@ -809,7 +798,6 @@ ${
                   });
                 }
                 const errorMsg = `Não foi possível gerar a resposta final com o modelo: ${errDetail}. Verifique suas configurações de modelo.`;
-                emit("content_delta", { text: errorMsg });
                 rawStreamOutput = errorMsg;
               }
 
@@ -817,7 +805,12 @@ ${
               if (cleaned.includes("<resposta>")) {
                 cleaned = cleaned.split("<resposta>")[1] || "";
               }
-              assistantContent = cleaned.replace(/<\/?resposta>/g, "").trim();
+              assistantContent = sanitizeText(cleaned.replace(/<\/?resposta>/g, "").trim());
+              if (assistantContent) {
+                for (const word of assistantContent.split(" ")) {
+                  if (word) emit("content_delta", { text: `${word} ` });
+                }
+              }
             }
 
             if (!assistantContent) {
@@ -833,6 +826,7 @@ ${
               if (!cleanedAnswer) {
                 cleanedAnswer = "Não consegui gerar uma resposta agora. Tente novamente.";
               }
+              cleanedAnswer = sanitizeText(cleanedAnswer);
 
               const words = cleanedAnswer.split(" ");
               let chunk = "";
@@ -845,6 +839,8 @@ ${
               }
               assistantContent = cleanedAnswer;
             }
+
+            assistantContent = sanitizeText(assistantContent);
 
             const suggestedPlan = extractSuggestedPlan(assistantContent);
             const suggestedConnectors = detectSuggestedConnectors({
@@ -863,7 +859,7 @@ ${
                       provider: "github",
                       capability: toolRunRes.github.capability,
                       status: toolRunRes.github.trace.status,
-                      outputSnippet: toolRunRes.github.trace.output,
+                      outputSnippet: safeTraceOutput(toolRunRes.github.trace.output),
                     }
                   : null,
                 toolRunRes.vercel.executed && toolRunRes.vercel.trace
@@ -871,7 +867,7 @@ ${
                       provider: "vercel",
                       capability: toolRunRes.vercel.capability,
                       status: toolRunRes.vercel.trace.status,
-                      outputSnippet: toolRunRes.vercel.trace.output,
+                      outputSnippet: safeTraceOutput(toolRunRes.vercel.trace.output),
                     }
                   : null,
               ].filter(Boolean) as Array<{
@@ -919,11 +915,11 @@ ${
                   status: toolRunRes.github.trace.status,
                   summaryInput:
                     typeof toolRunRes.github.trace.input === "string"
-                      ? toolRunRes.github.trace.input
-                      : JSON.stringify(toolRunRes.github.trace.input),
-                  summaryOutput: toolRunRes.github.trace.output.slice(0, 300),
-                  fullInput: toolRunRes.github.trace.input,
-                  fullOutput: toolRunRes.github.trace.output,
+                      ? safeTraceOutput(toolRunRes.github.trace.input)
+                      : JSON.stringify(safeTraceInput(toolRunRes.github.trace.input)),
+                  summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.github.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
                   durationMs: toolRunRes.github.trace.durationMs,
                 },
               });
@@ -939,11 +935,11 @@ ${
                   status: toolRunRes.vercel.trace.status,
                   summaryInput:
                     typeof toolRunRes.vercel.trace.input === "string"
-                      ? toolRunRes.vercel.trace.input
-                      : JSON.stringify(toolRunRes.vercel.trace.input),
-                  summaryOutput: toolRunRes.vercel.trace.output.slice(0, 300),
-                  fullInput: toolRunRes.vercel.trace.input,
-                  fullOutput: toolRunRes.vercel.trace.output,
+                      ? safeTraceOutput(toolRunRes.vercel.trace.input)
+                      : JSON.stringify(safeTraceInput(toolRunRes.vercel.trace.input)),
+                  summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
                   durationMs: toolRunRes.vercel.trace.durationMs,
                 },
               });
@@ -1113,11 +1109,12 @@ ${
       .replace(/<\/?resposta>/g, "")
       .trim();
 
-    const assistantContent =
+    const assistantContent = sanitizeText(
       cleanedNonStreamAnswer ||
-      (validatedArtifacts.length > 0
-        ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
-        : "Não consegui gerar uma resposta agora. Tente novamente.");
+        (validatedArtifacts.length > 0
+          ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
+          : "Não consegui gerar uma resposta agora. Tente novamente.")
+    );
 
     const suggestedPlan = extractSuggestedPlan(assistantContent);
     const suggestedConnectors = detectSuggestedConnectors({
@@ -1136,7 +1133,7 @@ ${
               provider: "github",
               capability: toolRunRes.github.capability,
               status: toolRunRes.github.trace.status,
-              outputSnippet: toolRunRes.github.trace.output,
+              outputSnippet: safeTraceOutput(toolRunRes.github.trace.output),
             }
           : null,
         toolRunRes.vercel.executed && toolRunRes.vercel.trace
@@ -1144,7 +1141,7 @@ ${
               provider: "vercel",
               capability: toolRunRes.vercel.capability,
               status: toolRunRes.vercel.trace.status,
-              outputSnippet: toolRunRes.vercel.trace.output,
+              outputSnippet: safeTraceOutput(toolRunRes.vercel.trace.output),
             }
           : null,
       ].filter(Boolean) as Array<{
@@ -1174,8 +1171,9 @@ ${
                   }
                 : undefined;
 
-    const activeReasoningSteps =
-      extractedReasoningSteps.length > 0 ? extractedReasoningSteps : reasoningSteps;
+    const activeReasoningSteps = (
+      extractedReasoningSteps.length > 0 ? extractedReasoningSteps : reasoningSteps
+    ).map((step) => ({ ...step, text: sanitizeText(step.text) }));
 
     const steps: Array<
       | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
@@ -1195,11 +1193,11 @@ ${
           status: toolRunRes.github.trace.status,
           summaryInput:
             typeof toolRunRes.github.trace.input === "string"
-              ? toolRunRes.github.trace.input
-              : JSON.stringify(toolRunRes.github.trace.input),
-          summaryOutput: toolRunRes.github.trace.output.slice(0, 300),
-          fullInput: toolRunRes.github.trace.input,
-          fullOutput: toolRunRes.github.trace.output,
+              ? safeTraceOutput(toolRunRes.github.trace.input)
+              : JSON.stringify(safeTraceInput(toolRunRes.github.trace.input)),
+          summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+          fullInput: safeTraceInput(toolRunRes.github.trace.input),
+          fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
           durationMs: toolRunRes.github.trace.durationMs,
         },
       });
@@ -1215,11 +1213,11 @@ ${
           status: toolRunRes.vercel.trace.status,
           summaryInput:
             typeof toolRunRes.vercel.trace.input === "string"
-              ? toolRunRes.vercel.trace.input
-              : JSON.stringify(toolRunRes.vercel.trace.input),
-          summaryOutput: toolRunRes.vercel.trace.output.slice(0, 300),
-          fullInput: toolRunRes.vercel.trace.input,
-          fullOutput: toolRunRes.vercel.trace.output,
+              ? safeTraceOutput(toolRunRes.vercel.trace.input)
+              : JSON.stringify(safeTraceInput(toolRunRes.vercel.trace.input)),
+          summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+          fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+          fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
           durationMs: toolRunRes.vercel.trace.durationMs,
         },
       });

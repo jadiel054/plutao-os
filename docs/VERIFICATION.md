@@ -90,7 +90,7 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 ## 9. Layer I — Verification Engine & Definition of Done (DoD)
 
 - [x] **Deterministic DoD Checks:** `apps/web/src/lib/missions/dod.ts` evaluates exact deterministic criteria (e.g. file existence, path matching, size check).
-- [x] **DoD Verification Gate:** `PATCH /api/missions/:id` blocks state transition to `COMPLETED` unless `/api/missions/:id/verify` passes or `force: true` is set.
+- [x] **DoD Verification Gate:** `PATCH /api/missions/:id` blocks state transition to `COMPLETED` unless `/api/missions/:id/verify` passes; `force=true` is ignored/rejected and a failed or inconclusive verification cannot be bypassed.
 - [x] **DoD UI Panel:** `MissionDoDPanel` component renders DoD status and verification results in Cockpit UI.
 
 ---

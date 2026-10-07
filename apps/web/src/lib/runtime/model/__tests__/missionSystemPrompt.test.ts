@@ -36,4 +36,25 @@ describe("System prompt do runtime de missões inclui conectores e write gates",
     expect(prompt).toContain("filesystem");
     expect(prompt).toContain("files.export_pdf");
   });
+
+  it("usa a identidade canônica Nix no fallback de missão", () => {
+    const prompt = buildSystemPrompt(null, connectorBlock, "mission-123");
+    expect(prompt).toContain("Nix");
+    expect(prompt).not.toContain("Agent: Plutão (default)");
+  });
+
+  it("usa identidade e personalidade configuradas no runtime de missão", () => {
+    const prompt = buildSystemPrompt(
+      {
+        name: "Athena",
+        identity: "a estrategista do time",
+        personality: "Direta e precisa",
+        isDefault: false,
+      },
+      connectorBlock,
+      "mission-123"
+    );
+    expect(prompt).toContain("Você é Athena, a estrategista do time.");
+    expect(prompt).toContain("Direta e precisa");
+  });
 });

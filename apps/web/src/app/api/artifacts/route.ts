@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
 import { detectArtifactType, suggestArtifactName } from "@/lib/artifacts";
 import { extractTextFromPdf, extractTextFromExcel } from "@/lib/documentParser";
+import { getOwnedMission } from "@/lib/missions/ownership";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,9 @@ export async function POST(req: NextRequest) {
       if (!file) {
         return NextResponse.json({ error: "Nenhum arquivo enviado" }, { status: 400 });
       }
+      if (missionId && !(await getOwnedMission(missionId, user.id))) {
+        return NextResponse.json({ error: "Missão não encontrada" }, { status: 404 });
+      }
 
       if (file.size > MAX_FILE_UPLOAD_SIZE) {
         return NextResponse.json(
@@ -44,6 +48,13 @@ export async function POST(req: NextRequest) {
       const ext = fileName.split(".").pop()?.toLowerCase() || "";
       const detected = detectArtifactType(fileName);
       const mimeType = file.type || detected.type;
+
+      if (ext === "xls" || mimeType === "application/vnd.ms-excel") {
+        return NextResponse.json(
+          { error: "Formato .xls legado não suportado; envie a planilha em .xlsx." },
+          { status: 415 }
+        );
+      }
 
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
@@ -72,12 +83,11 @@ export async function POST(req: NextRequest) {
         content = pdfText.trim() || `[Documento PDF: ${fileName}]`;
       } else if (
         ext === "xlsx" ||
-        ext === "xls" ||
         mimeType.includes("spreadsheet") ||
         mimeType.includes("excel")
       ) {
         isBinary = true;
-        const excelText = extractTextFromExcel(buffer);
+        const excelText = await extractTextFromExcel(buffer);
         content = excelText.trim() || `[Planilha Excel: ${fileName}]`;
       } else if (
         mimeType.startsWith("image/") ||
@@ -150,6 +160,9 @@ export async function POST(req: NextRequest) {
     const typeInfo = detectArtifactType(name, content);
     const type = typeof body.type === "string" && body.type.trim() ? body.type.trim() : typeInfo.type;
     const missionId = typeof body.missionId === "string" ? body.missionId : null;
+    if (missionId && !(await getOwnedMission(missionId, user.id))) {
+      return NextResponse.json({ error: "Missão não encontrada" }, { status: 404 });
+    }
     const metadata = typeof body.metadata === "object" && body.metadata !== null ? body.metadata : {};
 
     const [inserted] = await db

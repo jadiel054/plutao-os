@@ -141,6 +141,25 @@ describe("Supabase Connector & Tool", () => {
       expect(res.ok).toBe(true);
       expect(requestedUrl).toContain("limit=100");
     });
+
+    it("falha fechado se o PostgREST falha após um filtro validado", async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: async () => "temporarily unavailable",
+      } as Response);
+
+      const res = await supabaseTableRead(
+        { accessToken: "sbp_test123" },
+        { projectRef: "xyz123456789", table: "users", where: "id=eq.1" }
+      );
+
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error).toContain("fallback SQL desabilitado");
+      }
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("supabaseSqlExec", () => {
@@ -230,6 +249,7 @@ describe("Supabase Connector & Tool", () => {
         consumedAt: null,
         consumedBy: null,
         status: "pending",
+    expiresAt: new Date(Date.now() + 900_000),
         decision: null,
         decidedAt: null,
         executedAt: null,

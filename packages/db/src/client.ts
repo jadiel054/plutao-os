@@ -13,8 +13,9 @@ import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "./schema";
 import * as schemaMcp from "./schema-mcp";
 import * as schemaGates from "./schema-gates";
+import * as schemaRateLimit from "./schema-rate-limit";
 
-const fullSchema = { ...schema, ...schemaMcp, ...schemaGates };
+const fullSchema = { ...schema, ...schemaMcp, ...schemaGates, ...schemaRateLimit };
 
 export type Db = ReturnType<typeof createDb>;
 

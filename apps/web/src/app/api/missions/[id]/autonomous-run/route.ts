@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { getOwnedMission } from "@/lib/missions/ownership";
+import { getOwnedConversation, getOwnedTaskInMission } from "@/lib/missions/ownership";
 import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
 import { ensureExecutionsTable } from "@/lib/runtime/ensure";
 
@@ -35,6 +36,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const conversationId = body.conversationId
       ? String(body.conversationId).trim()
       : null;
+
+    if (currentTaskId && !(await getOwnedTaskInMission(currentTaskId, missionId, user.id))) {
+      return NextResponse.json({ error: "Task não encontrada nesta missão" }, { status: 404 });
+    }
+    if (conversationId && !(await getOwnedConversation(conversationId, user.id))) {
+      return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
+    }
 
     const result = await runAutonomousMissionServer({
       missionId,

@@ -18,6 +18,7 @@ import { runExportTool } from "./export";
 import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
 import { evaluateInternalTool, isInternalTool } from "@/lib/capabilities/registry";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 function inputHash(name: string, input: string): string {
   return createHash("sha256").update(`${name}\0${input}`).digest("hex").slice(0, 16);
@@ -117,14 +118,52 @@ export async function dispatchTool(opts: {
   const calls = new Set(cp.toolCalls ?? []);
   const callKey = `${opts.name}:${hash}`;
 
-  if (calls.has(callKey) && cp.lastTool?.hash === hash && cp.lastTool?.name === opts.name) {
+  // H6 — a deduplicação cobre todo o histórico da execution. Exigir apenas
+  // lastTool permitia A → B → A em uma retomada e reexecutava A.
+  if (calls.has(callKey)) {
     return {
       applied: false as const,
       idempotent: true as const,
       execution,
       message: "tool call already recorded",
-      evidenceId: cp.lastTool.evidenceId,
+      evidenceId:
+        cp.lastTool?.name === opts.name && cp.lastTool.hash === hash
+          ? cp.lastTool.evidenceId
+          : undefined,
     };
+  }
+
+  // H6 — claim atômico por compare-and-swap do checkpoint. Sem isso, duas
+  // requests simultâneas podem ler o mesmo histórico vazio e executar a tool
+  // duas vezes antes que qualquer uma grave o novo checkpoint.
+  const db = getDb();
+  const claimedCheckpoint = {
+    ...cp,
+    toolCalls: [...calls, callKey],
+  };
+  const claimed = await db
+    .update(executions)
+    .set({ checkpoint: claimedCheckpoint, checkpointAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(executions.id, opts.executionId),
+        eq(executions.userId, opts.userId),
+        eq(executions.checkpoint, execution.checkpoint)
+      )
+    )
+    .returning({ id: executions.id });
+  if (!claimed[0]) {
+    const current = await getOwnedExecution(opts.executionId, opts.userId);
+    const currentCp = asCp(current?.checkpoint);
+    if ((currentCp.toolCalls ?? []).includes(callKey)) {
+      return {
+        applied: false as const,
+        idempotent: true as const,
+        execution: current,
+        message: "tool call claimed by another request",
+      };
+    }
+    return { error: "CONCURRENT_TOOL_CLAIM" as const };
   }
 
   // H9 — registro de capacidades para tools INTERNAS (fail-closed).
@@ -148,9 +187,11 @@ export async function dispatchTool(opts: {
   const evidenceItem: EvidenceItem = {
     id: evidenceId,
     type: result.ok ? "tool_result" : "tool_error",
-    content: result.ok
-      ? `tool:${result.tool} → ${result.output}`
-      : `tool:${result.tool} error: ${result.error}`,
+    content: sanitizeText(
+      result.ok
+        ? `tool:${result.tool} → ${result.output}`
+        : `tool:${result.tool} error: ${result.error}`
+    ),
     source: "tool_dispatcher",
     taskId,
     missionId: execution.missionId,
@@ -158,7 +199,6 @@ export async function dispatchTool(opts: {
     createdAt: now.toISOString(),
   };
 
-  const db = getDb();
   const missionRows = await db
     .select({ evidence: missions.evidence })
     .from(missions)
@@ -220,7 +260,7 @@ export async function dispatchTool(opts: {
     userId: opts.userId,
     toolName: opts.name,
     ok: result.ok,
-    outputOrError: result.ok ? result.output : (result.error ?? "erro"),
+    outputOrError: sanitizeText(result.ok ? result.output : (result.error ?? "erro")),
     evidenceId,
   });
 
@@ -241,9 +281,7 @@ export async function dispatchTool(opts: {
         conversationId,
         tool: opts.name,
         ok: result.ok,
-        outputOrError: result.ok
-          ? result.output
-          : (result.error ?? "erro"),
+        outputOrError: sanitizeText(result.ok ? result.output : (result.error ?? "erro")),
         source: "mission_runtime",
       });
     } catch (e) {

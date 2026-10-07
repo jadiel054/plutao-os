@@ -28,6 +28,10 @@ function signingKey(): Buffer {
   return createHash("sha256").update(raw).digest();
 }
 
+export function hashOAuthRegistrationIp(ip: string): string {
+  return createHmac("sha256", signingKey()).update(`mcp-oauth-registration:${ip}`).digest("hex");
+}
+
 function b64url(data: Buffer | string): string {
   const buf = typeof data === "string" ? Buffer.from(data, "utf8") : data;
   return buf.toString("base64url");
@@ -207,8 +211,8 @@ export function normalizeScopes(requested: string | null | undefined): string {
  * comparação era por `startsWith`, então `https://app.exemplo.com.evil.io`
  * passava por começar com `https://app.exemplo.com`. Agora:
  *  - allowlist vazia FALHA FECHADO (só localhost em http é mantido);
- *  - a comparação é por ORIGIN exato (e caminho exato quando a entrada
- *    da allowlist declara um caminho).
+ *  - a comparação HTTPS é pela URI completa exata (origin, caminho e query);
+ *    uma entrada somente com origin não autoriza callbacks arbitrários.
  */
 export function isRedirectUriAllowed(uri: string): boolean {
   let parsed: URL;
@@ -217,8 +221,14 @@ export function isRedirectUriAllowed(uri: string): boolean {
   } catch {
     return false;
   }
+  // Fragmentos nunca são enviados ao servidor OAuth e não podem fazer parte
+  // de uma redirect_uri, inclusive no callback loopback de desenvolvimento.
+  if (parsed.hash) return false;
   if (parsed.protocol === "http:") {
-    return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    return (
+      (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
+      parsed.pathname === "/callback"
+    );
   }
   if (parsed.protocol !== "https:") return false;
   // Fragmento não participa da decisão e nunca deve existir em redirect_uri.
@@ -236,12 +246,10 @@ export function isRedirectUriAllowed(uri: string): boolean {
     } catch {
       return false;
     }
-    if (allowed.origin !== parsed.origin) return false;
-    // Entrada com caminho próprio exige caminho idêntico.
-    const allowedPath = allowed.pathname === "/" ? "" : allowed.pathname.replace(/\/$/, "");
-    if (!allowedPath) return true;
-    const targetPath = parsed.pathname.replace(/\/$/, "");
-    return targetPath === allowedPath;
+    if (allowed.hash) return false;
+    // URL.href preserva path, barra final e query: qualquer diferença é
+    // rejeitada. Fragmentos já foram recusados acima.
+    return allowed.href === parsed.href;
   });
 }
 

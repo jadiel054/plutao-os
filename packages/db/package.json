@@ -10,16 +10,17 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "generate": "drizzle-kit generate",
-    "migrate": "drizzle-kit migrate",
+    "migrate": "test -n \"$DATABASE_URL_UNPOOLED\" || (echo 'DATABASE_URL_UNPOOLED direta é obrigatória para migrations; nenhum SQL foi executado.' >&2; exit 1); drizzle-kit migrate",
     "studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0",
-    "@vercel/blob": "^0.10.0",
-    "drizzle-orm": "^0.39.0"
+    "@vercel/blob": "2.8.1",
+    "drizzle-orm": "0.45.3",
+    "shell-quote": "1.11.0"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.30.0",
+    "drizzle-kit": "0.31.11",
     "typescript": "^5"
   }
 }

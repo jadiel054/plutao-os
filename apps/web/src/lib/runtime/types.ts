@@ -35,6 +35,8 @@ export type CheckpointPayload = {
    * somando todas as retomadas. Impede loop indefinido entre requests.
    */
   iterationsUsed?: number;
+  /** H6 — tokens reportados pelo provedor, somando todas as retomadas. */
+  tokensUsed?: number;
 };
 
 export function activeIdempotencyKey(missionId: string): string {

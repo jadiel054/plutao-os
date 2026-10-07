@@ -10,10 +10,12 @@ import {
 import {
   attachRefreshToken,
   consumeAuthCodeRow,
+  findOAuthClient,
   findGrantByRefreshToken,
   newRefreshTokenPlain,
   touchGrant,
 } from "@/lib/mcp/grants";
+import { isOAuthGrantRegistered } from "@/lib/mcp/clientRegistration";
 
 export const runtime = "nodejs";
 
@@ -78,6 +80,10 @@ export async function POST(req: NextRequest) {
     if (!refreshToken || !clientId) {
       return tokenError("invalid_request", "refresh_token e client_id obrigatórios");
     }
+    const registeredClient = await findOAuthClient(clientId);
+    if (!isOAuthGrantRegistered(registeredClient, "refresh_token", clientId)) {
+      return tokenError("unsupported_grant_type", "refresh_token não registrado para este cliente");
+    }
     const grant = await findGrantByRefreshToken(refreshToken);
     if (!grant) {
       return tokenError("invalid_grant", "refresh_token inválido ou revogado");
@@ -110,6 +116,10 @@ export async function POST(req: NextRequest) {
   if (!code || !redirectUri || !clientId || !codeVerifier) {
     return tokenError("invalid_request", "code, redirect_uri, client_id e code_verifier obrigatórios");
   }
+  const registeredClient = await findOAuthClient(clientId);
+  if (!isOAuthGrantRegistered(registeredClient, "authorization_code", clientId)) {
+    return tokenError("unsupported_grant_type", "authorization_code não registrado para este cliente");
+  }
 
   let peeked;
   try {
@@ -141,16 +151,16 @@ export async function POST(req: NextRequest) {
     scope: consumed.scope,
     grantId: consumed.grantId,
   });
-  const refreshPlain = newRefreshTokenPlain();
-  await attachRefreshToken(consumed.grantId, refreshPlain, refreshExpiresAt());
+  const supportsRefresh = isOAuthGrantRegistered(registeredClient, "refresh_token", clientId);
+  const refreshPlain = supportsRefresh ? newRefreshTokenPlain() : undefined;
+  if (refreshPlain) await attachRefreshToken(consumed.grantId, refreshPlain, refreshExpiresAt());
 
   return tokenOk({
     access_token: issued.accessToken,
     token_type: issued.tokenType,
     expires_in: issued.expiresIn,
     scope: issued.scope,
-    refresh_token: refreshPlain,
-    refresh_expires_in: refreshTtlSec(),
+    ...(refreshPlain ? { refresh_token: refreshPlain, refresh_expires_in: refreshTtlSec() } : {}),
   });
 }
 

@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { missions } from "@plutao/db";
 import { eq, and } from "drizzle-orm";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 export type VercelToolCallTrace = {
   id: string;
@@ -374,7 +375,7 @@ async function maybeAppendMissionEvidence(
     const evidenceItem: EvidenceItem = {
       id: trace.id,
       type: ok ? "tool_result" : "tool_error",
-      content: `tool:vercel capability:${trace.capability} → ${trace.output}`,
+      content: sanitizeText(`tool:vercel capability:${trace.capability} → ${trace.output}`),
       source: "tool_dispatcher",
       taskId: null,
       missionId,

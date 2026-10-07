@@ -26,7 +26,8 @@ describe("H5(a) — validação de redirect_uri", () => {
 
   it("allowlist vazia mantém localhost (fluxo de desenvolvimento)", () => {
     expect(isRedirectUriAllowed("http://localhost:3000/callback")).toBe(true);
-    expect(isRedirectUriAllowed("http://127.0.0.1:8080/cb")).toBe(true);
+    expect(isRedirectUriAllowed("http://127.0.0.1:8080/cb")).toBe(false);
+    expect(isRedirectUriAllowed("http://localhost:43127/callback#fragmento")).toBe(false);
   });
 
   it("origin exato na allowlist é aceito", () => {
@@ -34,11 +35,11 @@ describe("H5(a) — validação de redirect_uri", () => {
     expect(isRedirectUriAllowed("https://claude.ai/api/mcp/callback")).toBe(true);
   });
 
-  it("prefixo parecido NÃO é aceito (comparação por origin exato)", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://app.exemplo.com";
+  it("prefixo parecido e caminho diferente NÃO são aceitos", () => {
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://app.exemplo.com/callback";
     expect(isRedirectUriAllowed("https://app.exemplo.com.evil.io/callback")).toBe(false);
     expect(isRedirectUriAllowed("https://app.exemplo.com.br/callback")).toBe(false);
-    // o próprio origin continua válido
+    expect(isRedirectUriAllowed("https://app.exemplo.com/outro")).toBe(false);
     expect(isRedirectUriAllowed("https://app.exemplo.com/callback")).toBe(true);
   });
 
@@ -48,8 +49,16 @@ describe("H5(a) — validação de redirect_uri", () => {
     expect(isRedirectUriAllowed("https://cliente.io/outro/caminho")).toBe(false);
   });
 
+  it("exige query e barra final exatas", () => {
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io/callback?tenant=a";
+    expect(isRedirectUriAllowed("https://cliente.io/callback?tenant=a")).toBe(true);
+    expect(isRedirectUriAllowed("https://cliente.io/callback?tenant=b")).toBe(false);
+    expect(isRedirectUriAllowed("https://cliente.io/callback")).toBe(false);
+    expect(isRedirectUriAllowed("https://cliente.io/callback/?tenant=a")).toBe(false);
+  });
+
   it("protocolos e formatos perigosos são recusados", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io";
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io/cb";
     expect(isRedirectUriAllowed("javascript:alert(1)")).toBe(false);
     expect(isRedirectUriAllowed("data:text/html,<script>1</script>")).toBe(false);
     expect(isRedirectUriAllowed("ftp://cliente.io/cb")).toBe(false);

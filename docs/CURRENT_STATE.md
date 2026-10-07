@@ -1,11 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-10-07 (Hardening de segurança e runtime — ver `docs/HARDENING_2026-10.md`)
-
-> **Nota de status:** os itens de hardening abaixo estão marcados como **IMPLEMENTED** (com teste de
-> regressão e CI verde), não `VERIFICADO` — pela regra da tarefa, `VERIFICADO` exige prova em produção
-> pelo fundador. A única exceção de prova real é a migration `0020`, aplicada e consultada no Neon de
-> produção.
+**Última atualização:** 2026-10-07 (Hardening final H1–H9 + anti-loop/identidade)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -16,6 +11,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 | Área | Status | Evidência / observação |
 |------|--------|------------------------|
+| **Hardening final de segurança, loops e identidade (H1–H9 + X1/X2)** | **IMPLEMENTED — checks locais verdes** | Write gates server-side single-use + hash + ownership; DoD sem `force=true` (teto `INCONCLUSIVE`); sanitização central; filtros Supabase estruturados; OAuth redirect fail-closed + rate limit por grant; sandbox por usuário/execução com IDs validados e symlink real; exports HTML allowlist; registry fail-closed; limite de iterações/tempo/tokens e detecção de não progresso; identidade configurável aplicada ao prompt. Prova detalhada: `docs/HARDENING_FINAL.md`. Smoke Vercel pós-deploy ainda deve ser executado. |
 | Navegação e auth (email/senha) | **VERIFICADO** | Smoke produção. |
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
 | BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO** (2026-09-27) | MCP `plutao_send_message` → `list_conversations` 1→2; mesma tabela `conversations` que o drawer da UI. Migration `0016` + API REST. |

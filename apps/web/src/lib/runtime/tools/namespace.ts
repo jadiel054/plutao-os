@@ -11,6 +11,8 @@
  * UUID ou um rótulo interno seguro (`[A-Za-z0-9_-]{1,64}`). Qualquer valor que
  * possa carregar separador de caminho, `..` ou byte estranho é REJEITADO com
  * `SandboxSecurityError("INVALID_INPUT")` em vez de ser silenciosamente "limpo".
+ * Operações autenticadas também não podem omitir executionId: não existe fallback
+ * `userId__default` para requests de usuário.
  */
 
 import {
@@ -28,14 +30,26 @@ export function sanitizeNamespaceSegment(value?: string | null): string {
 
 /**
  * Namespace estável e isolado por usuário + execução.
- * Sem usuário conhecido, cai em `anonymous` (isolado do namespace de usuários reais).
- * IDs malformados lançam SandboxSecurityError — nunca viram caminho.
+ * Sem usuário conhecido, a operação é recusada — nunca existe namespace
+ * anônimo persistente compartilhado entre requests.
  */
 export function sandboxNamespace(
   userId?: string | null,
   executionId?: string | null
 ): string {
-  const user = userId ? assertSandboxUserId(userId) : "anonymous";
+  if (!userId) {
+    throw new SandboxSecurityError(
+      "INVALID_INPUT",
+      "userId é obrigatório para operações de filesystem/export"
+    );
+  }
+  const user = assertSandboxUserId(userId);
+  if (!executionId) {
+    throw new SandboxSecurityError(
+      "INVALID_INPUT",
+      "executionId é obrigatório para operações autenticadas"
+    );
+  }
   const exec = executionId ? assertSandboxExecutionId(executionId) : "default";
   return `${user}__${exec}`;
 }

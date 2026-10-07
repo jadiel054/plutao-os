@@ -42,6 +42,9 @@ const mockMission = {
 describe("Mission Runtime Fixes End-to-End Tests", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(runtimeService, "writeCheckpoint").mockResolvedValue({
+      execution: mockExecution,
+    });
   });
 
   describe("Bug 1 — Read mission & model call error evidence", () => {
@@ -209,6 +212,7 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
         consumedAt: null,
         consumedBy: null,
         status: "pending",
+    expiresAt: new Date(Date.now() + 900_000),
         decision: null,
         decidedAt: null,
         executedAt: null,
@@ -234,6 +238,7 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
         consumedAt: null,
         consumedBy: null,
         status: "approved",
+    expiresAt: new Date(Date.now() + 900_000),
         decision: "approve",
         decidedAt: new Date(),
         executedAt: new Date(),

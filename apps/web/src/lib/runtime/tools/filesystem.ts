@@ -359,16 +359,16 @@ export async function runFilesystem(
 }
 
 // Funções de conveniência para chamadas diretas (para testes)
-export async function filesystemList(path: string, executionId?: string): Promise<FilesystemListOutput> {
-  const result = await runFilesystem(JSON.stringify({ action: "list", payload: { path } }), executionId);
+export async function filesystemList(path: string, executionId?: string, userId?: string): Promise<FilesystemListOutput> {
+  const result = await runFilesystem(JSON.stringify({ action: "list", payload: { path } }), executionId, userId);
   if (!result.ok) {
     throw new SandboxSecurityError(result.error as SandboxErrorCode, result.error);
   }
   return JSON.parse(result.output) as FilesystemListOutput;
 }
 
-export async function filesystemRead(path: string, executionId?: string): Promise<FilesystemReadOutput> {
-  const result = await runFilesystem(JSON.stringify({ action: "read", payload: { path } }), executionId);
+export async function filesystemRead(path: string, executionId?: string, userId?: string): Promise<FilesystemReadOutput> {
+  const result = await runFilesystem(JSON.stringify({ action: "read", payload: { path } }), executionId, userId);
   if (!result.ok) {
     throw new SandboxSecurityError(result.error as SandboxErrorCode, result.error);
   }

@@ -3,8 +3,8 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
-import { createDb, mcpAuthCodes, mcpOauthGrants } from "@plutao/db";
+import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { createDb, mcpAuthCodes, mcpOauthClients, mcpOauthGrants, mcpOauthRegistrationLimits } from "@plutao/db";
 
 export function hashToken(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -12,6 +12,75 @@ export function hashToken(value: string): string {
 
 export function newRefreshTokenPlain(): string {
   return `prt_${randomBytes(32).toString("base64url")}`;
+}
+
+export async function createOAuthClient(input: {
+  clientId: string;
+  clientName: string | null;
+  redirectUris: string[];
+  grantTypes: string[];
+  responseTypes: string[];
+  tokenEndpointAuthMethod: "none";
+}): Promise<void> {
+  const db = createDb();
+  await db.insert(mcpOauthClients).values({
+    clientId: input.clientId,
+    clientName: input.clientName,
+    redirectUris: input.redirectUris,
+    grantTypes: input.grantTypes,
+    responseTypes: input.responseTypes,
+    tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
+  });
+}
+
+function isMissingOAuthClientsTable(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+    const candidate = current as { code?: unknown; cause?: unknown };
+    if (candidate.code === "42P01") return true;
+    current = candidate.cause;
+  }
+  return false;
+}
+
+export async function findOAuthClient(clientId: string) {
+  try {
+    const db = createDb();
+    const [client] = await db
+      .select()
+      .from(mcpOauthClients)
+      .where(eq(mcpOauthClients.clientId, clientId))
+      .limit(1);
+    return client ?? null;
+  } catch (error) {
+    if (isMissingOAuthClientsTable(error)) {
+      console.error("[findOAuthClient] mcp_oauth_clients ausente; usando compatibilidade legada.", error);
+      return null;
+    }
+    console.error("[findOAuthClient] falha ao consultar cliente OAuth MCP.", error);
+    return null;
+  }
+}
+
+export async function consumeOAuthRegistrationQuota(ipHash: string, maxAttempts = 10): Promise<boolean> {
+  const now = new Date();
+  const windowStart = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours()
+  ));
+  const db = createDb();
+  const inserted = await db
+    .insert(mcpOauthRegistrationLimits)
+    .values({ ipHash, windowStart, attempts: 1 })
+    .onConflictDoUpdate({
+      target: [mcpOauthRegistrationLimits.ipHash, mcpOauthRegistrationLimits.windowStart],
+      set: { attempts: sql`${mcpOauthRegistrationLimits.attempts} + 1` },
+      setWhere: lt(mcpOauthRegistrationLimits.attempts, maxAttempts),
+    })
+    .returning({ attempts: mcpOauthRegistrationLimits.attempts });
+  return inserted.length > 0;
 }
 
 export async function createGrant(input: {

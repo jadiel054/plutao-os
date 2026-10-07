@@ -8,8 +8,37 @@ import {
   timestamp,
   uuid,
   index,
+  integer,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { users } from "./schema";
+
+export const mcpOauthClients = pgTable(
+  "mcp_oauth_clients",
+  {
+    clientId: text("client_id").primaryKey(),
+    clientName: text("client_name"),
+    redirectUris: text("redirect_uris").array().notNull(),
+    grantTypes: text("grant_types").array().notNull(),
+    responseTypes: text("response_types").array().notNull(),
+    tokenEndpointAuthMethod: text("token_endpoint_auth_method").notNull().default("none"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mcp_oauth_clients_created_at_idx").on(t.createdAt)]
+);
+
+export const mcpOauthRegistrationLimits = pgTable(
+  "mcp_oauth_registration_limits",
+  {
+    ipHash: text("ip_hash").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").notNull().default(1),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ipHash, t.windowStart] }),
+    index("mcp_oauth_registration_limits_window_start_idx").on(t.windowStart),
+  ]
+);
 
 export const mcpOauthGrants = pgTable(
   "mcp_oauth_grants",

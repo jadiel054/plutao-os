@@ -17,6 +17,7 @@ import {
   resolveSandboxPath,
 } from "../sandbox";
 import { sandboxNamespace } from "../namespace";
+import { LocalFilesystemStorage } from "../storage";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER = "22222222-2222-4222-8222-222222222222";
@@ -67,11 +68,8 @@ describe("H8 — validação de IDs antes de montar caminho", () => {
 
   it("namespace nunca é `default` para operação autenticada", () => {
     expect(sandboxNamespace(USER, EXEC)).toBe(`${USER}__${EXEC}`);
-    // sem execução → default DENTRO do namespace do usuário (não compartilhado)
-    expect(sandboxNamespace(USER)).toBe(`${USER}__default`);
-    expect(sandboxNamespace(USER)).not.toBe("default");
-    expect(sandboxNamespace(OTHER_USER)).toBe(`${OTHER_USER}__default`);
-    expect(sandboxNamespace(USER)).not.toBe(sandboxNamespace(OTHER_USER));
+    expect(() => sandboxNamespace(USER)).toThrow(SandboxSecurityError);
+    expect(() => sandboxNamespace(OTHER_USER)).toThrow(SandboxSecurityError);
   });
 
   it("namespace rejeita IDs malformados em vez de 'limpar'", () => {
@@ -79,8 +77,8 @@ describe("H8 — validação de IDs antes de montar caminho", () => {
     expect(() => sandboxNamespace(USER, "../../etc")).toThrow(SandboxSecurityError);
   });
 
-  it("sem usuário autenticado cai em anonymous (isolado dos usuários reais)", () => {
-    expect(sandboxNamespace(undefined, undefined)).toBe("anonymous__default");
+  it("sem usuário autenticado é recusado antes de montar um namespace", () => {
+    expect(() => sandboxNamespace(undefined, undefined)).toThrow(SandboxSecurityError);
   });
 });
 
@@ -118,5 +116,17 @@ describe("H8 — escape por symlink", () => {
     const novaIa = join(base, "raiz-inexistente");
     const resolved = await resolveSandboxPath("ok.txt", novaIa);
     expect(resolved.startsWith(novaIa)).toBe(true);
+  });
+
+  it("backend local bloqueia escrita através de symlink para fora", async () => {
+    const storageRoot = join(base, "local-storage");
+    const storage = new LocalFilesystemStorage(storageRoot, "exec");
+    const namespace = `${USER}__${EXEC}`;
+    await storage.writeFile(namespace, "seguro.txt", "ok");
+    const executionRoot = join(storageRoot, "exec", namespace);
+    await symlink(outside, join(executionRoot, "escape-local"), "dir");
+
+    await expect(storage.writeFile(namespace, "escape-local/novo.txt", "não"))
+      .rejects.toThrow(SandboxSecurityError);
   });
 });

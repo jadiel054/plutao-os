@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@plutao/db", "@plutao/domain"],
 
   // Client-only TTS engines (dynamic import). Keep off the Node server bundle.
-  serverExternalPackages: ["@realtimex/piper-tts-web", "kokoro-js"],
+  serverExternalPackages: ["@realtimex/piper-tts-web", "kokoro-js", "exceljs"],
 
   // Piper WASM glue does require("fs") for the Node path; browser needs empty shim.
   // NÃO aliasar `path` — quebra path.normalize no prerender (ex. /404).
@@ -39,6 +39,11 @@ const nextConfig: NextConfig = {
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "X-Frame-Options", value: "DENY" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+        ...(process.env.NODE_ENV === "production"
+          ? [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]
+          : []),
       ],
     },
   ],
