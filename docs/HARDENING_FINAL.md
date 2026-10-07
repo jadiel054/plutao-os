@@ -1,7 +1,8 @@
 # Plutão OS — Relatório final de hardening e operacionalidade
 
 **Data:** 2026-10-07  
-**Branch:** `hardening/capabilities-controls-final`  
+**Branch:** `main`  
+**Commits finais:** `1b5f939` (hardening) + `403cbc1` (dependências/parser)  
 **Base:** `origin/main` (`daf4e64`) + hardening H1–H9/X1/X2 e correções desta revisão
 
 ## 1. Escopo executado
@@ -88,7 +89,7 @@ A tentativa de consultar `drizzle.__drizzle_migrations` retornou `relation does 
 
 ## 5. Vercel e configuração de produção
 
-Projeto verificado: **plutao-os**, Next.js, domínio `plutao-os.vercel.app`, último deployment observado antes desta publicação em estado `READY`. O projeto mantém SSO de deployment habilitado.
+Projeto verificado: **plutao-os**, Next.js, domínio `plutao-os.vercel.app`, deployment final `dpl_ELAMNLj9DAuosvPabw7YenbutWr7` em estado **READY**, associado ao commit `403cbc10a185a1d5f565fed587283c0a8848c840`. Aliases ativos: `plutao-os.vercel.app`, `plutao-os-jadiels-projects-3b6be146.vercel.app` e `plutao-os-git-main-jadiels-projects-3b6be146.vercel.app`. O projeto mantém SSO de deployment habilitado.
 
 Variáveis que precisam estar configuradas no Vercel para produção:
 
@@ -123,6 +124,8 @@ Checks finais locais após todas as correções:
 - `npm run lint` — **0 erros, 14 warnings preexistentes** de lint em componentes/testes não relacionados ao hardening;
 - testes direcionados — **10 arquivos / 55 testes aprovados**;
 - suíte completa Vitest — **75 arquivos / 421 testes aprovados**;
+- `npm run build` — **passou** após externalizar ExcelJS do bundle Turbopack;
+- smoke público pós-deploy — `GET /api/health` **200**, `{"ok":true,"database":{"ok":true}}` (latência observada: 1.487 ms) e homepage **200**;
 - `git diff --check` — **passou**;
 - varredura estática — nenhum fallback `WHERE ${where}` cru, nenhum `Agent: Plutão (default)` no runtime, nenhum `fullInput/fullOutput` cru nos payloads finais de chat.
 
