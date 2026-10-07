@@ -87,6 +87,42 @@ body {
   min-height: 100dvh;
 }
 
+button,
+a,
+textarea,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(button, a, textarea, input, select):focus-visible {
+  outline: 2px solid var(--selo);
+  outline-offset: 2px;
+}
+
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(95, 168, 140, 0.35) transparent;
+  overscroll-behavior: contain;
+}
+
+.chat-composer {
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.chat-bubble {
+  animation: chat-bubble-in 180ms ease-out both;
+}
+
+@keyframes chat-bubble-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-bubble { animation: none; }
+}
+
 .bg-plutao {
   background-color: var(--bg);
 }

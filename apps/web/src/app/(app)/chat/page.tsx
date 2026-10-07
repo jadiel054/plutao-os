@@ -21,6 +21,7 @@ import { FollowUpChips, type FollowUpChip } from "@/components/chat/FollowUpChip
 import { redactSecrets } from "@/lib/security/credentials";
 import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
+import { BrandMark } from "@/components/BrandMark";
 
 type PendingWriteGate = {
   id: string;
@@ -1194,18 +1195,19 @@ function ChatPageInner() {
             </p>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto space-y-4 pb-4">
-            <div className="flex justify-between text-[10px] text-[var(--text-muted)] border-b border-[var(--border)]/40 pb-2">
-              <span>Histórico ({messages.length})</span>
-              <button type="button" onClick={() => setIsClearModalOpen(true)}>Limpar</button>
+          <div className="chat-scroll flex-1 min-h-0 overflow-y-auto space-y-5 pb-5">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)]/40 bg-[var(--bg)]/85 pb-2 text-[10px] text-[var(--text-muted)] backdrop-blur-md">
+              <span className="font-mono uppercase tracking-[0.16em]">Conversa · {messages.length} mensagens</span>
+              <button type="button" onClick={() => setIsClearModalOpen(true)} className="rounded-lg px-2 py-1 transition hover:bg-[var(--surface)] hover:text-[var(--text-primary)]">Limpar</button>
             </div>
             {messages.map((m) => (
-              <div key={m.id} className={`group flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div key={m.id} className={`group chat-bubble flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                {m.role === "assistant" && <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-[var(--selo)]/25 bg-[var(--surface)]" aria-hidden><BrandMark size={18} /></div>}
                 <div
-                  className={`relative max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
+                  className={`relative min-w-0 max-w-[min(88%,42rem)] rounded-[1.35rem] px-4 py-3 text-sm shadow-[0_8px_28px_rgba(0,0,0,.12)] sm:max-w-[78%] ${
                     m.role === "user"
-                      ? "bg-[var(--selo)] text-[var(--base)]"
-                      : "bg-[var(--surface)] border border-[var(--border)]"
+                      ? "rounded-br-md bg-gradient-to-br from-[var(--user-gradient-start)] to-[var(--user-gradient-end)] text-[var(--base)]"
+                      : "rounded-bl-md border border-[var(--agent-border)] bg-[var(--agent-surface)] backdrop-blur-sm"
                   }`}
                 >
                   {m.role === "user" && !sending && (
@@ -1263,8 +1265,9 @@ function ChatPageInner() {
               </div>
             ))}
             {sending && (
-              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                <span>{agentName} processando…</span>
+              <div className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 px-3 py-2 text-xs text-[var(--text-muted)]">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--selo)]" aria-hidden />
+                <span>{agentName} trabalhando…</span>
                 {abortController && (
                   <button
                     type="button"
@@ -1544,7 +1547,7 @@ function ChatPageInner() {
               )}
             </div>
           )}
-          <div className="p-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] flex items-end gap-2">
+          <div className="chat-composer flex items-end gap-2 rounded-[1.6rem] border border-[var(--border-strong)] bg-[var(--surface-elevated)]/80 p-2.5 backdrop-blur-xl transition-colors focus-within:border-[var(--selo)]/50">
             <input
               type="file"
               ref={fileInputRef}
@@ -1576,12 +1579,12 @@ function ChatPageInner() {
                       : `Mensagem para ${agentName}…`
               }
               disabled={guestLimitReached || queue.length >= 3}
-              className="flex-1 bg-transparent px-2 py-1 text-base focus:outline-none min-h-[36px] max-h-[320px] disabled:opacity-50"
+              className="min-h-[38px] max-h-[320px] flex-1 resize-none bg-transparent px-2 py-1.5 text-base leading-6 placeholder:text-[var(--text-muted)] focus:outline-none disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={guestLimitReached || queue.length >= 3 || (!inputMessage.trim() && pendingArtifacts.length === 0)}
-              className="px-4 py-2 rounded-xl bg-[var(--selo)] text-[var(--base)] text-xs font-semibold disabled:opacity-40 font-mono cursor-pointer"
+              className="min-h-10 shrink-0 rounded-xl bg-[var(--selo)] px-3.5 py-2 text-xs font-semibold text-[var(--base)] transition hover:bg-[var(--nucleo)] disabled:cursor-not-allowed disabled:opacity-40 font-mono"
             >
               {editingMessageId ? "Salvar e Regenerar" : "Enviar"}
             </button>
