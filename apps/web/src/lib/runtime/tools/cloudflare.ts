@@ -1,12 +1,15 @@
 /**
  * Tool cloudflare — REST via API Token do conector do usuário.
- * Reads: executam direto.
- * Writes: criam write_gate (pending) até aprovação humana; depois executam.
+ *
+ * Reads: executam direto (sujeitos ao registro de capacidades).
+ * Writes (H1/H9): exigem write_gate aprovado por humano, validado no servidor.
+ * O booleano `_gateApproved` foi REMOVIDO.
  */
 
 import { getConnectorRow, getAccessToken } from "@/lib/connectors/service";
 import { cloudflareManifest } from "@/lib/connectors/manifests/cloudflare";
-import { createWriteGate } from "@/lib/connectors/gates";
+import { guardWrite, type GateFinalize } from "@/lib/connectors/writeGateGuard";
+import { capabilityBlockReason } from "@/lib/capabilities/registry";
 import {
   cloudflareListZones,
   cloudflareListDnsRecords,
@@ -53,7 +56,7 @@ type CloudflarePayload = {
   project_name?: string;
   projectName?: string;
   branch?: string;
-  _gateApproved?: boolean;
+  /** H1 — id do write_gate aprovado. Único campo de autorização aceito. */
   _gateId?: string;
   missionId?: string;
 };
@@ -77,10 +80,17 @@ function parseInput(raw: string): CloudflarePayload | { error: string } {
       name: j.name ? String(j.name) : undefined,
       content: j.content ? String(j.content) : undefined,
       proxied: typeof j.proxied === "boolean" ? j.proxied : j.proxied === "true",
-      project_name: j.project_name ? String(j.project_name) : j.projectName ? String(j.projectName) : undefined,
-      projectName: j.projectName ? String(j.projectName) : j.project_name ? String(j.project_name) : undefined,
+      project_name: j.project_name
+        ? String(j.project_name)
+        : j.projectName
+          ? String(j.projectName)
+          : undefined,
+      projectName: j.projectName
+        ? String(j.projectName)
+        : j.project_name
+          ? String(j.project_name)
+          : undefined,
       branch: j.branch ? String(j.branch) : undefined,
-      _gateApproved: j._gateApproved === true,
       _gateId: j._gateId ? String(j._gateId) : undefined,
       missionId: j.missionId ? String(j.missionId) : undefined,
     };
@@ -88,6 +98,51 @@ function parseInput(raw: string): CloudflarePayload | { error: string } {
     return { error: "input deve ser JSON válido" };
   }
 }
+
+/** Payload normalizado que entra no hash do gate. */
+function buildWritePayload(parsed: CloudflarePayload): Record<string, unknown> {
+  return {
+    zoneId: parsed.zoneId || parsed.zone_id,
+    type: parsed.type,
+    name: parsed.name,
+    content: parsed.content,
+    proxied: parsed.proxied,
+    projectName: parsed.projectName || parsed.project_name,
+    branch: parsed.branch,
+  };
+}
+
+function describeWrite(parsed: CloudflarePayload): {
+  target: string;
+  summary: string;
+  contentPreview: string | null;
+} {
+  let target = "";
+  let summary = "";
+  let preview = "";
+
+  if (parsed.action === "dns_record_create") {
+    const zoneId = parsed.zoneId || parsed.zone_id || "";
+    target = `zones/${zoneId}/dns_records`;
+    summary = `Criar registro DNS ${parsed.type || "A"} "${parsed.name}" → "${parsed.content}"`;
+    preview = [
+      `Zone ID: ${zoneId}`,
+      `Tipo: ${parsed.type || "A"}`,
+      `Nome: ${parsed.name || "—"}`,
+      `Conteúdo: ${parsed.content || "—"}`,
+      `Proxied: ${parsed.proxied ? "Sim" : "Não"}`,
+    ].join("\n");
+  } else if (parsed.action === "pages_deploy") {
+    const projName = parsed.projectName || parsed.project_name || "";
+    target = `pages/projects/${projName}/deployments`;
+    summary = `Criar deployment do Pages "${projName}" (branch: ${parsed.branch || "main"})`;
+    preview = [`Projeto: ${projName}`, `Branch: ${parsed.branch || "main"}`].join("\n");
+  }
+
+  return { target, summary, contentPreview: preview || null };
+}
+
+type WriteOutcome = { ok: true; output: string } | { ok: false; error: string };
 
 export async function runCloudflare(input: string, userId: string): Promise<ToolResult> {
   const started = Date.now();
@@ -100,6 +155,12 @@ export async function runCloudflare(input: string, userId: string): Promise<Tool
       error: parsed.error,
       durationMs: Date.now() - started,
     };
+  }
+
+  // H9 — registro de capacidades (fail-closed).
+  const blocked = capabilityBlockReason("cloudflare", parsed.action);
+  if (blocked) {
+    return { ok: false, tool: "cloudflare", input, error: blocked, durationMs: Date.now() - started };
   }
 
   const row = await getConnectorRow(userId, "cloudflare");
@@ -126,6 +187,7 @@ export async function runCloudflare(input: string, userId: string): Promise<Tool
 
   const caps = parseCapabilities(row.capabilities);
   const manifestCap = cloudflareManifest.capabilities.find((c) => c.name === parsed.action);
+  // H7 — fail-closed.
   const cap =
     caps.find((c) => c.name === parsed.action) ||
     (manifestCap
@@ -151,78 +213,88 @@ export async function runCloudflare(input: string, userId: string): Promise<Tool
     cap.mode === "write" ||
     WRITE_ACTIONS.includes(parsed.action as (typeof WRITE_ACTIONS)[number]);
 
-  if (isWrite && !parsed._gateApproved) {
-    let target = "";
-    let summary = "";
-    let preview = "";
-
+  const performWrite = async (): Promise<WriteOutcome> => {
     if (parsed.action === "dns_record_create") {
       const zoneId = parsed.zoneId || parsed.zone_id || "";
-      target = `zones/${zoneId}/dns_records`;
-      summary = `Criar registro DNS ${parsed.type || "A"} "${parsed.name}" → "${parsed.content}"`;
-      preview = [
-        `Zone ID: ${zoneId}`,
-        `Tipo: ${parsed.type || "A"}`,
-        `Nome: ${parsed.name || "—"}`,
-        `Conteúdo: ${parsed.content || "—"}`,
-        `Proxied: ${parsed.proxied ? "Sim" : "Não"}`,
-      ].join("\n");
-    } else if (parsed.action === "pages_deploy") {
-      const projName = parsed.projectName || parsed.project_name || "";
-      target = `pages/projects/${projName}/deployments`;
-      summary = `Criar deployment do Pages "${projName}" (branch: ${parsed.branch || "main"})`;
-      preview = [
-        `Projeto: ${projName}`,
-        `Branch: ${parsed.branch || "main"}`,
-      ].join("\n");
+      const res = await cloudflareCreateDnsRecord(token, {
+        zoneId,
+        type: parsed.type || "A",
+        name: parsed.name || "",
+        content: parsed.content || "",
+        proxied: parsed.proxied,
+      });
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
     }
 
-    try {
-      const gate = await createWriteGate({
-        userId,
-        missionId: parsed.missionId ?? null,
-        provider: "cloudflare",
-        capability: parsed.action,
-        target,
-        summary,
-        payload: {
-          action: parsed.action,
-          zoneId: parsed.zoneId || parsed.zone_id,
-          type: parsed.type,
-          name: parsed.name,
-          content: parsed.content,
-          proxied: parsed.proxied,
-          projectName: parsed.projectName || parsed.project_name,
-          branch: parsed.branch,
-        },
-        contentPreview: preview,
+    if (parsed.action === "pages_deploy") {
+      const projName = parsed.projectName || parsed.project_name || "";
+      const res = await cloudflareDeployPages(token, {
+        projectName: projName,
+        branch: parsed.branch,
       });
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
+    }
 
-      return {
-        ok: true,
-        tool: "cloudflare",
-        input,
-        output: [
-          "GATE_PENDING",
-          `gate_id: ${gate.id}`,
-          `capability: ${parsed.action}`,
-          `target: ${target}`,
-          `summary: ${summary}`,
-          "Aguardando aprovação humana no chat (Princípio 1). Não execute write sem aprovação.",
-        ].join("\n"),
-        durationMs: Date.now() - started,
-      };
-    } catch (e) {
-      const reason = e instanceof Error ? e.message : "Falha ao criar write_gate";
-      console.error("[runCloudflare createWriteGate error]", { action: parsed.action, input, error: reason });
+    return { ok: false, error: `Write '${parsed.action}' não reconhecida.` };
+  };
+
+  if (isWrite) {
+    const { target, summary, contentPreview } = describeWrite(parsed);
+    const guard = await guardWrite({
+      userId,
+      provider: "cloudflare",
+      capability: parsed.action,
+      target,
+      summary,
+      payload: buildWritePayload(parsed),
+      contentPreview,
+      missionId: parsed.missionId ?? null,
+      gateId: parsed._gateId,
+    });
+
+    if (guard.kind === "refused") {
       return {
         ok: false,
         tool: "cloudflare",
         input,
-        error: `Não consegui iniciar a operação ${parsed.action}: ${reason}`,
+        error: guard.error,
         durationMs: Date.now() - started,
       };
     }
+    if (guard.kind === "gate_pending") {
+      return {
+        ok: true,
+        tool: "cloudflare",
+        input,
+        output: guard.output,
+        durationMs: Date.now() - started,
+      };
+    }
+
+    const finalize: GateFinalize = guard.finalize;
+    const outcome = await performWrite();
+    await finalize({
+      ok: outcome.ok,
+      output: outcome.ok ? outcome.output : null,
+      error: outcome.ok ? null : outcome.error,
+    });
+
+    if (!outcome.ok) {
+      return {
+        ok: false,
+        tool: "cloudflare",
+        input,
+        error: outcome.error,
+        durationMs: Date.now() - started,
+      };
+    }
+    return {
+      ok: true,
+      tool: "cloudflare",
+      input,
+      output: outcome.output,
+      durationMs: Date.now() - started,
+    };
   }
 
   if (parsed.action === "zones_list") {
@@ -236,7 +308,13 @@ export async function runCloudflare(input: string, userId: string): Promise<Tool
   if (parsed.action === "dns_records_list") {
     const zoneId = parsed.zoneId || parsed.zone_id || "";
     if (!zoneId) {
-      return { ok: false, tool: "cloudflare", input, error: "Parâmetro 'zone_id' é obrigatório para listar registros DNS.", durationMs: Date.now() - started };
+      return {
+        ok: false,
+        tool: "cloudflare",
+        input,
+        error: "Parâmetro 'zone_id' é obrigatório para listar registros DNS.",
+        durationMs: Date.now() - started,
+      };
     }
     const res = await cloudflareListDnsRecords(token, zoneId);
     if (!res.ok) {
@@ -255,33 +333,6 @@ export async function runCloudflare(input: string, userId: string): Promise<Tool
 
   if (parsed.action === "workers_list") {
     const res = await cloudflareListWorkers(token);
-    if (!res.ok) {
-      return { ok: false, tool: "cloudflare", input, error: res.error, durationMs: Date.now() - started };
-    }
-    return { ok: true, tool: "cloudflare", input, output: res.output, durationMs: Date.now() - started };
-  }
-
-  if (parsed.action === "dns_record_create") {
-    const zoneId = parsed.zoneId || parsed.zone_id || "";
-    const res = await cloudflareCreateDnsRecord(token, {
-      zoneId,
-      type: parsed.type || "A",
-      name: parsed.name || "",
-      content: parsed.content || "",
-      proxied: parsed.proxied,
-    });
-    if (!res.ok) {
-      return { ok: false, tool: "cloudflare", input, error: res.error, durationMs: Date.now() - started };
-    }
-    return { ok: true, tool: "cloudflare", input, output: res.output, durationMs: Date.now() - started };
-  }
-
-  if (parsed.action === "pages_deploy") {
-    const projName = parsed.projectName || parsed.project_name || "";
-    const res = await cloudflareDeployPages(token, {
-      projectName: projName,
-      branch: parsed.branch,
-    });
     if (!res.ok) {
       return { ok: false, tool: "cloudflare", input, error: res.error, durationMs: Date.now() - started };
     }
