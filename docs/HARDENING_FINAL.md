@@ -101,7 +101,21 @@ Variáveis que precisam estar configuradas no Vercel para produção:
 
 O template `.env.example` e `docs/MCP_SERVER.md` agora deixam explícito que uma entrada HTTPS somente com origin não é wildcard. HTTP continua restrito a `localhost`/`127.0.0.1` para desenvolvimento.
 
-## 6. Evidência de qualidade
+## 6. Auditoria de dependências
+
+O primeiro build de produção reportou 35 avisos do `npm audit` (12 moderados, 19 altos e 4 críticos contando dependências de desenvolvimento). A cadeia foi auditada, sem usar `npm audit fix --force`. Foram aplicadas as correções compatíveis:
+
+- `xlsx`/SheetJS foi removido; o parser de ingestão foi migrado para `exceljs` assíncrono com limite de 1.000 linhas;
+- `.xls` legado agora retorna `415` antes de persistir o blob; a interface oferece somente `.xlsx`, evitando parser ambíguo de formato binário antigo;
+- `@vercel/blob` foi atualizado para `2.8.1`;
+- `drizzle-orm` foi atualizado para `0.45.3`;
+- `drizzle-kit` foi atualizado para `0.31.11`;
+- `next` permaneceu em `15.5.25` para não introduzir upgrade major automático; o PostCSS resolvido foi fixado em `8.5.29`;
+- `shell-quote` foi fixado em `1.11.0`, inclusive para o `gel` opcional do Drizzle.
+
+Após reinstalação limpa, `npm audit --omit=dev` ficou em **0 críticos, 3 altos e 6 moderados**. Os três altos restantes são a cadeia sem correção upstream em `@huggingface/transformers@3.8.1`/`kokoro-js@1.2.1`, que puxa `sharp@0.34.5`; o próprio audit informa **sem correção disponível**. A funcionalidade de voz/modelo local é carregada sob demanda e não concede autenticação, capability, write ou acesso ao banco. O relatório registra esse risco de supply chain explicitamente em vez de mascará-lo como “zero vulnerabilidades”.
+
+## 7. Evidência de qualidade
 
 Checks finais locais após todas as correções:
 
@@ -114,10 +128,11 @@ Checks finais locais após todas as correções:
 
 Os warnings e os `stderr` de testes que simulam ausência de `DATABASE_URL` não são falhas de produção: os testes passam; os fixtures agora mockam `writeCheckpoint` quando o caso é unitário.
 
-## 7. Riscos residuais explicitamente conhecidos
+## 8. Riscos residuais explicitamente conhecidos
 
-1. **Smoke autenticado no Vercel:** os checks locais e a inspeção do projeto/deployment não substituem um smoke com sessão real, connectors reais e OAuth real. Esse passo depende das credenciais/allowlist configuradas no Vercel.
-2. **Rate limit de calls MCP:** o bucket de 30 calls/60 s por grant em `apps/web/src/lib/mcp/audit.ts` é por processo. A auditoria é persistida no Neon e o rate limit de registro OAuth é persistido; em múltiplas instâncias, o bucket de calls é uma defesa por instância, não uma quota global. Isso não concede autenticação, scope ou capability e não é bypass de write gate.
-3. **TOCTOU de filesystem local:** a sandbox revalida `realpath` e contém symlink no fluxo normal. Um processo local hostil que troque symlinks simultaneamente ainda representa a janela clássica de filesystem; não é uma superfície exposta pelo request normal do Plutão.
+1. **Dependência upstream de voz/modelo:** os 3 alertas altos de `sharp` não têm correção publicada compatível com a cadeia `kokoro-js@1.2.1`/Transformers 3.x. Migrar para Transformers 4.x ou trocar Kokoro é uma mudança funcional major e deve ser validada com áudio real; não foi feita cegamente.
+2. **Smoke autenticado no Vercel:** os checks locais e a inspeção do projeto/deployment não substituem um smoke com sessão real, connectors reais e OAuth real. Esse passo depende das credenciais/allowlist configuradas no Vercel.
+3. **Rate limit de calls MCP:** o bucket de 30 calls/60 s por grant em `apps/web/src/lib/mcp/audit.ts` é por processo. A auditoria é persistida no Neon e o rate limit de registro OAuth é persistido; em múltiplas instâncias, o bucket de calls é uma defesa por instância, não uma quota global. Isso não concede autenticação, scope ou capability e não é bypass de write gate.
+4. **TOCTOU de filesystem local:** a sandbox revalida `realpath` e contém symlink no fluxo normal. Um processo local hostil que troque symlinks simultaneamente ainda representa a janela clássica de filesystem; não é uma superfície exposta pelo request normal do Plutão.
 
 Fora esses itens operacionais explícitos, os bloqueios de segurança, identidade, loop, token budget, replay, fallback SQL e documentação identificados na auditoria foram tratados no código e cobertos por testes.

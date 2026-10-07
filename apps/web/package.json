@@ -11,15 +11,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.0.0",
     "@capacitor/app": "^6.0.2",
     "@capacitor/browser": "^6.0.2",
     "@capacitor/core": "^6.2.1",
+    "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@plutao/db": "*",
     "@plutao/domain": "*",
     "@realtimex/piper-tts-web": "^1.1.1",
-    "drizzle-orm": "^0.39.0",
+    "@vercel/blob": "2.8.1",
+    "drizzle-orm": "0.45.3",
     "exceljs": "^4.4.0",
     "kokoro-js": "^1.2.1",
     "mcp-handler": "^2.0.0",
@@ -29,7 +30,6 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "stripe": "^17.7.0",
-    "xlsx": "^0.18.5",
     "zod": "^4.2.0"
   },
   "devDependencies": {

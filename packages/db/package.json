@@ -15,11 +15,12 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0",
-    "@vercel/blob": "^0.10.0",
-    "drizzle-orm": "^0.39.0"
+    "@vercel/blob": "2.8.1",
+    "drizzle-orm": "0.45.3",
+    "shell-quote": "1.11.0"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.30.0",
+    "drizzle-kit": "0.31.11",
     "typescript": "^5"
   }
 }
