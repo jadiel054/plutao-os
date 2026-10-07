@@ -24,7 +24,7 @@ const patterns = {
   inlineCode: /`([^`]+)`/g,
   
   // Links
-  link: /\\[(.+?)\\]\\((.+?)\\)/g,
+  link: /\[(.+?)\]\((.+?)\)/g,
   
   // Listas
   unorderedList: /^\s*[-*+]\s+(.*)$/,
@@ -52,7 +52,7 @@ function parseInlineMarkdown(text: string): React.ReactNode {
   const _lastIndex = 0;
   
   // Processar links
-  const linkRegex = /\\[(.+?)\\]\\((.+?)\\)/g;
+  const linkRegex = /\[(.+?)\]\((.+?)\)/g;
   let linkMatch: RegExpExecArray | null;
   const linkMatches: {start: number; end: number; text: string; url: string}[] = [];
   
@@ -129,6 +129,10 @@ function parseInlineMarkdown(text: string): React.ReactNode {
     // Adicionar o elemento correspondente
     switch (match.type) {
       case 'link':
+        if (!/^https?:\/\//i.test(match.url) && !/^mailto:/i.test(match.url)) {
+          result.push(match.text);
+          break;
+        }
         result.push(
           <a 
             key={`${match.start}-link`}
@@ -259,7 +263,7 @@ function parseBlock(text: string, key: string): React.ReactNode {
   
   // Parágrafo comum
   return (
-    <p key={key} className="whitespace-pre-wrap text-[var(--text-primary)] leading-relaxed [overflow-wrap:anywhere] break-words">
+      <p key={key} className="whitespace-pre-wrap text-[var(--text-primary)] leading-[1.7] [overflow-wrap:anywhere] break-words">
       {parseInlineMarkdown(text)}
     </p>
   );
@@ -278,7 +282,7 @@ export function MarkdownRenderer({ text }: MarkdownRendererProps) {
   const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
   
   return (
-    <div className="space-y-2 text-[14.5px] leading-relaxed [overflow-wrap:anywhere] break-words">
+    <div className="space-y-3 text-[15px] leading-relaxed [overflow-wrap:anywhere] break-words">
       {blocks.map((block, index) => {
         // Verificar se é uma lista (múltiplas linhas começando com - ou 1.)
         const lines = block.split('\n');
