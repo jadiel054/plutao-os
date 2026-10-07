@@ -26,6 +26,7 @@ Prefer Root Directory = monorepo root.
 | `DATABASE_URL` | for health DB check | Neon **pooled**; server-only |
 | `DATABASE_URL_UNPOOLED` | no (runtime) | only if running migrations from CI later |
 | `AUTH_SECRET` | no until Auth | placeholder |
+| `CRON_SECRET` | yes for durable worker | secret used by `/api/cron/runtime-worker`; Vercel Cron sends it as Bearer authorization |
 
 Do not expose database URLs to the client.
 
@@ -36,13 +37,30 @@ Do not expose database URLs to the client.
 - `/api/health` does not require DB at build time
 - PWA `public/sw.js` + register component
 - CI workflow mirrors install + build
+- `apps/web/vercel.json` schedules `/api/cron/runtime-worker` every minute and the write-gate cleanup daily
+
+## Durable runtime worker (mission execution)
+
+O endpoint `POST /api/missions/:id/autonomous-run` **somente enfileira** uma execution `PENDING` e retorna `202`. O processamento acontece em `POST /api/cron/runtime-worker`, protegido por `Authorization: Bearer $CRON_SECRET`.
+
+Em produção:
+
+1. Defina `CRON_SECRET` no ambiente da Vercel.
+2. Confirme que a migration `0024_autonomous_platform_foundation.sql` foi aplicada no Neon.
+3. Execute uma missão de teste e confirme a sequência `runtime_jobs.PENDING → RUNNING → SUCCEEDED` junto com `executions.PENDING → RUNNING → COMPLETED`.
+4. Confirme que uma falha de modelo produz `executions.FAILED` e `runtime_jobs.PENDING/FAILED`, nunca `SUCCEEDED`.
+5. Confirme que o Cockpit exibe separadamente `Job durável` e `Status do Runtime`.
+
+Se o worker ou a migration estiverem indisponíveis, o endpoint público responde `503 DURABLE_QUEUE_UNAVAILABLE` e **não** executa fallback síncrono.
 
 ## Blockers before first production deploy
 
 1. Successful `npm install` + `npm run build` (local or CI green)
 2. Prefer committing `package-lock.json` for deterministic installs
 3. Set `DATABASE_URL` in Vercel for real health checks
-4. Confirm Neon allows connections from Vercel IPs (Neon default allows)
+4. Set `CRON_SECRET` and verify the durable worker cron
+5. Confirm Neon allows connections from Vercel IPs (Neon default allows)
+6. Apply `0024_autonomous_platform_foundation.sql` through the repository migration workflow
 
 ## Out of scope until approved
 

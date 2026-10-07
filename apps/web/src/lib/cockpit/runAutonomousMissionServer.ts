@@ -1,7 +1,7 @@
 /**
  * Server-side Autonomia V1.1 cycle.
- * Survives client tab close for the duration of the HTTP request (Vercel maxDuration).
- * Does NOT implement Service Worker / closed-PWA workers — that is a later phase.
+ * The normal caller is the authenticated durable runtime worker. Direct callers
+ * such as gate approval may still resume a known execution explicitly.
  *
  * ## Missões longas (H1)
  * `POST /api/missions/:id/autonomous-run` declara `maxDuration = 300` (5 min).
@@ -9,10 +9,8 @@
  * Se o trabalho ultrapassar o teto da plataforma, a execução é cortada no meio
  * (execution pode ficar RUNNING/INTERRUPTED sem complete limpo).
  *
- * **Débito arquitetural (não implementar em H1):** executor durável com
- * job table + scheduler (ex. fila / Inngest) para retomada fora do ciclo HTTP.
- * Até lá, missões simples (poucos tool calls) são o caminho suportado;
- * missões multi-arquivo longas devem ser fatiadas ou aceitar risco de timeout.
+ * O endpoint público de autonomous-run apenas enfileira; esta função não deve
+ * ser chamada por ele sem que um worker tenha reivindicado o job.
  */
 import { and, eq } from "drizzle-orm";
 import { missions } from "@plutao/db";
@@ -28,6 +26,8 @@ import { verifyDefinitionOfDone } from "@/lib/missions/dod";
 import {
   completeExecution,
   findRecoverableExecution,
+  getOwnedExecution,
+  resumeExecution,
   startExecution,
   writeCheckpoint,
 } from "@/lib/runtime/service";
@@ -99,6 +99,8 @@ export async function ensureFirstPlanStepRunning(
 export async function runAutonomousMissionServer(opts: {
   missionId: string;
   userId: string;
+  /** Quando presente, o worker executa exatamente o job reivindicado. */
+  executionId?: string | null;
   currentTaskId?: string | null;
   maxIterations?: number;
   /** G3: conversa do chat que originou a missão — events no Computador. */
@@ -126,7 +128,7 @@ export async function runAutonomousMissionServer(opts: {
   }
 
   let status = String(mission.status).toUpperCase();
-  if (["COMPLETED", "CANCELLED", "FAILED"].includes(status)) {
+  if (["COMPLETED", "CANCELLED", "FAILED", "INCONCLUSIVE"].includes(status)) {
     return {
       ok: false,
       missionId,
@@ -186,7 +188,14 @@ export async function runAutonomousMissionServer(opts: {
   // H1: plano alinhado → passo 0 RUNNING antes do agent loop
   await ensureFirstPlanStepRunning(missionId, userId);
 
-  let recoverable = await findRecoverableExecution(missionId, userId);
+  type ExecutionRow = NonNullable<Awaited<ReturnType<typeof getOwnedExecution>>>;
+  let recoverable: ExecutionRow | null = opts.executionId
+    ? await getOwnedExecution(opts.executionId, userId)
+    : await findRecoverableExecution(missionId, userId);
+  if (recoverable?.status === "PENDING") {
+    const resumed = await resumeExecution(recoverable.id, userId);
+    recoverable = "execution" in resumed ? resumed.execution ?? null : null;
+  }
   if (!recoverable) {
     const started = await startExecution({
       missionId,
@@ -194,6 +203,10 @@ export async function runAutonomousMissionServer(opts: {
       currentTaskId: opts.currentTaskId ?? null,
     });
     recoverable = started.execution;
+  }
+  if (recoverable?.status === "PENDING") {
+    const resumed = await resumeExecution(recoverable.id, userId);
+    recoverable = "execution" in resumed ? resumed.execution ?? null : null;
   }
 
   const executionId = recoverable?.id ? String(recoverable.id) : null;

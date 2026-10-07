@@ -14,13 +14,13 @@ describe("parseOAuthClientRegistration", () => {
   it("uses public-client defaults and returns the requested callback", () => {
     const result = parseOAuthClientRegistration({
       redirect_uris: ["http://127.0.0.1:43127/callback"],
-      client_name: "Manus",
+      client_name: "plutao-test-client",
     });
 
     expect(result).toEqual({
       ok: true,
       metadata: {
-        clientName: "Manus",
+        clientName: "plutao-test-client",
         redirectUris: ["http://127.0.0.1:43127/callback"],
         grantTypes: ["authorization_code", "refresh_token"],
         responseTypes: ["code"],

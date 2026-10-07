@@ -60,7 +60,8 @@ describe("recordModelError helper", () => {
     expect(result).not.toBeNull();
     expect(result?.type).toBe("model_error");
     expect(result?.status).toBe("error");
-    expect(result?.content).toContain("503 Service Unavailable");
+    expect(result?.content).toContain("MODEL_PROVIDER_UNAVAILABLE");
+    expect(result?.content).not.toContain("503 Service Unavailable");
     expect(result?.content).toContain("hint: Custom hint text");
     expect(result?.source).toBe("model:plutao-primary");
 
@@ -72,7 +73,8 @@ describe("recordModelError helper", () => {
 
     const errItem = parsed.find((e) => e.type === "model_error");
     expect(errItem).toBeDefined();
-    expect(errItem?.content).toContain("503 Service Unavailable");
+    expect(errItem?.content).toContain("MODEL_PROVIDER_UNAVAILABLE");
+    expect(errItem?.metadata).toMatchObject({ category: "PROVIDER_UNAVAILABLE", retryable: true });
     expect(errItem?.status).toBe("error");
   });
 

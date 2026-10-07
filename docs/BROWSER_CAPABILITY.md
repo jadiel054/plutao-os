@@ -109,8 +109,8 @@ screenshot.
 
 ## 5. Live view + Human Takeover
 
-Inspirado no "Computador do Manus" (painel que mostra ao vivo navegador/
-comandos, com botão "Assumir controle"). Isso **não** é uma capability nova —
+O painel de operação ao vivo mostra navegador/comandos e oferece o botão
+"Assumir controle". Isso **não** é uma capability nova —
 é a camada de observabilidade em cima da evidência que a Browser Capability já
 produz (classe `SCREENSHOT`/`ACTION_RESULT` transmitida quase em tempo real via
 WS/SSE em vez de só arquivada).

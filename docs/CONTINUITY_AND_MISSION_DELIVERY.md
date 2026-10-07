@@ -1,6 +1,6 @@
 # CONTINUITY_AND_MISSION_DELIVERY.md — Arquitetura de Continuidade de Missão e Mission Delivery
 
-**Status:** DESIGNED
+**Status:** IMPLEMENTED (worker local) / DESIGNED (adapter gerenciado)
 **Alinhado com:** `docs/PROJECT_SPECIFICATION.md` (e Partes 2 e 3), `docs/ARCHITECTURE.md`, `docs/CURRENT_STATE.md`, `docs/DECISIONS.md`, `docs/VERIFICATION.md`
 
 > **Frase fundamental:**
@@ -243,7 +243,8 @@ A tabela abaixo mapeia a situação atual das capacidades de continuidade e entr
 | **Sandbox Filesystem Tool V1** | **VERIFIED** | `apps/web/src/lib/runtime/tools/filesystem.ts` | Suporta `list`, `read`, `write`, `mkdir`, `stat` com isolamento e segurança. |
 | **Evidência de Execução (`GET /api/missions/:id/evidence`)** | **VERIFIED** | `apps/web/src/app/api/missions/[id]/evidence/route.ts` | Rota ativa registrando outputs de ferramentas e checkpoints. |
 | **Roteador Híbrido Online/Offline (`ModelSelector`)** | **IMPLEMENTED** | `packages/domain/src/runtime/modelSelector.ts` | Suporta alternância entre Groq e Local WebGPU (`transformers.js`). |
-| **Durable Execution Adapter (Inngest / Replay)** | **DESIGNED** | `docs/ARCHITECTURE.md`, `docs/PROJECT_SPECIFICATION.md` §8 | Especificado conceitualmente atrás de interface genérica; a ser ativado em fase futura. |
+| **Durable Execution Adapter gerenciado (Inngest / Replay)** | **DESIGNED** | `docs/ARCHITECTURE.md`, `docs/PROJECT_SPECIFICATION.md` §8 | Adapter vendor-neutral permanece futuro; o contrato de continuidade atual é atendido pelo worker local abaixo. |
+| **Worker durável local (`runtime_jobs`)** | **IMPLEMENTED** | `apps/web/src/app/api/cron/runtime-worker/route.ts`, `apps/web/src/lib/runtime/durableJobs.ts`, migration `0024` | Enqueue `PENDING`, claim com lease, retry/backoff, cancelamento e reconciliação; produção ainda requer `CRON_SECRET` + smoke. |
 | **Verificação Adversarial Automática** | **DESIGNED** | `docs/PROJECT_SPECIFICATION.md` §53 | Especificado na arquitetura de verificação; a ser expandido nas próximas fases. |
 
 ---
@@ -257,3 +258,21 @@ Para obter detalhes complementares sem duplicação de especificações, consult
 - **Decisões Registradas:** `docs/DECISIONS.md`
 - **Critérios de Verificação e Testes:** `docs/VERIFICATION.md`
 - **Guias de Execução e Deploy:** `docs/DEVELOPMENT.md` e `docs/DEPLOYMENT.md`
+
+---
+
+## 10. CONTRATO OPERACIONAL DO WORKER DURÁVEL
+
+O caminho suportado para execução autônoma é:
+
+```text
+POST autonomous-run
+  → execution PENDING + runtime_job PENDING
+  → cron worker claim (job RUNNING)
+  → execution RUNNING
+  → agent loop/checkpoints/evidence
+  → execution COMPLETED | FAILED | CANCELLED
+  → job SUCCEEDED | PENDING/FAILED | CANCELLED
+```
+
+O retorno do modelo não é autoridade para concluir o job. Se a execution persistida estiver `FAILED`, `RUNNING`, `PENDING` ou `CANCELLED`, o worker não grava `SUCCEEDED`. O Cockpit exibe `Job durável` separado de `Status do Runtime`.

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
-import { executions } from "@plutao/db";
+import { and, desc, eq } from "drizzle-orm";
+import { executions, runtimeJobs } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
 import { getOwnedMission, getOwnedTaskInMission } from "@/lib/missions/ownership";
 import { ensureExecutionsTable } from "@/lib/runtime/ensure";
 import {
+  findActiveExecution,
   findRecoverableExecution,
   startExecution,
 } from "@/lib/runtime/service";
@@ -34,10 +35,27 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     .orderBy(desc(executions.createdAt))
     .limit(20);
 
-  const recoverable = await findRecoverableExecution(missionId, user.id);
+  const active = await findActiveExecution(missionId, user.id);
+  const recoverable = active ?? (await findRecoverableExecution(missionId, user.id));
+  const [runtimeJob] = await db
+    .select({
+      id: runtimeJobs.id,
+      status: runtimeJobs.status,
+      attempts: runtimeJobs.attempts,
+      maxAttempts: runtimeJobs.maxAttempts,
+      lastError: runtimeJobs.lastError,
+      availableAt: runtimeJobs.availableAt,
+      completedAt: runtimeJobs.completedAt,
+      updatedAt: runtimeJobs.updatedAt,
+    })
+    .from(runtimeJobs)
+    .where(and(eq(runtimeJobs.missionId, missionId), eq(runtimeJobs.userId, user.id)))
+    .orderBy(desc(runtimeJobs.updatedAt))
+    .limit(1);
   return NextResponse.json({
     executions: rows,
     recoverable: recoverable ?? null,
+    runtimeJob: runtimeJob ?? null,
   });
 }
 

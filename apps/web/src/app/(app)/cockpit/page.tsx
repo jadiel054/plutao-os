@@ -44,6 +44,11 @@ type ExecutionRow = {
   status: string;
   checkpoint: Record<string, unknown> | null;
   checkpointAt: string | null;
+  jobId?: string;
+  jobStatus?: string;
+  jobAttempts?: number;
+  jobMaxAttempts?: number;
+  jobLastError?: string | null;
 };
 
 function networkErrorMessage(action: string): string {
@@ -202,7 +207,18 @@ export default function CockpitPage() {
         const res = await fetch(`/api/missions/${id}/executions`, { cache: "no-store" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         const d = await res.json();
-        setExecution(d.recoverable ?? null);
+        setExecution(
+          d.recoverable
+            ? {
+                ...d.recoverable,
+                jobId: d.runtimeJob?.id,
+                jobStatus: d.runtimeJob?.status,
+                jobAttempts: d.runtimeJob?.attempts,
+                jobMaxAttempts: d.runtimeJob?.maxAttempts,
+                jobLastError: d.runtimeJob?.lastError ?? null,
+              }
+            : null
+        );
         setPanelErrors((prev) => ({ ...prev, executions: false }));
       } else if (resource === "evidence") {
         const res = await fetch(`/api/missions/${id}/evidence`, { cache: "no-store" });
@@ -288,7 +304,18 @@ export default function CockpitPage() {
     if (rRes.status === "fulfilled" && rRes.value.ok) {
       try {
         const d = await rRes.value.json();
-        setExecution(d.recoverable ?? null);
+        setExecution(
+          d.recoverable
+            ? {
+                ...d.recoverable,
+                jobId: d.runtimeJob?.id,
+                jobStatus: d.runtimeJob?.status,
+                jobAttempts: d.runtimeJob?.attempts,
+                jobMaxAttempts: d.runtimeJob?.maxAttempts,
+                jobLastError: d.runtimeJob?.lastError ?? null,
+              }
+            : null
+        );
       } catch {
         newPanelErrors.executions = true;
       }
@@ -970,6 +997,22 @@ export default function CockpitPage() {
                               <span className="text-[var(--text-muted)]">Status do Runtime:</span>
                               <span className="text-[var(--nucleo)] font-bold">{execution.status}</span>
                             </div>
+                            {execution.jobStatus ? (
+                              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-2.5 py-2 text-[10px] font-mono space-y-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                  <span className="text-[var(--text-muted)]">Job durável:</span>
+                                  <span className="text-blue-300 font-bold">{execution.jobStatus}</span>
+                                  {execution.jobAttempts != null && execution.jobMaxAttempts != null ? (
+                                    <span className="text-[var(--text-muted)]">
+                                      tentativa {execution.jobAttempts}/{execution.jobMaxAttempts}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {execution.jobLastError ? (
+                                  <p className="text-amber-300 break-words">{execution.jobLastError}</p>
+                                ) : null}
+                              </div>
+                            ) : null}
 
                             {execution.checkpoint && (
                               <div className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[10px] font-mono overflow-x-auto text-[var(--text-secondary)]">

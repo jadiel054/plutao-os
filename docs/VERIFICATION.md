@@ -40,6 +40,10 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 - [x] **Checkpoint Persistence:** `saveCheckpoint` and `restoreCheckpoint` persist state snapshots into Neon DB.
 - [x] **Step Memoization:** Completed `AgentStep`s are memoized so retries or page reloads resume from the last valid step without repeating side effects.
 - [x] **Execution Recovery:** Interrupted executions can be retrieved and resumed via `GET /api/missions/:id/executions`.
+- [x] **Durable Enqueue Boundary:** `POST /api/missions/:id/autonomous-run` only creates `execution/job` in `PENDING` and returns `202`; it never runs the agent loop synchronously.
+- [x] **Worker Authority:** `/api/cron/runtime-worker` claims leases atomically, resumes the claimed execution, and derives job terminal state from persisted execution state.
+- [x] **Failure Consistency:** `execution.FAILED` cannot produce `runtime_jobs.SUCCEEDED`; retry exhaustion produces `FAILED`, and user stop produces explicit `CANCELLED`.
+- [x] **Divergence Reconciliation:** stale terminal job/execution mismatches are repaired and emitted as `JOB_EXECUTION_STATE_DIVERGENCE` telemetry.
 
 ---
 
@@ -136,6 +140,7 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 - [x] **Agent Identity Applied (H10):** perfil de Configurações > Agente (`name`, `identity`,
       `personality`) alimenta o system prompt do chat **e** do MCP; default idêntico a `NIX_IDENTITY`.
 - [x] **Documentation Drift Guard (H9):** `docs/CAPABILITIES.md` é gerado do registro e verificado em teste.
+- [x] **Durable Runtime Error Taxonomy:** provider failures are stored as safe codes (`MODEL_RATE_LIMITED`, `MODEL_UNAUTHORIZED`, `MODEL_PROVIDER_UNAVAILABLE`, etc.) with controlled provider/model/retryable metadata; raw provider bodies are not persisted in mission evidence.
 - [x] **Evidence:** 329 testes verdes, `tsc --noEmit` limpo, migration `0020` aplicada em produção.
       Detalhamento em [`docs/HARDENING_2026-10.md`](HARDENING_2026-10.md).
 

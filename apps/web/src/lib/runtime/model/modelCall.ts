@@ -43,6 +43,137 @@ export class LocalModelCallError extends Error {
   }
 }
 
+export type ModelFailureCode =
+  | "MODEL_RATE_LIMITED"
+  | "MODEL_UNAUTHORIZED"
+  | "MODEL_FORBIDDEN"
+  | "MODEL_NOT_FOUND"
+  | "MODEL_TIMEOUT"
+  | "MODEL_PROVIDER_UNAVAILABLE"
+  | "MODEL_REQUEST_INVALID"
+  | "MODEL_CALL_FAILED";
+
+export type ModelFailure = {
+  code: ModelFailureCode;
+  category:
+    | "RATE_LIMIT"
+    | "AUTH"
+    | "VALIDATION"
+    | "TIMEOUT"
+    | "PROVIDER_UNAVAILABLE"
+    | "UNKNOWN";
+  retryable: boolean;
+  provider?: string;
+  model?: string;
+  httpStatus?: number;
+  hint: string;
+};
+
+function errorParts(error: unknown) {
+  const value = error as {
+    message?: unknown;
+    httpStatus?: unknown;
+    status?: unknown;
+    model?: unknown;
+  } | null;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : String(value?.message ?? "");
+  const explicitStatus = Number(value?.httpStatus ?? value?.status);
+  const statusFromMessage = message.match(/\b(?:HTTP|status)\s*[:=]?\s*(\d{3})\b/i)?.[1];
+  const httpStatus = Number.isInteger(explicitStatus) && explicitStatus > 0
+    ? explicitStatus
+    : statusFromMessage
+      ? Number(statusFromMessage)
+      : undefined;
+  return { message: message.toLowerCase(), httpStatus, model: typeof value?.model === "string" ? value.model : undefined };
+}
+
+/** Nunca retorna corpo, endpoint, chave ou mensagem do provedor. */
+export function classifyModelError(
+  error: unknown,
+  context: { provider?: string; model?: string } = {}
+): ModelFailure {
+  const parts = errorParts(error);
+  const status = parts.httpStatus;
+  const provider = context.provider;
+  const model = context.model ?? parts.model;
+  const rateLimited = status === 429 || /rate.?limit|too many requests|tokens? per minute|\btpm\b|quota exceeded/.test(parts.message);
+  if (rateLimited) {
+    return {
+      code: "MODEL_RATE_LIMITED",
+      category: "RATE_LIMIT",
+      retryable: true,
+      provider,
+      model,
+      httpStatus: status,
+      hint: "Limite temporário do provedor; aguarde e tente novamente.",
+    };
+  }
+  if (status === 401 || /unauthorized|invalid api key|authentication/.test(parts.message)) {
+    return {
+      code: "MODEL_UNAUTHORIZED",
+      category: "AUTH",
+      retryable: false,
+      provider,
+      model,
+      httpStatus: status,
+      hint: "A credencial do provedor foi rejeitada; confira a configuração do modelo.",
+    };
+  }
+  if (status === 403 || /forbidden|permission denied/.test(parts.message)) {
+    return {
+      code: "MODEL_FORBIDDEN",
+      category: "AUTH",
+      retryable: false,
+      provider,
+      model,
+      httpStatus: status,
+      hint: "O provedor recusou o modelo ou a capacidade solicitada.",
+    };
+  }
+  if (status === 404 || /model.*not found|not found.*model/.test(parts.message)) {
+    return {
+      code: "MODEL_NOT_FOUND",
+      category: "VALIDATION",
+      retryable: false,
+      provider,
+      model,
+      httpStatus: status,
+      hint: "O modelo configurado não foi encontrado no endpoint selecionado.",
+    };
+  }
+  if (status === 408 || /timeout|timed out|deadline exceeded/.test(parts.message)) {
+    return {
+      code: "MODEL_TIMEOUT",
+      category: "TIMEOUT",
+      retryable: true,
+      provider,
+      model,
+      httpStatus: status,
+      hint: "O provedor demorou além do limite; a missão poderá tentar novamente.",
+    };
+  }
+  if ((status != null && status >= 500) || /service unavailable|temporarily unavailable|bad gateway|gateway timeout/.test(parts.message)) {
+    return {
+      code: "MODEL_PROVIDER_UNAVAILABLE",
+      category: "PROVIDER_UNAVAILABLE",
+      retryable: true,
+      provider,
+      model,
+      httpStatus: status,
+      hint: "O provedor está indisponível; a missão poderá tentar novamente.",
+    };
+  }
+  return {
+    code: "MODEL_CALL_FAILED",
+    category: "UNKNOWN",
+    retryable: false,
+    provider,
+    model,
+    httpStatus: status,
+    hint: "Não foi possível completar a chamada; verifique a configuração do modelo.",
+  };
+}
+
 import type { ModelMessage, ModelStepResult } from "./types";
 
 export type ModelProviderLike = {
@@ -140,7 +271,11 @@ export async function callModelWithRetry(
       };
     } catch (e) {
       lastError = e;
-      if (attempt < attempts) {
+      const failure = classifyModelError(e, {
+        provider: provider.getProviderType(),
+        model: provider.getModelId(),
+      });
+      if (attempt < attempts && failure.retryable) {
         const hintMs = parseRetryHint(e);
         const exponentialBackoff = baseBackoff * Math.pow(2, attempt - 1);
         const jitter = Math.random() * 200;

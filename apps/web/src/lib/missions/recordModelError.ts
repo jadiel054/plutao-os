@@ -2,7 +2,8 @@ import { and, eq } from "drizzle-orm";
 import { missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
-import { sanitizeError, sanitizeText } from "@/lib/security/sanitize";
+import { classifyModelError } from "@/lib/runtime/model/modelCall";
+import { sanitizeError } from "@/lib/security/sanitize";
 
 export const DEFAULT_MODEL_ERROR_HINT =
   "Provedor indisponível ou limite de tokens atingido — verifique a chave MODEL_API_KEY no Vercel.";
@@ -14,6 +15,8 @@ export type RecordModelErrorOpts = {
   hint?: string;
   taskId?: string | null;
   executionId?: string;
+  provider?: string;
+  model?: string;
 };
 
 export async function recordModelError(
@@ -26,6 +29,8 @@ export async function recordModelError(
     hint = DEFAULT_MODEL_ERROR_HINT,
     taskId = null,
     executionId,
+    provider,
+    model,
   } = opts;
 
   if (!missionId || !userId) return null;
@@ -40,10 +45,8 @@ export async function recordModelError(
 
     if (!rows[0]) return null;
 
-    const errDetail = sanitizeError(error, "erro no modelo");
-    const content = sanitizeText(
-      `MODEL_CALL_FAILED: ${errDetail}${hint ? ` (hint: ${hint})` : ""}`
-    ).slice(0, 600);
+    const failure = classifyModelError(error, { provider, model });
+    const content = `${failure.code}${hint ? ` (hint: ${hint})` : ""}`.slice(0, 600);
 
     const item: EvidenceItem = {
       id: crypto.randomUUID(),
@@ -54,6 +57,13 @@ export async function recordModelError(
       taskId,
       missionId,
       ...(executionId ? { executionId } : {}),
+      metadata: {
+        category: failure.category,
+        retryable: failure.retryable,
+        provider: failure.provider,
+        model: failure.model,
+        httpStatus: failure.httpStatus,
+      },
       createdAt: new Date().toISOString(),
     };
 
@@ -65,7 +75,7 @@ export async function recordModelError(
 
     return item;
   } catch (err) {
-    console.error("[recordModelError]", err);
+    console.error("[recordModelError]", sanitizeError(err, "RECORD_MODEL_ERROR_FAILED"));
     return null;
   }
 }

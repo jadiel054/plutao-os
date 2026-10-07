@@ -2,7 +2,7 @@
 
 /**
  * G1 — painel mínimo de eventos (prova de stream).
- * Auto-scroll, colapsável, cards brutos. UI estilo Manus fica para G2.
+ * Auto-scroll, colapsável, cards brutos. polimento visual fica para G2.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";

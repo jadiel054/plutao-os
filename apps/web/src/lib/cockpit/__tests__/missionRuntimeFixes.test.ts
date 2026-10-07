@@ -181,8 +181,9 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
       const parsed = parseEvidence(storedEvidence);
       const errEv = parsed.find((e) => e.type === "model_error");
       expect(errEv).toBeDefined();
-      expect(errEv?.content).toContain("MODEL_CALL_FAILED");
-      expect(errEv?.content).toContain("401 Unauthorized");
+      expect(errEv?.content).toBe("MODEL_UNAUTHORIZED");
+      expect(errEv?.content).not.toContain("401 Unauthorized");
+      expect(errEv?.metadata).toMatchObject({ category: "AUTH", retryable: false });
     });
   });
 

@@ -29,6 +29,25 @@ export async function findRecoverableExecution(missionId: string, userId: string
   return rows[0] ?? null;
 }
 
+/** Execution ativa, incluindo a janela em que o job ainda está aguardando o worker. */
+export async function findActiveExecution(missionId: string, userId: string) {
+  await ensureExecutionsTable();
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(executions)
+    .where(
+      and(
+        eq(executions.missionId, missionId),
+        eq(executions.userId, userId),
+        inArray(executions.status, ["PENDING", "RUNNING", "PAUSED", "INTERRUPTED"])
+      )
+    )
+    .orderBy(desc(executions.updatedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function getOwnedExecution(executionId: string, userId: string) {
   await ensureExecutionsTable();
   const db = getDb();
@@ -50,7 +69,7 @@ export async function startExecution(opts: {
   currentTaskId?: string | null;
 }) {
   await ensureExecutionsTable();
-  const existing = await findRecoverableExecution(opts.missionId, opts.userId);
+  const existing = await findActiveExecution(opts.missionId, opts.userId);
   if (existing) {
     return { execution: existing, created: false as const };
   }
@@ -77,7 +96,50 @@ export async function startExecution(opts: {
       .returning();
     return { execution: inserted[0], created: true as const };
   } catch (e: unknown) {
-    const again = await findRecoverableExecution(opts.missionId, opts.userId);
+    const again = await findActiveExecution(opts.missionId, opts.userId);
+    if (again) return { execution: again, created: false as const };
+    throw e;
+  }
+}
+
+/**
+ * Cria a execution sem iniciá-la. O worker durável é quem fará a transição
+ * PENDING → RUNNING depois de reivindicar o job.
+ */
+export async function queueExecution(opts: {
+  missionId: string;
+  userId: string;
+  currentTaskId?: string | null;
+}) {
+  await ensureExecutionsTable();
+  const existing = await findActiveExecution(opts.missionId, opts.userId);
+  if (existing) {
+    return { execution: existing, created: false as const };
+  }
+
+  const now = new Date();
+  const key = activeIdempotencyKey(opts.missionId);
+  const db = getDb();
+
+  try {
+    const inserted = await db
+      .insert(executions)
+      .values({
+        id: randomUUID(),
+        missionId: opts.missionId,
+        userId: opts.userId,
+        currentTaskId: opts.currentTaskId ?? null,
+        status: "PENDING",
+        checkpoint: {},
+        idempotencyKey: key,
+        startedAt: null,
+        updatedAt: now,
+        createdAt: now,
+      })
+      .returning();
+    return { execution: inserted[0], created: true as const };
+  } catch (e: unknown) {
+    const again = await findActiveExecution(opts.missionId, opts.userId);
     if (again) return { execution: again, created: false as const };
     throw e;
   }
@@ -107,13 +169,16 @@ export async function writeCheckpoint(
       checkpointAt: now,
       currentTaskId: payload.taskId !== undefined ? payload.taskId : row.currentTaskId,
       status: row.status === "PENDING" ? "RUNNING" : row.status,
+      startedAt: row.startedAt ?? now,
       updatedAt: now,
     })
-    .where(and(
-      eq(executions.id, executionId),
-      eq(executions.userId, userId),
-      eq(executions.checkpoint, row.checkpoint)
-    ))
+    .where(
+      and(
+        eq(executions.id, executionId),
+        eq(executions.userId, userId),
+        eq(executions.checkpoint, row.checkpoint)
+      )
+    )
     .returning();
   return updated[0] ? { execution: updated[0] } : { error: "CHECKPOINT_CONFLICT" as const };
 }
@@ -150,18 +215,18 @@ export async function interruptExecution(executionId: string, userId: string) {
   return { execution: updated[0] };
 }
 
-/** Resume recoverable run → RUNNING. Does not create a new execution. */
+/** Resume recoverable run or queued PENDING execution → RUNNING. */
 export async function resumeExecution(executionId: string, userId: string) {
   const row = await getOwnedExecution(executionId, userId);
   if (!row) return { error: "NOT_FOUND" as const };
-  if (!RECOVERABLE.has(row.status as ExecutionStatus)) {
+  if (row.status !== "PENDING" && !RECOVERABLE.has(row.status as ExecutionStatus)) {
     return { error: "NOT_RECOVERABLE" as const, execution: row };
   }
   const now = new Date();
   const db = getDb();
   const updated = await db
     .update(executions)
-    .set({ status: "RUNNING", updatedAt: now })
+    .set({ status: "RUNNING", startedAt: row.startedAt ?? now, updatedAt: now })
     .where(eq(executions.id, executionId))
     .returning();
   return { execution: updated[0] };
@@ -208,7 +273,7 @@ export async function stopExecution(
 }
 
 /**
- * Para a execução recuperável ativa da missão (se houver).
+ * Para a execução ativa da missão (inclusive a janela PENDING do worker).
  * Idempotente: sem run ativo → ok sem erro.
  */
 export async function stopMissionExecution(
@@ -216,7 +281,7 @@ export async function stopMissionExecution(
   userId: string,
   reason = "Parado pelo usuário"
 ) {
-  const active = await findRecoverableExecution(missionId, userId);
+  const active = await findActiveExecution(missionId, userId);
   if (!active) {
     return { stopped: false as const, execution: null, reason: "NO_ACTIVE_RUN" as const };
   }

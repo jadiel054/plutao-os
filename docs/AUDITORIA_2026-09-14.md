@@ -3,7 +3,7 @@
 **Repositório:** jadiel054/plutao-os  
 **Branch:** main  
 **Data:** 14/09/2026  
-**Auditor:** Vibe Code (Mistral AI)  
+**Auditor:** Equipe Plutão
 
 ---
 
@@ -12,12 +12,12 @@
 ### ✅ Documentos lidos e compreendidos:
 - ✅ `docs/PROJECT_SPECIFICATION.md` (e partes 2 e 3) — Especificação mestre
 - ✅ `docs/ARCHITECTURE.md` — Arquitetura técnica
-- ✅ `docs/CURRENT_STATE.md` — Estado atual confirmado (inclui teste Manus 14/09)
+- ✅ `docs/CURRENT_STATE.md` — Estado atual confirmado (inclui teste de missão em 14/09)
 - ✅ `docs/CONTINUITY_AND_MISSION_DELIVERY.md` — Continuidade, offline, reconciliação
 - ✅ `docs/PLATAFORMA_VISAO.md` — Visão futura da plataforma completa
 - ✅ `docs/DECISIONS.md` — Decisões arquiteturais
 - ✅ `docs/VERIFICATION.md` — Critérios de verificação
-- ✅ Pasta `docs/testes/2026-09-14-teste-manus/` — Resultados reais em produção
+- ✅ Pasta `docs/testes/2026-09-14-smoke-missao/` — Resultados reais em produção
 
 > ⚠️ **REGRA DE OURO APLICADA:** Os documentos definem o ALVO. O código define a REALIDADE. Cada item foi verificado no código real.
 
@@ -83,7 +83,7 @@
 
 | Item | Status | Prova / Caminho do arquivo |
 |---|---|---|
-| Deploy Vercel funcional (plutao-os.vercel.app) | ✅ **IMPLEMENTADO** | Confirmado em `docs/testes/2026-09-14-teste-manus/` |
+| Deploy Vercel funcional (plutao-os.vercel.app) | ✅ **IMPLEMENTADO** | Confirmado em `docs/testes/2026-09-14-smoke-missao/` |
 | Banco de dados (Neon/Supabase) conectado | ✅ **IMPLEMENTADO** | `packages/db/src/index.ts` - Configuração Drizzle ORM |
 | Variáveis de ambiente configuradas | ✅ **IMPLEMENTADO** | `.env.example` com todas as variáveis necessárias |
 | Build sem erros | ✅ **VERIFICADO** | `npx tsc --noEmit` passa sem erros (após correções) |

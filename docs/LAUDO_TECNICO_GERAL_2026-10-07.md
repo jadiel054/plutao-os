@@ -8,7 +8,7 @@
 
 O Plutão OS já deixou de ser apenas uma interface de chat. O núcleo atual possui autenticação e isolamento de tenant, conectores com capabilities, write gates server-side, evidências, checkpoints, Definition of Done e um loop de agente com limites acumulados. Isso é uma base técnica séria e, especialmente na parte de segurança, está acima de muitos protótipos de agentes.
 
-A conclusão importante é outra: **o sistema é funcional, mas ainda não deve ser descrito como um executor durável equivalente a Manus, Claude Computer Use ou uma plataforma de agentes de produção**. O loop executa dentro de uma requisição HTTP com teto de duração; portanto, missões longas, fechamento total do aplicativo, indisponibilidade do provedor ou concorrência de retomadas ainda exigem uma camada de worker/fila durável e observabilidade operacional mais forte.
+A conclusão importante é outra: **o sistema é funcional, mas ainda não deve ser descrito como um executor durável de produção**. O loop executa dentro de uma requisição HTTP com teto de duração; portanto, missões longas, fechamento total do aplicativo, indisponibilidade do provedor ou concorrência de retomadas ainda exigem uma camada de worker/fila durável e observabilidade operacional mais forte.
 
 Também foi corrigido nesta rodada o botão do composer: no repouso ele mostra a seta para cima e envia; durante processamento ele mostra o quadrado, interrompe o stream e solicita o cancelamento da missão ativa. O comportamento está coberto por teste direcionado, além de typecheck e lint.
 
@@ -119,19 +119,18 @@ Implementar expiração/renovação clara de tokens, health checks, backoff com 
 
 ### P3 — evolução de produto e UX
 
-Continuar o polimento do chat inspirado no Manus, mantendo as cores do Plutão: composer fixo e adaptativo, estados claros de trabalhando/parado, mensagens longas legíveis, código com copy, ações agrupadas, timeline de ferramentas, indicador de conexão e navegação mobile que não bloqueie o scroll. A base já existe, mas merece testes reais em diferentes WebViews Android, tamanhos de fonte e orientação de tela.
+Continuar o polimento do chat, mantendo as cores do Plutão: composer fixo e adaptativo, estados claros de trabalhando/parado, mensagens longas legíveis, código com copy, ações agrupadas, timeline de ferramentas, indicador de conexão e navegação mobile que não bloqueie o scroll. A base já existe, mas merece testes reais em diferentes WebViews Android, tamanhos de fonte e orientação de tela.
 
-## 8. Comparação responsável com Manus, Claude e Grok
+## 8. Critérios internos de prontidão
 
-A comparação abaixo é de capacidades públicas, não uma afirmação de implementação interna desses produtos.
+A evolução do Plutão deve ser medida por capacidades próprias, com critérios verificáveis:
 
-| Referência | Padrão público relevante | Implicação para o Plutão |
-|---|---|---|
-| Manus | Produto orientado a executar tarefas e ações, com geração de websites, slides, jogos, vídeo e design | O Plutão precisa transformar o loop em executor durável e melhorar preview/correção de artefatos |
-| Claude Computer Use | O modelo propõe ações, o executor realiza, devolve resultado e o ciclo continua; a aplicação controla ferramentas e limites | Falta ao Plutão uma camada genérica de computador/browser, com isolamento e aprovação |
-| Grok tools | Tool calling com pesquisa web, X, código, imagem, collections e funções customizadas | O Plutão tem conectores fortes, mas precisa ampliar cobertura de ferramentas e roteamento por tarefa |
-
-Fontes oficiais consultadas: [Manus](https://manus.im/), [Anthropic Computer Use](https://docs.anthropic.com/en/docs/build-with-claude/computer-use) e [xAI Tools](https://docs.x.ai/developers/tools/overview).
+- Missões retomáveis após falha do processo ou fechamento da interface.
+- Ações externas protegidas por autorização, idempotência e recibo persistido.
+- Resultado de missão apoiado por evidência determinística e verificável.
+- Operação observável por métricas de fila, duração, custo, retries e falhas.
+- Artefatos gerados com preview, testes automatizados e possibilidade de rollback.
+- Uso de navegador isolado, com allowlist, trilha de auditoria e controle humano.
 
 ## 9. Conclusão
 

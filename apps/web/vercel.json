@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/runtime-worker",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/cleanup-write-gates",
       "schedule": "0 3 * * *"
     }

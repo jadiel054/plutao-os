@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { callModelWithRetry } from "../modelCall";
+import { callModelWithRetry, classifyModelError } from "../modelCall";
 import type { ModelStepResult } from "../types";
 
 const okResult: ModelStepResult = {
@@ -29,6 +29,29 @@ function makeProvider(failTimes: number) {
 }
 
 describe("callModelWithRetry — resiliência do runtime de missões", () => {
+  it("classifica rate limit sem expor a mensagem do provedor", () => {
+    const failure = classifyModelError(new Error("429 Rate limit exceeded: secret=do-not-persist"), {
+      provider: "groq",
+      model: "openai/gpt-oss-120b",
+    });
+    expect(failure).toMatchObject({
+      code: "MODEL_RATE_LIMITED",
+      category: "RATE_LIMIT",
+      retryable: true,
+      provider: "groq",
+      model: "openai/gpt-oss-120b",
+    });
+    expect(JSON.stringify(failure)).not.toContain("do-not-persist");
+  });
+
+  it("classifica credencial rejeitada como permanente e não retryable", () => {
+    expect(classifyModelError(new Error("401 Unauthorized"))).toMatchObject({
+      code: "MODEL_UNAUTHORIZED",
+      category: "AUTH",
+      retryable: false,
+    });
+  });
+
   it("tenta 2x com backoff quando a 1ª chamada falha", async () => {
     const p = makeProvider(1);
     const res = await callModelWithRetry(p.provider, [], {

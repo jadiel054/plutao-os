@@ -138,7 +138,7 @@ Plutão vive no servidor, então o impacto é baixo, mas o atrito é real).
 
 | Data | Motivo | Fingerprint SHA-256 do certificado | Quem |
 | --- | --- | --- | --- |
-| 2026-10-05 | Chave inicial de debug (correção do conflito de pacote em APK debug) | `F5:2B:0A:64:F7:53:26:2E:96:CA:02:5E:26:4A:21:59:77:0A:29:D7:F2:FA:AD:56:AC:9A:37:D2:8D:BC:C9:8F` | Manus (PR `feat/ci-pin-debug-keystore`) |
+| 2026-10-05 | Chave inicial de debug (correção do conflito de pacote em APK debug) | `F5:2B:0A:64:F7:53:26:2E:96:CA:02:5E:26:4A:21:59:77:0A:29:D7:F2:FA:AD:56:AC:9A:37:D2:8D:BC:C9:8F` | CI (PR `feat/ci-pin-debug-keystore`) |
 
 O fingerprint **não é segredo** (todo APK carrega essa informação publicamente);
 citar aqui serve de referência para conferir os logs do CI.

@@ -24,7 +24,7 @@ import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
 import { ModelProviderFactory, setModelProviderMode } from "./provider";
 import { resolveCloudModelConfig } from "./resolveConfig";
 import { buildSystemPrompt } from "./missionPrompt";
-import { callModelWithRetry, LocalModelCallError, type ModelProviderLike } from "./modelCall";
+import { callModelWithRetry, classifyModelError, type ModelProviderLike } from "./modelCall";
 import { loadConnectorRuntime } from "@/lib/chat/connectorRuntime";
 import { sanitizeText } from "@/lib/security/sanitize";
 import { loadAgentIdentity } from "@/lib/agente/identity";
@@ -100,6 +100,8 @@ export async function runModelStep(
       error: string;
       hint?: string;
       detail?: string;
+      code?: string;
+      retryable?: boolean;
     }
 > {
   const effectiveMode = mode || "auto";
@@ -208,19 +210,28 @@ export async function runModelStep(
     providerType = callResult.providerType;
     modelId = callResult.modelId;
   } catch (e) {
-    const mce = e instanceof LocalModelCallError ? e : (e as { summary?: () => string; httpStatus?: number; message?: string });
-    const summary = typeof mce.summary === "function" ? mce.summary() : (mce.message ?? "model call failed");
+    const failure = classifyModelError(e, {
+      provider: provider.getProviderType(),
+      model: provider.getModelId(),
+    });
 
     try {
       const errEvidenceId = randomUUID();
       const errItem: EvidenceItem = {
         id: errEvidenceId,
         type: "model_error",
-        content: sanitizeText("MODEL_CALL_FAILED: " + summary).slice(0, 600),
+        content: failure.code,
         source: EVIDENCE_MODEL_SOURCE,
         taskId: execution.currentTaskId,
         missionId: execution.missionId,
         executionId,
+        metadata: {
+          category: failure.category,
+          retryable: failure.retryable,
+          provider: failure.provider,
+          model: failure.model,
+          httpStatus: failure.httpStatus,
+        },
         createdAt: new Date().toISOString(),
       };
       const prevEvErr = parseEvidence(mission.evidence);
@@ -232,17 +243,13 @@ export async function runModelStep(
       console.error("[runModelStep] falha ao gravar evidence de erro do modelo:", logErr);
     }
 
-    const httpStatus = mce.httpStatus;
-    const hint =
-      httpStatus === 404
-        ? "Model id não existe neste endpoint — confira preferredModel/MODEL_NAME versus MODEL_BASE_URL (ex.: 'openai/gpt-oss-120b' só existe na Groq, não na OpenAI)."
-        : httpStatus === 401 || httpStatus === 403
-          ? "Chave de API rejeitada pelo provedor — confira GROQ_API_KEY/MODEL_API_KEY."
-          : httpStatus != null && httpStatus >= 500
-            ? "Provedor instável — reexecute a missão em alguns minutos."
-            : "Confira MODEL_API_KEY, MODEL_NAME e MODEL_BASE_URL.";
-
-    return { error: "MODEL_CALL_FAILED" as const, detail: summary, hint };
+    return {
+      error: "MODEL_CALL_FAILED" as const,
+      code: failure.code,
+      retryable: failure.retryable,
+      detail: failure.code,
+      hint: failure.hint,
+    };
   }
 
   const now = new Date();

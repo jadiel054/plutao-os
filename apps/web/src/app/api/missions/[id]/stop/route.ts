@@ -4,6 +4,7 @@ import { missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
 import { stopMissionExecution } from "@/lib/runtime/service";
+import { cancelRuntimeJobForExecution } from "@/lib/runtime/durableJobs";
 import { recordStopOnMissionPlan } from "@/lib/missions/planEvents";
 
 export const runtime = "nodejs";
@@ -42,6 +43,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     const stopResult = await stopMissionExecution(missionId, user.id, reason);
+    if (stopResult.execution?.id) {
+      await cancelRuntimeJobForExecution(stopResult.execution.id, user.id, "CANCELLED_BY_USER");
+    }
     const plan = await recordStopOnMissionPlan({
       missionId,
       userId: user.id,

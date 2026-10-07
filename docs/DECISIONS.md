@@ -241,3 +241,21 @@ Social login fica como evolução posterior.
 - Computador / browser virtual
 - E-mail → missão; agenda de missões
 - Waves B/C de conectores (vercel, neon, …)
+
+
+## 2026-10-07 — Worker durável é a autoridade de execução
+
+**Decisão:** `POST /api/missions/:id/autonomous-run` não executa mais o agent loop. Ele cria uma execution e um `runtime_job` em `PENDING` e retorna `202`. O endpoint `/api/cron/runtime-worker` é o único caminho normal de claim e processamento.
+
+**Contrato:**
+
+- `execution.PENDING → RUNNING` somente após claim do worker;
+- `runtime_job.SUCCEEDED` somente quando a execution persistida está `COMPLETED`;
+- `execution.FAILED` gera retry (`PENDING`) ou job `FAILED` ao esgotar tentativas;
+- cancelamento produz `CANCELLED` explícito;
+- divergências de versões anteriores são reconciliadas e auditadas;
+- erros de modelo são persistidos por categoria segura, nunca por corpo bruto do provedor.
+
+**Motivo:** o antigo caminho de enqueue executava e finalizava o job na mesma requisição, permitia sucesso falso após falha da execution e não garantia continuidade com a aba fechada. O fallback de execução no navegador foi removido.
+
+**Status:** IMPLEMENTADA no código; produção requer migration `0024`, `CRON_SECRET`, cron ativo e smoke `202 → claim → terminal`.

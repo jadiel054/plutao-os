@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-10-07 (Hardening final H1–H9 + anti-loop/identidade)
+**Última atualização:** 2026-10-07 (Hardening final + worker durável de missões)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -27,6 +27,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | **H4 — Filtros Supabase validados** | **IMPLEMENTED** (2026-10-07) | `lib/connectors/supabaseFilters.ts`: operadores em allowlist, parâmetros reservados recusados, `select` e tabela validados. |
 | **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate em `gates.ts`, `tools/*.ts` e `connectorRuntime.ts` com log estruturado e aviso amigável `"Não consegui iniciar a operação <action>: <motivo>"`. **BUG 2:** Validação de nome do projeto Vercel (`/^[a-z0-9][a-z0-9-]{1,50}$/`, min 3 chars), rejeitando tokens inválidos (ex: `"na"`) com pedido de esclarecimento. **BUG 3:** Retorno do campo `label` amigável em `GET /api/model/status` e exibição no Cockpit via `d.label ?? `${d.provider}/${d.model}`. |
 | **Fix & Hardening Runtime de Missões (#109+#110+#111)** | **IMPLEMENTED** (2026-10-03) | **#109/#110:** Catch FASE 3 grava evidência `model_error`; `maxDuration = 300` no resume pós-gate; helper `recordModelError.ts` testado. **#111 (Causa raiz MODEL_CALL_FAILED):** Sanitização de payload (`sanitizeMessagesForProvider` no boundary de `client.ts`) descarta propriedades não-padrão como `source` de `toolResultToMessage` antes de serializar requisições aos provedores; correção de label de modelo duplicado com `formatModelLabel` em `/api/model/status` e cockpit, e alias em `resolveConfig.ts`. **Pendente:** smoke formal em produção de missão completa. |
+| **Worker durável de missões (laudo 2026-10-07)** | **IMPLEMENTED — testes locais verdes** | `POST /api/missions/:id/autonomous-run` só cria execution/job `PENDING` e retorna `202`; `runtime-worker` faz claim atômico, ativa `PENDING → RUNNING`, executa o loop, e só marca job `SUCCEEDED` quando a execution persistida está `COMPLETED`. Retries usam lease/attempts/backoff; cancelamento é explícito; divergências antigas são reconciliadas. Requer migration `0024`, `CRON_SECRET` e smoke em produção para virar **VERIFIED**. |
 | **Preferência de modelo server-side + Resiliência a Rate Limit (#112)** | **IMPLEMENTED** (2026-10-03) | **1.** `PATCH /api/user/preferences` aceita e valida `preferredModel` contra `PRESET_MODELS` (rejeita inexistente com HTTP 400) e grava em `users.preferredModel`; `GET` retorna junto. **2.** `useModelManager.activateModel()` chama API com tratamento de erro visível na UI; `localStorage` vira cache. **3.** `client.ts` anexa `http_status` e `httpStatus` nos erros lançados. **4.** `callModelWithRetry` parseia dica de retry ("try again in Xms/s") e header `Retry-After`, aplicando backoff exponencial com jitter. **Pendente:** smoke em produção. |
 | **Modelos Locais "Em Breve" & Remoção de Download Simulado** | **IMPLEMENTED** (2026-10-05) | **1.** Campo `comingSoon?: boolean` adicionado em `AIModel` e marcado `true` para modelos locais em `registry.ts`. **2.** `ModelCard` exibe badge "Em Breve" e desabilita botões de download, atuar e testar. **3.** `useModelManager` sem simulação `setInterval` e sem pré-popular modelo local como baixado. **4.** `/api/user/preferences` rejeita `preferredModel` com `comingSoon: true` via HTTP 400. **Pendente:** evidência em produção. |
 | **Hardening de Fallback de Erro no ConnectorRuntime** | **VERIFICADO** (2026-10-03) | Blocos catch de `runConnectedConnectorTools` em `connectorRuntime.ts` retornam `executed: false` (sem `capability` e sem emitir `tool_start` pendente) em caso de exceção de conector, alimentando `contextText` para explicação amigável ao LLM. Teste dedicado `connectorRuntimeCatch.test.ts`. |
@@ -59,7 +60,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | **Render conector** | **IMPLEMENTED (smoke pendente)** | API Key cifrada em `accessTokenEnc`. Tools `render.services_list`, `render.service_get` (com resumo de chaves de env sem valores), `render.deploys_list`, `render.deploy_trigger` (Write Gate) e `render.env_set` (Write Gate com valor mascarado no preview). Erros em PT-BR e timeout de 15s. |
 | **Conectores conectados (operador)** | **4/4 connected** (2026-09-27) | GitHub, Vercel, e demais no catálogo ativo do operador — revalidar após deploys. |
 | **MCP fase 2** | **VERIFICADO** (2026-09-27) | OAuth consent dual-scope (`mcp:read`+`mcp:write`); `plutao_send_message`; auditoria `audit_events`; rate limit; `system_status.model` = `plutao-primary`; persistência chat (BUG-03 fechado). |
-| Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; default xAI `grok-4.6`; Gemini 3.1 corrigido. |
+| Model resolve (`id → apiModel`) | **IMPLEMENTED** | `resolveConfig.ts`; roteamento principal e rota alternativa verificados. |
 | Model test + fallback UI | **IMPLEMENTED** | `/api/model/test`; logs locais; depende de chaves por provedor. |
 | Navigation `/planos` + founder pricing | **VERIFICADO** | R$19 / R$29 / R$39 por posição. |
 | **UX de Configurações & Conectores** | **VERIFICADO** (2026-10-03) | Sincronização de abas com URL (`?tab=<id>`) e `localStorage` (`plutao_settings_tab`); feedback inline/toast pós-callback OAuth com limpeza de query (`connector_ok`/`connector_error`); cards com status `error` destacam "Tentar novamente" com resumo de `lastError`; botão "Conectar OAuth" desabilitado com spinner durante `authorizing`/`busy` para eliminar double-submit (`STATE_MISMATCH`); **Re-sync silencioso de capabilities** para conectores 'connected' na abertura das Configurações prevenindo drift com el manifesto (sem alterar tokens nem status); **Modal de confirmação ao desconectar** que exibe o limite de conectores do plano do usuário (`userPlan.connectorsMax`) e alerta extra se o usuário estiver no limite ou acima. |
@@ -73,7 +74,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | H7 — Capabilities fail-closed | **IMPLEMENTED** (2026-10-07) | Fallback permissivo do GitHub removido; capability ausente = negado em todos os conectores, via `capabilityBlockReason`. Testes por conector. |
 | Migrations no Neon produção | **IMPLEMENTED** (2026-10-07) | Tabelas de 0000–0019 presentes em produção; **0020_hardening_write_gates aplicada e verificada** (colunas `payload_hash`, `consumed_at`, `consumed_by` + índice). |
 | Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha formal ainda a formalizar. |
-| Durable execution (Inngest etc.) | **DESIGNED** | Fora do fechamento V1. |
+| Durable execution gerenciado (Inngest etc.) | **DESIGNED** | O worker durável local com `runtime_jobs` está implementado; adapter gerenciado permanece uma evolução, não um requisito para o contrato atual. |
 | Identidade “Cockpit” | **PROVISÓRIA** | Revisar pós-estabilização. |
 | PWA / APK lojas | **PLANEJADO** | Após V1 web estável. |
 | TypeScript monorepo | **ALIGNED** (Frente F) | Root + workspaces em `typescript` ^5 (Next 15 tooling). |
@@ -119,7 +120,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 - [x] Confirmar no Neon: migrations **0004–0010** (0005 skip deliberado)
 - [ ] Neon: aplicar **0011_write_gates** + **0012_stripe_billing** + **0015_user_preferences** se ainda pendente
-- [ ] Vercel env modelos: `MODEL_PROVIDER`, `MODEL_API_KEY` ou `XAI_API_KEY`, opcional `MODEL_NAME`, `MODEL_BASE_URL`
+- [ ] Vercel env modelos: `MODEL_PROVIDER`, `MODEL_API_KEY` ou chave específica do provedor selecionado, opcional `MODEL_NAME`, `MODEL_BASE_URL`
 - [ ] Vercel env Stripe LIVE (após ativação): secrets + price IDs
 - [ ] Stripe Dashboard LIVE: Products founder + webhook
 - [ ] Smoke modelos: chat default + teste em Configurações → Modelos
@@ -141,11 +142,12 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - [ ] Stripe conector smoke + billing LIVE
 - [ ] Seletor AUTO / preferredModel: só ids com rota + chave
 - [ ] Smoke missão formal: chat → plano → tool → evidência
+- [ ] Smoke worker durável: enqueue `202` → cron claim → execution `COMPLETED`/job `SUCCEEDED`; falha de modelo → job `FAILED` ou `PENDING`, nunca sucesso falso
 - [ ] Central de ajuda: FAQ + bot (sem genérico)
 
 ### Explicitamente fora do V1
 
-- Execução durable (Inngest etc.)
+- Adapter de execução gerenciado (Inngest etc.); o worker local de `runtime_jobs` faz parte do fechamento atual
 - APK / lojas de app
 - Modelo próprio treinado
 - Wave C completa (Linear, Notion, Sentry, …)
@@ -160,10 +162,10 @@ SESSION_SECRET=
 CONNECTOR_TOKEN_SECRET=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
-MODEL_PROVIDER=xai
+MODEL_PROVIDER=<provedor-configurado>
 MODEL_API_KEY=
-MODEL_NAME=grok-4.6
-MODEL_BASE_URL=https://api.x.ai/v1
+MODEL_NAME=<modelo-configurado>
+MODEL_BASE_URL=<endpoint-configurado>
 GROQ_API_KEY=
 OPENAI_API_KEY=
 GEMINI_API_KEY=
@@ -181,6 +183,7 @@ MCP_TOKEN_SECRET=
 PLUTAO_MCP_API_KEY=
 PLUTAO_MCP_USER_ID=
 DATABASE_URL=
+CRON_SECRET=
 ```
 
 Guia conectores: **`docs/CONECTORES_M5.md`**. MCP: **`docs/MCP_SERVER.md`**.
