@@ -3,17 +3,18 @@
 **Escopo:** auditoria completa do monorepo `plutao-os` (código, banco e documentação) com correção
 definitiva dos problemas encontrados — sem fases, sem débito técnico deixado para depois.
 
-**Resultado:** 9 famílias de falhas corrigidas na raiz, 1 migration aplicada em produção,
-319 testes verdes, `tsc --noEmit` limpo nos três workspaces, documentação sincronizada com o código.
+**Resultado:** 10 famílias de falhas corrigidas na raiz, 1 migration aplicada em produção,
+329 testes verdes, `tsc --noEmit` limpo nos três workspaces, documentação sincronizada com o código.
 
 | Métrica | Antes | Depois |
 | --- | --- | --- |
-| Testes | 315 (7 falhando) | **319 (0 falhando)** |
+| Testes | 315 (7 falhando) | **329 (0 falhando)** |
 | Typecheck | limpo | **limpo** |
 | Controles de escrita validados no servidor | não | **sim (hash + uso único)** |
 | Registro tipado de capacidades | não existia | **`lib/capabilities/registry.ts` + doc gerado** |
 | Rate limit no MCP | 1 de 5 tools | **todas as tools** |
 | Orçamento acumulado do agent loop | inexistente | **60 iterações + 240 s por execution** |
+| Identidade do agente | configurada e descartada | **aplicada no chat e no MCP** |
 
 ---
 
@@ -28,6 +29,7 @@ definitiva dos problemas encontrados — sem fases, sem débito técnico deixado
 - [H7 — Fallback "allow" quando a capability não existia](#h7)
 - [H8 — Namespace de sandbox compartilhado entre usuários](#h8)
 - [H9 — Ausência de registro tipado de capacidades](#h9)
+- [H10 — Identidade do agente configurada era descartada](#h10)
 - [Banco de dados](#banco-de-dados)
 - [Testes e verificação](#testes-e-verificação)
 - [Arquivos tocados](#arquivos-tocados)
@@ -255,6 +257,39 @@ documentação (teste de drift) — as três coisas que fazem a informação per
 
 ---
 
+<a id="h10"></a>
+## H10 — Identidade do agente configurada era descartada
+
+**Encontrado.** O usuário configura nome, identidade e personalidade do agente em
+Configurações > Agente (`PATCH /api/agent` → tabela `agents`). O `api/chat/route.ts` lia esses
+campos em cada requisição e **jogava fora**: `agentName` só aparecia numa mensagem de fallback
+quando não havia chave de API, `agentIdentity` nunca era usado e `personality` era lido e
+ignorado por completo. O system prompt começava sempre com o literal `NIX_IDENTITY`, então
+personalizar o agente não mudava nada no comportamento.
+
+Além disso, o caminho MCP (`plutao_send_message`) usava uma **persona diferente**, hardcoded:
+`"Você é o Plutão, agente de execução"` — e sem os princípios operacionais (regra de ouro do
+operador minucioso). O mesmo agente respondia como duas entidades distintas dependendo da
+superfície.
+
+**Corrigido em.**
+- `apps/web/src/lib/agente/identity.ts` (novo) — `loadAgentIdentity(userId)`,
+  `buildIdentityLine`, `buildIdentityBlock`, com fallback silencioso para o perfil default.
+- `apps/web/src/app/api/chat/route.ts` — passa a usar o perfil no system prompt (identidade +
+  bloco de personalidade quando configurada).
+- `apps/web/src/lib/mcp/tools.ts` — mesmo perfil, mesma identidade e mesmos princípios
+  operacionais do chat.
+
+**Como.** Com o perfil default, `buildIdentityLine` devolve **exatamente** `NIX_IDENTITY`, então
+não há regressão de prompt para quem nunca personalizou. Com perfil customizado, o prompt passa a
+dizer `Você é <nome>, <identidade>.` e, se houver, um bloco `PERSONALIDADE (definida pelo usuário)`.
+
+**Por quê.** Uma configuração de identidade que não afeta o comportamento é um bug de produto, não
+uma preferência cosmética: o usuário define como o agente deve se comportar e o sistema ignora.
+E duas personas diferentes no mesmo produto quebram a percepção de um agente único e coerente.
+
+---
+
 ## Banco de dados
 
 **Migration `0020_hardening_write_gates.sql` aplicada em produção** (projeto Neon `Plutao`,
@@ -282,7 +317,7 @@ e o grava. Nenhum gate pendente real é perdido.
 
 ```
 npm run typecheck   →  limpo (packages/domain, packages/db, apps/web)
-npm test            →  59 arquivos, 319 testes, 0 falhas
+npm test            →  61 arquivos, 329 testes, 0 falhas
 ```
 
 Testes adicionados/reescritos para cobrir o novo contrato:
@@ -293,6 +328,8 @@ Testes adicionados/reescritos para cobrir o novo contrato:
 | `lib/connectors/__tests__/render.test.ts` | idem para `env_set` (segredo) e `deploy_trigger` |
 | `lib/connectors/__tests__/supabase.test.ts` | `select` inválido, parâmetro reservado recusado, operador não permitido |
 | `lib/capabilities/__tests__/capabilitiesDoc.test.ts` | cobertura do registro + drift da documentação |
+| `lib/agente/__tests__/identity.test.ts` | identidade default = `NIX_IDENTITY`, perfil custom, personalidade, fallback de banco |
+| `lib/mcp/__tests__/sendMessageEventsOrder.test.ts` | MCP usa a mesma identidade e os princípios do chat |
 | `lib/runtime/tools/__tests__/filesystem.test.ts` | namespace `userId__executionId` |
 | `lib/chat/__tests__/chatHardening.test.ts` | erro de criação de gate no guard compartilhado |
 | `lib/cockpit/__tests__/missionRuntimeFixes.test.ts` | fluxo `approveGate` + retomada de missão |
@@ -304,6 +341,8 @@ Testes adicionados/reescritos para cobrir o novo contrato:
 **Novos**
 
 ```
+apps/web/src/lib/agente/identity.ts
+apps/web/src/lib/agente/__tests__/identity.test.ts
 apps/web/src/lib/capabilities/registry.ts
 apps/web/src/lib/capabilities/registryDoc.ts
 apps/web/src/lib/capabilities/__tests__/capabilitiesDoc.test.ts
@@ -340,6 +379,7 @@ apps/web/src/lib/runtime/types.ts
 apps/web/src/lib/chat/renderToolRunner.ts
 apps/web/src/lib/mcp/tools.ts
 apps/web/src/lib/mcp/audit.ts
+apps/web/src/lib/mcp/__tests__/sendMessageEventsOrder.test.ts
 apps/web/src/app/api/chat/route.ts
 apps/web/src/app/api/gates/[id]/route.ts
 apps/web/src/app/api/mcp/route.ts

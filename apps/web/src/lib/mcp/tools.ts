@@ -14,6 +14,8 @@ import type { ModelMessage } from "@/lib/runtime/model/types";
 import { hasMcpScope, getMcpAuth } from "./auth";
 import { checkMcpRateLimit, writeMcpAudit } from "./audit";
 import { sanitizeTitle } from "@/lib/security/sanitize";
+import { NIX_IDENTITY, OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
+import { buildIdentityBlock, loadAgentIdentity } from "@/lib/agente/identity";
 import { emitUserMessage, emitAssistantMessage } from "@/lib/events/appendConversationEvent";
 
 const MAX_CONTENT = 4000;
@@ -266,10 +268,16 @@ export async function toolSendMessage(userId: string, input: SendMessageInput) {
     );
   }
 
+  // Identidade compartilhada com o chat: antes o MCP respondia com uma persona
+  // diferente ("Você é o Plutão, agente de execução") e sem os princípios operacionais.
+  const agentProfile = await loadAgentIdentity(userId);
   const system: ModelMessage = {
     role: "system",
-    content:
-      "Você é o Plutão, agente de execução. Responda em português, de forma direta e profissional. Não exponha tokens, chaves ou detalhes internos de provedor/modelo.",
+    content: [
+      buildIdentityBlock(agentProfile) || NIX_IDENTITY,
+      "Responda em português, de forma direta e profissional. Não exponha tokens, chaves ou detalhes internos de provedor/modelo.",
+      OPERATOR_GOLDEN_RULE,
+    ].join("\n\n"),
   };
   const modelMessages: ModelMessage[] = [
     system,

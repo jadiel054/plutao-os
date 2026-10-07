@@ -133,8 +133,10 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 - [x] **MCP Rate Limit Coverage (H5):** 30 calls/60s por grant em todas as tools.
 - [x] **Fail-closed Capabilities (H7/H9):** capability ausente, desabilitada ou sem controle
       implementado é recusada; `assertRegistryCoverage()` protege registro × manifestos.
+- [x] **Agent Identity Applied (H10):** perfil de Configurações > Agente (`name`, `identity`,
+      `personality`) alimenta o system prompt do chat **e** do MCP; default idêntico a `NIX_IDENTITY`.
 - [x] **Documentation Drift Guard (H9):** `docs/CAPABILITIES.md` é gerado do registro e verificado em teste.
-- [x] **Evidence:** 319 testes verdes, `tsc --noEmit` limpo, migration `0020` aplicada em produção.
+- [x] **Evidence:** 329 testes verdes, `tsc --noEmit` limpo, migration `0020` aplicada em produção.
       Detalhamento em [`docs/HARDENING_2026-10.md`](HARDENING_2026-10.md).
 
 ---

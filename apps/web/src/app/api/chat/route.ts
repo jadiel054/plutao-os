@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, inArray, and } from "drizzle-orm";
-import { agents, artifacts as artifactsTable, users, usageCounters, conversations, missions } from "@plutao/db";
+import { artifacts as artifactsTable, users, usageCounters, conversations, missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";
@@ -21,7 +21,11 @@ import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
 import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
 import { emitConnectorToolEvents } from "./emitConnectorToolEvents";
-import { NIX_IDENTITY, OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
+import { OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
+import {
+  buildIdentityBlock,
+  loadAgentIdentity,
+} from "@/lib/agente/identity";
 import {
   sanitizeTitle,
   sanitizeValue,
@@ -368,26 +372,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let agentName = "Nix";
-    let agentIdentity = "o operador do Plutão OS, assistente pessoal do usuário";
-    try {
-      const agentRows = await db
-        .select({
-          name: agents.name,
-          identity: agents.identity,
-          personality: agents.personality,
-        })
-        .from(agents)
-        .where(eq(agents.userId, user.id))
-        .limit(1);
-
-      if (agentRows[0]) {
-        if (agentRows[0].name) agentName = agentRows[0].name;
-        if (agentRows[0].identity) agentIdentity = agentRows[0].identity;
-      }
-    } catch {
-      /* fallback */
-    }
+    // Identidade do agente — perfil de Configurações > Agente.
+    // Antes: os valores eram carregados e DESCARTADOS (só o nome aparecia na
+    // mensagem de fallback sem chave de API), então personalizar identidade ou
+    // personalidade não tinha efeito algum no comportamento do agente.
+    const agentProfile = await loadAgentIdentity(user.id);
+    const agentName = agentProfile.name;
 
     const MAX_INJECT_CHARS = 12000;
     let artifactBlocks = "";
@@ -408,7 +398,7 @@ export async function POST(req: NextRequest) {
       artifactBlocks = parts.join("\n\n");
     }
 
-    const systemPrompt = `${NIX_IDENTITY}
+    const systemPrompt = `${buildIdentityBlock(agentProfile)}
 
 FORMATO DE RESPOSTA OBRIGATÓRIO:
 Você DEVE iniciar TODA resposta gerando o bloco de raciocínio antes da resposta final ao usuário:
