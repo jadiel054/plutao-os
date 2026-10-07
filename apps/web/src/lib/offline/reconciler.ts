@@ -10,6 +10,7 @@ import {
   transitionIntent,
 } from "@plutao/domain";
 import { PendingIntentStore } from "./pendingIntentStore";
+import { createMissionIntake } from "@/lib/missions/intakeClient";
 
 // Trava em memória por aba para impedir reconciliações concorrentes do mesmo intentId
 const activeLocks = new Set<string>();
@@ -147,20 +148,10 @@ export class Reconciler {
     try {
       if (currentIntent.type === "CREATE_MISSION") {
         const payload = currentIntent.payload as CreateMissionPayload;
-        const response = await fetch("/api/missions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Idempotency-Key": currentIntent.idempotencyKey,
-          },
-          body: JSON.stringify({
-            objective: payload.objective,
-            context: payload.context,
-            constraints: payload.constraints,
-            definitionOfDone: payload.definitionOfDone,
-            intentId: currentIntent.intentId,
-            idempotencyKey: currentIntent.idempotencyKey,
-          }),
+        const response = await createMissionIntake({
+          ...payload,
+          source: payload.source ?? "cockpit",
+          idempotencyKey: currentIntent.idempotencyKey,
         });
 
         if (response.ok) {

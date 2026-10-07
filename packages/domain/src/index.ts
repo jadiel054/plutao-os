@@ -199,6 +199,7 @@ export type {
 export type {
   PendingIntentStatus,
   PendingIntentType,
+  MissionCreationSource,
   CreateMissionPayload,
   PendingIntentResult,
   PendingIntent,

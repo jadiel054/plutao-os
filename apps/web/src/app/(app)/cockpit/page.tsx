@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/Header";
 import { MobileNav } from "@/components/MobileNav";
@@ -16,6 +16,7 @@ import { CockpitAgentFab } from "@/components/CockpitAgentFab";
 import { runAutonomousMission } from "@/lib/cockpit/runAutonomousMission";
 import { usePendingIntents } from "@/hooks/usePendingIntents";
 import { formatModelLabel } from "@/lib/runtime/model/label";
+import { createMissionIntake } from "@/lib/missions/intakeClient";
 
 type MissionRow = {
   id: string;
@@ -90,6 +91,7 @@ export default function CockpitPage() {
 
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const missionIntakeKeyRef = useRef<{ objective: string; key: string } | null>(null);
 
   const [dodResult, setDodResult] = useState<{
     passed: boolean;
@@ -424,6 +426,15 @@ export default function CockpitPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     if (!objective.trim()) return;
+    const normalizedObjective = objective.trim();
+    if (missionIntakeKeyRef.current?.objective !== normalizedObjective) {
+      missionIntakeKeyRef.current = {
+        objective: normalizedObjective,
+        key: crypto.randomUUID(),
+      };
+    }
+    const idempotencyKey = missionIntakeKeyRef.current.key;
+    const intakePayload = { objective: normalizedObjective, source: "cockpit" as const };
     setError(null);
     setActionBusy("create_mission");
 
@@ -431,7 +442,8 @@ export default function CockpitPage() {
 
     if (isOffline) {
       try {
-        await createOfflineMissionIntent({ objective: objective.trim() });
+        await createOfflineMissionIntent(intakePayload, idempotencyKey);
+        missionIntakeKeyRef.current = null;
         setObjective("");
         addToast("Salvo localmente (Pendente de sincronização)", "info", "Offline");
       } catch {
@@ -443,11 +455,7 @@ export default function CockpitPage() {
     }
 
     try {
-      const res = await fetch("/api/missions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ objective: objective.trim() }),
-      });
+      const res = await createMissionIntake({ ...intakePayload, idempotencyKey });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         const errMsg = d.error ?? "Falha ao criar missão";
@@ -455,13 +463,15 @@ export default function CockpitPage() {
         addToast(errMsg, "error");
         return;
       }
+      missionIntakeKeyRef.current = null;
       setObjective("");
       addToast("Missão criada com sucesso!", "success");
       await load();
     } catch {
       // Falha de rede ao tentar criar online -> criar PendingIntent offline
       try {
-        await createOfflineMissionIntent({ objective: objective.trim() });
+        await createOfflineMissionIntent(intakePayload, idempotencyKey);
+        missionIntakeKeyRef.current = null;
         setObjective("");
         addToast(
           "Falha de rede. Missão salva localmente (Pendente de sincronização).",

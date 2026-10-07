@@ -12,11 +12,15 @@ export type PendingIntentStatus =
 
 export type PendingIntentType = "CREATE_MISSION" | string;
 
+export type MissionCreationSource = "chat" | "cockpit";
+
 export interface CreateMissionPayload {
   objective: string;
   context?: string | null;
   constraints?: string | null;
   definitionOfDone?: string | null;
+  source?: MissionCreationSource;
+  conversationId?: string | null;
 }
 
 export interface PendingIntentResult {
