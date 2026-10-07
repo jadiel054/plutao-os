@@ -7,6 +7,7 @@ import { getDb } from "@/lib/db";
 import { missions } from "@plutao/db";
 import { eq, and } from "drizzle-orm";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 export type RenderToolCallTrace = {
   id: string;
@@ -300,7 +301,8 @@ async function maybeAppendMissionEvidence(
     const evidenceItem: EvidenceItem = {
       id: trace.id,
       type: ok ? "tool_result" : "tool_error",
-      content: `tool:render capability:${trace.capability} → ${trace.output}`,
+      // H3 — evidência de missão nunca recebe output cru.
+      content: sanitizeText(`tool:render capability:${trace.capability} → ${trace.output}`).slice(0, 2000),
       source: "tool_dispatcher",
       taskId: null,
       missionId,

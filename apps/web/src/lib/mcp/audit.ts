@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { auditEvents } from "@plutao/db";
 import { getDb } from "@/lib/db";
+import { sanitizeError } from "@/lib/security/sanitize";
 
 export type McpAuditInput = {
   userId: string;
@@ -36,7 +37,8 @@ export async function writeMcpAudit(input: McpAuditInput): Promise<void> {
         params_sha256: hashParams(input.params),
         status: input.status,
         latency_ms: input.latencyMs,
-        error: input.errorMessage ? String(input.errorMessage).slice(0, 500) : null,
+        // H3 — nenhum erro vai ao audit sem passar pelo sanitizador central.
+        error: input.errorMessage ? sanitizeError(input.errorMessage, "erro") : null,
         ts: new Date().toISOString(),
       },
     });

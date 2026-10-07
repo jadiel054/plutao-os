@@ -4,6 +4,7 @@ import { conversations } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { randomBytes } from "node:crypto";
+import { sanitizeTitle } from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
 
@@ -58,7 +59,8 @@ export async function PATCH(
     };
 
     if (typeof body.title === "string" && body.title.trim()) {
-      updateData.title = body.title.trim().slice(0, MAX_TITLE_LEN);
+      // H3 — título sanitizado antes de persistir.
+      updateData.title = sanitizeTitle(body.title.trim().slice(0, MAX_TITLE_LEN));
     }
 
     if (typeof body.isPinned === "boolean") {
