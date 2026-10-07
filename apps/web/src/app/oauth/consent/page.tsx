@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
+import { findOAuthClient } from "@/lib/mcp/grants";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,8 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
     );
   }
 
+  const registeredClient = await findOAuthClient(clientId);
+
   const requestedScopes = scope
     .split(/[\s+]+/)
     .map((s) => s.trim())
@@ -86,6 +89,12 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
         </div>
         <div>
           <div className="text-xs text-[var(--text-muted)]">Cliente</div>
+          {registeredClient?.clientName && (
+            <div className="font-medium">{registeredClient.clientName}</div>
+          )}
+          {registeredClient?.clientName && (
+            <div className="text-xs text-[var(--text-muted)]">Nome declarado pelo aplicativo; não verificado.</div>
+          )}
           <div className="break-all font-mono text-xs">{clientId}</div>
         </div>
         <div>

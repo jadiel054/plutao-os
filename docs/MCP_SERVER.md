@@ -20,6 +20,7 @@ Arquitetura alinhada a **GitHub / Vercel MCP** e à spec MCP Authorization:
 | `https://<APP>/.well-known/oauth-protected-resource` | RFC 9728 |
 | `https://<APP>/.well-known/oauth-authorization-server` | RFC 8414 |
 | `https://<APP>/api/oauth/authorize` | Login + redirect consent |
+| `https://<APP>/api/oauth/register` | Registra cliente OAuth público e emite `client_id` automaticamente (RFC 7591) |
 | `https://<APP>/oauth/consent` | UI de permissão (lista scopes) |
 | `https://<APP>/api/oauth/token` | code → access_token + refresh (PKCE) |
 | `https://<APP>/api/oauth/revoke` | revoga grant (token ou grant_id autenticado) |
@@ -62,6 +63,8 @@ Redeploy após salvar. **Não** use token na query string.
 
 **PKCE S256 é obrigatório.** Access token: ~1h, `aud` = URL do MCP.
 
+Clientes MCP compatíveis com registro dinâmico chamam `POST /api/oauth/register` com `redirect_uris`; não precisam de `client_id` pré-criado. O servidor devolve um `client_id` e restringe cada cliente às URIs registradas. Clientes legados configurados manualmente continuam aceitos pelo fluxo OAuth anterior.
+
 ---
 
 ## Ops (curl / CI)
@@ -87,6 +90,7 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 - [x] 401 com `resource_metadata` (RFC 9728)
 - [x] Auth codes single-use (DB)
 - [x] Refresh token + rotação
+- [x] Registro dinâmico OAuth de clientes MCP (RFC 7591); quota 10 registros/hora por IP (hash chaveado)
 - [x] Revogação de grants (API + UI Privacidade)
 - [x] Write tools (`mcp:write`) com gate no call time
 - [x] Rate limit por grant: 30 calls/min
@@ -124,6 +128,8 @@ Todo call (read e write) grava em `audit_events`:
 ### Rate limit
 
 30 calls / 60s por grant (janela em memória de processo). Acima: `rate_limited` + `retryAfterSec`.
+
+O endpoint de registro OAuth é limitado a 10 cadastros por hora por IP (janela UTC, hash HMAC armazenado no Neon). Para revisar e limpar manualmente clientes dinâmicos sem grants com mais de 30 dias, use `docs/sql/cleanup_mcp_oauth_clients.sql`.
 
 ---
 

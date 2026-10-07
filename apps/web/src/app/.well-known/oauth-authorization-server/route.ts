@@ -10,6 +10,7 @@ export async function GET() {
     issuer,
     authorization_endpoint: `${issuer}/api/oauth/authorize`,
     token_endpoint: `${issuer}/api/oauth/token`,
+    registration_endpoint: `${issuer}/api/oauth/register`,
     revocation_endpoint: `${issuer}/api/oauth/revoke`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],

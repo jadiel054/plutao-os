@@ -28,6 +28,10 @@ function signingKey(): Buffer {
   return createHash("sha256").update(raw).digest();
 }
 
+export function hashOAuthRegistrationIp(ip: string): string {
+  return createHmac("sha256", signingKey()).update(`mcp-oauth-registration:${ip}`).digest("hex");
+}
+
 function b64url(data: Buffer | string): string {
   const buf = typeof data === "string" ? Buffer.from(data, "utf8") : data;
   return buf.toString("base64url");
