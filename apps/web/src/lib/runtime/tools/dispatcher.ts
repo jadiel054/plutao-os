@@ -35,17 +35,17 @@ async function dispatchLocal(
     case "filesystem":
       return await runFilesystem(input, opts.executionId, opts.userId);
     case "github":
-      return await runGithub(input, opts.userId);
+      return await runGithub(input, opts.userId, opts.executionId);
     case "vercel":
-      return await runVercel(input, opts.userId);
+      return await runVercel(input, opts.userId, opts.executionId);
     case "supabase":
-      return await runSupabase(input, opts.userId);
+      return await runSupabase(input, opts.userId, opts.executionId);
     case "telegram":
-      return await runTelegram(input, opts.userId);
+      return await runTelegram(input, opts.userId, opts.executionId);
     case "cloudflare":
-      return await runCloudflare(input, opts.userId);
+      return await runCloudflare(input, opts.userId, opts.executionId);
     case "render":
-      return await runRender(input, opts.userId);
+      return await runRender(input, opts.userId, opts.executionId);
     case "files.export_pdf":
     case "files.export_xlsx":
     case "files.export_markdown":
@@ -77,6 +77,7 @@ type CheckpointShape = {
   after?: Record<string, unknown>;
   /** G3: conversa que originou a missão — alimenta o Computador. */
   conversationId?: string | null;
+  missionGraphRuntime?: { activeNodeId?: string | null; [key: string]: unknown };
 };
 
 function asCp(raw: unknown): CheckpointShape {
@@ -196,6 +197,9 @@ export async function dispatchTool(opts: {
     taskId,
     missionId: execution.missionId,
     executionId: opts.executionId,
+    ...(cp.missionGraphRuntime?.activeNodeId
+      ? { metadata: { missionNodeId: cp.missionGraphRuntime.activeNodeId, graphVersion: 2 } }
+      : {}),
     createdAt: now.toISOString(),
   };
 

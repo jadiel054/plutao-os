@@ -103,7 +103,7 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 - [x] Rate limit por grant: 30 calls/min **em todas as tools** (guard `withMcpGuards`)
 - [x] Auditoria de todo call (audit_events `mcp.tool_call`)
 - [x] `system_status.model` mascarado (`plutao-primary`)
-- [x] Evidence de missão (`model_step.source`) mascarado (`model:plutao-primary`) — não grava `model:groq:…`
+- [x] Evidence de missão (`model_step.source`) mascarado (`model:plutao-primary`) — não grava identificadores externos de provedor/modelo
 
 ---
 

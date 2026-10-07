@@ -46,10 +46,11 @@ O endpoint `POST /api/missions/:id/autonomous-run` **somente enfileira** uma exe
 Em produção:
 
 1. Defina `CRON_SECRET` no ambiente da Vercel.
-2. Confirme que a migration `0024_autonomous_platform_foundation.sql` foi aplicada no Neon.
-3. Execute uma missão de teste e confirme a sequência `runtime_jobs.PENDING → RUNNING → SUCCEEDED` junto com `executions.PENDING → RUNNING → COMPLETED`.
-4. Confirme que uma falha de modelo produz `executions.FAILED` e `runtime_jobs.PENDING/FAILED`, nunca `SUCCEEDED`.
-5. Confirme que o Cockpit exibe separadamente `Job durável` e `Status do Runtime`.
+2. Confirme que as migrations `0024_autonomous_platform_foundation.sql`, `0025_mission_intake.sql` e `0026_mission_graph_v2.sql` foram aplicadas no Neon, em ordem.
+3. Execute uma missão de teste com pelo menos dois nós dependentes e confirme que o mesmo job passa por continuations serializadas até `runtime_jobs.SUCCEEDED` e `executions.COMPLETED`.
+4. Confirme que uma falha terminal de nó não vira sucesso do job e que o DoD usa evidence da execution/nó correspondente.
+5. Teste um Write Gate pendente: confirme job `WAITING_APPROVAL`, execução recuperável, aprovação/rejeição vinculada à evidence do nó e retomada do mesmo job.
+6. Confirme que o Cockpit distingue job durável, execution e mission status. Refaça a validação ao abrir no PWA e no APK.
 
 Se o worker ou a migration estiverem indisponíveis, o endpoint público responde `503 DURABLE_QUEUE_UNAVAILABLE` e **não** executa fallback síncrono.
 
@@ -60,7 +61,7 @@ Se o worker ou a migration estiverem indisponíveis, o endpoint público respond
 3. Set `DATABASE_URL` in Vercel for real health checks
 4. Set `CRON_SECRET` and verify the durable worker cron
 5. Confirm Neon allows connections from Vercel IPs (Neon default allows)
-6. Apply `0024_autonomous_platform_foundation.sql` through the repository migration workflow
+6. Apply migrations `0024`, `0025` and `0026` through the repository migration workflow, in order
 
 ## Out of scope until approved
 

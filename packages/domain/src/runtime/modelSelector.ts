@@ -6,7 +6,7 @@
  * 
  * Modos:
  * - auto: Detecta conexão automaticamente (online com internet, offline sem)
- * - online: Force uso exclusivo do Groq (ou outro provedor online)
+ * - online: Força uso exclusivo de um provedor remoto
  * - offline: Force uso do modelo local (Transformers.js + WebGPU)
  */
 
@@ -33,7 +33,7 @@ export interface ModelProviderSelection {
   /** Modo selecionado */
   mode: ModelMode;
   
-  /** Tipo do provedor: "groq", "local", etc. */
+  /** Categoria operacional do provedor. */
   providerType: "groq" | "local";
   
   /** ID do modelo a ser usado */

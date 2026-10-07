@@ -2,6 +2,8 @@ import type { MissionPlanV1 } from "./types";
 
 export const MISSION_GRAPH_MAX_NODES = 100;
 export const MISSION_GRAPH_MAX_DEPENDENCIES_PER_NODE = 100;
+/** Initial worker rollout executes at most this many nodes in one serial mission run. */
+export const MISSION_GRAPH_SERIAL_MAX_NODES = 20;
 export const MISSION_NODE_MAX_ATTEMPTS = 5;
 export const MISSION_NODE_MAX_TIMEOUT_SECONDS = 1_200;
 
@@ -286,4 +288,61 @@ export function missionPlanV1ToGraphV2(plan: MissionPlanV1): MissionGraphV2 {
     })),
   };
   return graph;
+}
+
+/** Creates a safe one-node graph for an objective without an explicit plan. */
+export function missionObjectiveToGraphV2(objective: string): MissionGraphV2 {
+  const normalized = objective.trim();
+  return {
+    version: 2,
+    nodes: [
+      {
+        id: `mission-${crypto.randomUUID()}`,
+        kind: "work",
+        title: normalized.slice(0, 300) || "Executar objetivo da missão",
+        description: normalized || null,
+        definitionOfDone: null,
+        specialistProfileId: null,
+        requiredCapabilities: [],
+        dependsOn: [],
+        retryPolicy: { maxAttempts: 1, timeoutSeconds: 1_200 },
+      },
+    ],
+  };
+}
+
+/**
+ * Returns a stable topological sequence. Nodes with no dependency relation keep
+ * declaration order; a serial worker executes that sequence one node at a time.
+ */
+export function getMissionGraphSerialOrder(value: unknown): MissionGraphNodeV2[] | null {
+  const validated = validateMissionGraphV2(value);
+  if (!validated.ok || validated.graph.nodes.length > MISSION_GRAPH_SERIAL_MAX_NODES) {
+    return null;
+  }
+
+  const nodes = validated.graph.nodes;
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const indegree = new Map(nodes.map((node) => [node.id, node.dependsOn.length]));
+  const ready = nodes.filter((node) => indegree.get(node.id) === 0);
+  const ordered: MissionGraphNodeV2[] = [];
+
+  while (ready.length > 0) {
+    const current = ready.shift()!;
+    ordered.push(current);
+    for (const child of nodes) {
+      if (!child.dependsOn.includes(current.id)) continue;
+      const nextDegree = (indegree.get(child.id) ?? 0) - 1;
+      indegree.set(child.id, nextDegree);
+      if (nextDegree === 0) {
+        const insertionIndex = ready.findIndex(
+          (candidate) => nodes.indexOf(candidate) > nodes.indexOf(child)
+        );
+        if (insertionIndex < 0) ready.push(child);
+        else ready.splice(insertionIndex, 0, child);
+      }
+    }
+  }
+
+  return ordered.length === byId.size ? ordered : null;
 }

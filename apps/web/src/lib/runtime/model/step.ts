@@ -2,7 +2,7 @@
  * Model Step - Execução de passo do modelo com integração híbrida (Online/Offline)
  *
  * Implementa:
- * - Chamada ao modelo (Groq ou Local)
+ * - Chamada ao modelo (remoto ou local)
  * - Persistência de checkpoints no banco de dados
  * - Integração com LocalProvider para modo offline
  * - Tool dispatch automático
@@ -46,6 +46,7 @@ type CheckpointShape = {
   modelMode?: ModelMode;
   localModelId?: string;
   localModelStatus?: "idle" | "loading" | "loaded" | "error";
+  missionGraphRuntime?: { activeNodeId?: string | null; [key: string]: unknown };
 };
 
 function asCp(raw: unknown): CheckpointShape {
@@ -182,6 +183,20 @@ export async function runModelStep(
 
   const userPrompt = [
     `Mission objective: ${mission.objective}`,
+    (() => {
+      const activeNodeId = cp.missionGraphRuntime?.activeNodeId;
+      const graph = mission.missionGraph as { version?: number; nodes?: Array<Record<string, unknown>> } | null;
+      const node = graph?.version === 2 && Array.isArray(graph.nodes)
+        ? graph.nodes.find((candidate) => candidate.id === activeNodeId)
+        : undefined;
+      if (!node) return null;
+      return [
+        `Active serial mission node: ${String(node.title ?? node.id)}`,
+        typeof node.description === "string" ? `Node description: ${node.description}` : null,
+        typeof node.definitionOfDone === "string" ? `Node definition of done: ${node.definitionOfDone}` : null,
+        "Work only on this active node. Do not begin a later node; the durable worker will release it after this node is verified.",
+      ].filter(Boolean).join("\n");
+    })(),
     mission.definitionOfDone ? `Definition of done: ${mission.definitionOfDone}` : null,
     `Execution status: ${execution.status}`,
     `Checkpoint: ${JSON.stringify(cpWithMode)}`,
@@ -226,6 +241,9 @@ export async function runModelStep(
         missionId: execution.missionId,
         executionId,
         metadata: {
+          ...(cp.missionGraphRuntime?.activeNodeId
+            ? { missionNodeId: cp.missionGraphRuntime.activeNodeId, graphVersion: 2 }
+            : {}),
           category: failure.category,
           retryable: failure.retryable,
           provider: failure.provider,
@@ -264,6 +282,9 @@ export async function runModelStep(
     taskId: execution.currentTaskId,
     missionId: execution.missionId,
     executionId,
+    ...(cp.missionGraphRuntime?.activeNodeId
+      ? { metadata: { missionNodeId: cp.missionGraphRuntime.activeNodeId, graphVersion: 2 } }
+      : {}),
     createdAt: now.toISOString(),
   };
 

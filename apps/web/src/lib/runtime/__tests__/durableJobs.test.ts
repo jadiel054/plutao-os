@@ -33,4 +33,12 @@ describe("runtime job state machine", () => {
       reason: "EXECUTION_CANCELLED",
     });
   });
+
+  it("encerra o job quando uma falha terminal de nó já colocou a missão em FAILED", () => {
+    expect(resolveRuntimeJobOutcome({ error: "MISSION_NODE_DOD_FAILED" }, "FAILED", "FAILED")).toEqual({
+      action: "fail",
+      status: "FAILED",
+      reason: "MISSION_NODE_DOD_FAILED",
+    });
+  });
 });

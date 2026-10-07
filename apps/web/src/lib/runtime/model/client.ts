@@ -2,7 +2,7 @@ import type { ModelConfig, ModelMessage, ModelProviderId, ModelStepResult, Model
 
 /**
  * Sanitiza mensagens para enviar ao provedor de IA.
- * Mantém apenas 'role', 'content' e campos padrão OpenAI ('name', 'tool_call_id', 'tool_calls').
+ * Mantém apenas 'role', 'content' e campos padronizados para chamadas compatíveis.
  * Descarta qualquer propriedade interna ou extra (ex.: 'source').
  */
 export function sanitizeMessagesForProvider(messages: unknown[]): Record<string, unknown>[] {
@@ -20,7 +20,7 @@ export function sanitizeMessagesForProvider(messages: unknown[]): Record<string,
 }
 
 /**
- * OpenAI-compatible chat completions (works for OpenAI and xAI).
+ * Chamadas de conversação em formato compatível.
  */
 export async function* streamChatCompletion(
   config: ModelConfig,

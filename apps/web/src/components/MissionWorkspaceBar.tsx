@@ -6,6 +6,12 @@ import { parseMissionPlan } from "@plutao/domain";
 import { MissionPlanner } from "@/components/MissionPlanner";
 import { MissionExecutionView } from "@/components/MissionExecutionView";
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 /**
  * Barra de Mission Workspace acima do input do chat.
  * G3: autonomous-run é fire-and-forget (não bloqueia UI até 5 min).
@@ -26,6 +32,9 @@ export function MissionWorkspaceBar({
   });
 
   const [plan, setPlan] = useState<MissionPlanV1 | null>(null);
+  const [graph, setGraph] = useState<unknown>(null);
+  const [graphRuntime, setGraphRuntime] = useState<unknown>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [objective, setObjective] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -33,6 +42,9 @@ export function MissionWorkspaceBar({
   const load = useCallback(async (isSilent = false) => {
     if (!missionId) {
       setPlan(null);
+      setGraph(null);
+      setGraphRuntime(null);
+      setJobStatus(null);
       setObjective("");
       return;
     }
@@ -48,8 +60,36 @@ export function MissionWorkspaceBar({
       }
       setObjective(String(data.objective ?? ""));
       setPlan(parseMissionPlan(data.plan));
+      setGraph(data.graph ?? null);
+
+      try {
+        const executionsRes = await fetch(`/api/missions/${missionId}/executions`, {
+          cache: "no-store",
+        });
+        if (executionsRes.ok) {
+          const executionsData = asRecord(await executionsRes.json());
+          const rows = Array.isArray(executionsData?.executions)
+            ? executionsData.executions
+            : [];
+          const currentExecution =
+            asRecord(executionsData?.recoverable) ?? asRecord(rows[0]);
+          const checkpoint = asRecord(currentExecution?.checkpoint);
+          setGraphRuntime(checkpoint?.missionGraphRuntime ?? null);
+          const runtimeJob = asRecord(executionsData?.runtimeJob);
+          setJobStatus(typeof runtimeJob?.status === "string" ? runtimeJob.status : null);
+        } else {
+          setGraphRuntime(null);
+          setJobStatus(null);
+        }
+      } catch {
+        setGraphRuntime(null);
+        setJobStatus(null);
+      }
     } catch {
       setPlan(null);
+      setGraph(null);
+      setGraphRuntime(null);
+      setJobStatus(null);
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -214,6 +254,9 @@ export function MissionWorkspaceBar({
       />
       <MissionExecutionView
         plan={plan}
+        graph={graph}
+        graphRuntime={graphRuntime}
+        jobStatus={jobStatus}
         busy={busy}
         onInspect={(step: MissionStep) =>
           void patch({

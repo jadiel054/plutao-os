@@ -36,7 +36,7 @@
 | ModelRouter (se existir) | 📐 **DESIGNED** | Não encontrado no código, mas ModelSelector cumpre função similar |
 | Detecção de conectividade (checkOnlineStatus) | ✅ **IMPLEMENTADO** | `packages/domain/src/runtime/modelSelector.ts` - Função `checkOnlineStatus()` |
 | Fallback automático Online ↔ Offline | ✅ **IMPLEMENTADO** | `packages/domain/src/runtime/modelSelector.ts` - Método `shouldUseLocal()` |
-| Abstração de provider (não acoplado a Groq) | ✅ **IMPLEMENTADO** | Interface `ModelProvider` em `packages/domain/src/runtime/agentLoop.ts` |
+| Abstração de provider (neutra quanto ao fornecedor) | ✅ **IMPLEMENTADO** | Interface `ModelProvider` em `packages/domain/src/runtime/agentLoop.ts` |
 
 ### 📥 MODELO LOCAL — Offline Runtime
 

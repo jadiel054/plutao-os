@@ -1011,14 +1011,20 @@ export default function CockpitPage() {
                               <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-2.5 py-2 text-[10px] font-mono space-y-1">
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                   <span className="text-[var(--text-muted)]">Job durável:</span>
-                                  <span className="text-blue-300 font-bold">{execution.jobStatus}</span>
+                                  <span className="text-blue-300 font-bold">
+                                    {execution.jobStatus === "WAITING_APPROVAL"
+                                      ? "Aguardando aprovação"
+                                      : execution.jobStatus}
+                                  </span>
                                   {execution.jobAttempts != null && execution.jobMaxAttempts != null ? (
                                     <span className="text-[var(--text-muted)]">
                                       tentativa {execution.jobAttempts}/{execution.jobMaxAttempts}
                                     </span>
                                   ) : null}
                                 </div>
-                                {execution.jobLastError ? (
+                                {execution.jobStatus === "WAITING_APPROVAL" ? (
+                                  <p className="text-amber-200">A missão será retomada pelo worker após a decisão no gate.</p>
+                                ) : execution.jobLastError ? (
                                   <p className="text-amber-300 break-words">{execution.jobLastError}</p>
                                 ) : null}
                               </div>

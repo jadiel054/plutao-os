@@ -305,7 +305,8 @@ export async function telegramGetMe(
 /** Runner dispatcher for telegram tool */
 export async function runTelegram(
   inputJson: string,
-  userId: string
+  userId: string,
+  executionId?: string
 ): Promise<ToolResult> {
   const t0 = Date.now();
   let parsed: Record<string, unknown> = {};
@@ -361,6 +362,7 @@ export async function runTelegram(
       payload: { text, chatId },
       contentPreview: text.slice(0, 200),
       missionId: missionId ?? null,
+      executionId: executionId ?? null,
       gateId,
     });
 

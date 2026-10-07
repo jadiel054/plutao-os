@@ -208,6 +208,8 @@ export const missions = pgTable(
     context: text("context"),
     constraints: text("constraints"),
     plan: jsonb("plan"),
+    graphVersion: integer("graph_version"),
+    missionGraph: jsonb("mission_graph"),
     definitionOfDone: text("definition_of_done"),
     currentState: text("current_state").notNull().default("CREATED"),
     completedSteps: jsonb("completed_steps").notNull().default([]),

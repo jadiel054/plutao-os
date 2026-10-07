@@ -216,7 +216,7 @@ export function ModelStatusIndicator({
                     }
                   `}
                 >
-                  🟢 Online (Groq - gpt-oss-120b)
+                  🟢 Online (provedor remoto)
                 </button>
                 
                 <button

@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { POST as handleGateAction } from "@/app/api/gates/[id]/route";
-import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
 import * as gatesService from "@/lib/connectors/gates";
 import * as githubToolModule from "@/lib/runtime/tools/github";
 import * as clientModule from "@/lib/runtime/model/client";
 import * as dbModule from "@/lib/db";
 import { runAgentLoop } from "@/lib/runtime/agent-loop";
 import * as runtimeService from "@/lib/runtime/service";
+import * as durableJobs from "@/lib/runtime/durableJobs";
 import * as checkpointModule from "@/lib/runtime/checkpoint";
 import * as sessionModule from "@/lib/auth/session";
 import { parseEvidence } from "@/lib/missions/ownership";
@@ -187,8 +187,8 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
     });
   });
 
-  describe("Bug 2 — Write mission resumes loop after gate approval & informs model", () => {
-    it("resumes mission loop via POST /api/gates/[id], passes gate execution evidence to model, and proposes push_files (next tool) instead of repo_create", async () => {
+  describe("Write Gate approval resumes durable mission job", () => {
+    it("executes the approved action, releases its durable job, and does not run the loop synchronously", async () => {
       const missionId = "m-write-1";
       const gateId = "gate-repo-create";
       const userId = "u1";
@@ -250,7 +250,6 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
       });
 
       const runGithubSpy = vi.spyOn(githubToolModule, "runGithub");
-      // 1st runGithub call from POST /api/gates/[id]: repo_create execution
       runGithubSpy.mockResolvedValueOnce({
         ok: true,
         tool: "github",
@@ -258,34 +257,12 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
         output: "Repositório criado: plutao-missao-smoke",
         durationMs: 400,
       });
-      // 2nd runGithub call from resumed mission loop: push_files execution (creates next gate or pushes)
-      runGithubSpy.mockResolvedValueOnce({
-        ok: true,
-        tool: "github",
-        input: '{"action":"push_files","owner":"u1","repo":"plutao-missao-smoke","files":[{"path":"README.md","content":"# Smoke Mission"}]}',
-        output: "GATE_PENDING\ngate_id: gate-push-readme",
-        durationMs: 350,
-      });
 
-      // Mock chatCompletion: when resumed mission calls model step, model sees 'gate aprovado e executado' evidence and proposes push_files
       const chatCompletionSpy = vi.spyOn(clientModule, "chatCompletion");
-      chatCompletionSpy.mockImplementation(async (_config, messages) => {
-        const userPrompt = String(messages.find((m) => m.role === "user")?.content ?? "");
-        // Verify that userPrompt sent to model contains the 'gate aprovado e executado: github/repo_create' evidence!
-        expect(userPrompt).toContain("gate aprovado e executado");
-
-        return {
-          provider: "openai",
-          model: "gpt-4o",
-          content: '{"tool":"github","input":"{\\"action\\":\\"push_files\\",\\"owner\\":\\"u1\\",\\"repo\\":\\"plutao-missao-smoke\\",\\"files\\":[{\\"path\\":\\"README.md\\",\\"content\\":\\"# Smoke Mission\\"}]}"}',
-          toolProposal: {
-            name: "github",
-            input: '{"action":"push_files","owner":"u1","repo":"plutao-missao-smoke","files":[{"path":"README.md","content":"# Smoke Mission"}]}',
-          },
-          usage: { promptTokens: 40, completionTokens: 20 },
-          latencyMs: 150,
-        };
-      });
+      const releaseJobSpy = vi.spyOn(durableJobs, "releaseRuntimeJobAfterApproval").mockResolvedValue({
+        id: "job-1",
+        status: "PENDING",
+      } as unknown as Awaited<ReturnType<typeof durableJobs.releaseRuntimeJobAfterApproval>>);
 
       let storedEvidence: unknown[] = [];
       const mockDb = {
@@ -345,13 +322,11 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
       expect(data.ok).toBe(true);
       expect(data.status).toBe("executed");
 
-      // Verify that chatCompletion was called during resumed runAutonomousMissionServer
-      expect(chatCompletionSpy).toHaveBeenCalled();
-
-      // Verify that the proposed tool on resumption was push_files (NEXT tool), NOT repo_create!
-      const proposedInput = chatCompletionSpy.mock.results[0]?.value ? (await chatCompletionSpy.mock.results[0].value).toolProposal?.input : "";
-      expect(proposedInput).toContain("push_files");
-      expect(proposedInput).not.toContain("repo_create");
+      expect(data.resumed).toBe(true);
+      expect(releaseJobSpy).toHaveBeenCalledWith("exec-1", userId);
+      expect(runGithubSpy).toHaveBeenCalledTimes(1);
+      expect(chatCompletionSpy).not.toHaveBeenCalled();
+      expect(parseEvidence(storedEvidence).some((item) => item.metadata?.writeGateId === gateId)).toBe(true);
     });
   });
 });

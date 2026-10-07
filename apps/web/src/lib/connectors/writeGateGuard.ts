@@ -89,6 +89,7 @@ export async function guardWrite(opts: {
   payload: Record<string, unknown>;
   contentPreview?: string | null;
   missionId?: string | null;
+  executionId?: string | null;
   gateId?: string | null;
 }): Promise<GateGuardResult> {
   // 1. Registro de capacidades (fail-closed).
@@ -120,6 +121,7 @@ export async function guardWrite(opts: {
       const gate = await createWriteGate({
         userId: opts.userId,
         missionId: opts.missionId ?? null,
+        executionId: opts.executionId ?? null,
         provider: opts.provider,
         capability: opts.capability,
         target: opts.target,

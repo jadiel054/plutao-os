@@ -7,9 +7,10 @@ import { queueExecution } from "./service";
 
 export const RUNTIME_JOB_LEASE_MS = 8 * 60 * 1000;
 export const RUNTIME_JOB_RETRY_DELAY_MS = 30 * 1000;
+export const RUNTIME_JOB_CONTINUATION_DELAY_MS = 1_000;
 export const RUNTIME_JOB_MAX_ATTEMPTS = 5;
 
-export type RuntimeJobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+export type RuntimeJobStatus = "PENDING" | "RUNNING" | "WAITING_APPROVAL" | "SUCCEEDED" | "FAILED" | "CANCELLED";
 export type RuntimeJobTerminalStatus = "SUCCEEDED" | "FAILED" | "CANCELLED";
 
 export type RuntimeJobPayload = {
@@ -22,6 +23,7 @@ export type RuntimeJobPayload = {
 export type RuntimeJobOutcome =
   | { action: "succeed"; status: "SUCCEEDED"; reason: string }
   | { action: "cancel"; status: "CANCELLED"; reason: string }
+  | { action: "fail"; status: "FAILED"; reason: string }
   | { action: "retry"; status: "FAILED" | "PENDING"; reason: string };
 
 function asPayload(raw: unknown): RuntimeJobPayload {
@@ -42,9 +44,17 @@ function asPayload(raw: unknown): RuntimeJobPayload {
  */
 export function resolveRuntimeJobOutcome(
   result: { ok?: boolean; error?: string; message?: string } | null,
-  executionStatus: string | null | undefined
+  executionStatus: string | null | undefined,
+  missionStatus?: string | null
 ): RuntimeJobOutcome {
   const status = String(executionStatus ?? "").toUpperCase();
+  const mission = String(missionStatus ?? "").toUpperCase();
+  if (mission === "CANCELLED") {
+    return { action: "cancel", status: "CANCELLED", reason: result?.error ?? "MISSION_CANCELLED" };
+  }
+  if (["FAILED", "INCONCLUSIVE"].includes(mission) && status === "FAILED") {
+    return { action: "fail", status: "FAILED", reason: result?.error ?? "MISSION_FAILED" };
+  }
   if (status === "COMPLETED") {
     return { action: "succeed", status: "SUCCEEDED", reason: result?.error ?? "EXECUTION_COMPLETED" };
   }
@@ -66,6 +76,7 @@ export async function enqueueMissionExecutionJob(opts: {
   currentTaskId?: string | null;
   conversationId?: string | null;
   maxIterations?: number;
+  maxAttempts?: number;
   requestId?: string | null;
 }) {
   const started = await queueExecution({
@@ -88,9 +99,10 @@ export async function enqueueMissionExecutionJob(opts: {
     maxIterations: opts.maxIterations,
     requestId: opts.requestId ?? null,
   };
+  const maxAttempts = Math.max(1, Math.min(200, Math.floor(opts.maxAttempts ?? RUNTIME_JOB_MAX_ATTEMPTS)));
   const row = existing[0];
   if (row) {
-    if (row.status === "SUCCEEDED" || row.status === "RUNNING") {
+    if (row.status === "SUCCEEDED" || row.status === "RUNNING" || row.status === "WAITING_APPROVAL") {
       return { job: row, execution, created: false as const };
     }
     const [requeued] = await db
@@ -98,6 +110,7 @@ export async function enqueueMissionExecutionJob(opts: {
       .set({
         status: "PENDING",
         payload,
+        maxAttempts,
         attempts: 0,
         availableAt: new Date(),
         lockedAt: null,
@@ -120,7 +133,7 @@ export async function enqueueMissionExecutionJob(opts: {
       kind: "mission_execution",
       status: "PENDING",
       payload,
-      maxAttempts: RUNTIME_JOB_MAX_ATTEMPTS,
+      maxAttempts,
       availableAt: new Date(),
       updatedAt: new Date(),
     })
@@ -197,6 +210,136 @@ export async function completeRuntimeJob(
   return job ?? null;
 }
 
+/** Requeues the same execution after exactly one graph node has been processed. */
+export async function continueRuntimeJob(jobId: string, lockToken: string) {
+  const db = getDb();
+  const now = new Date();
+  const [job] = await db
+    .update(runtimeJobs)
+    .set({
+      status: "PENDING",
+      availableAt: new Date(now.getTime() + RUNTIME_JOB_CONTINUATION_DELAY_MS),
+      lastError: null,
+      attempts: sql`GREATEST(${runtimeJobs.attempts} - 1, 0)`,
+      lockedAt: null,
+      lockToken: null,
+      completedAt: null,
+      updatedAt: now,
+    })
+    .where(
+      and(eq(runtimeJobs.id, jobId), eq(runtimeJobs.lockToken, lockToken), eq(runtimeJobs.status, "RUNNING"))
+    )
+    .returning();
+  return job ?? null;
+}
+
+export async function waitRuntimeJobForApproval(jobId: string, lockToken: string) {
+  const db = getDb();
+  const now = new Date();
+  const [job] = await db
+    .update(runtimeJobs)
+    .set({
+      status: "WAITING_APPROVAL",
+      lastError: "WAITING_APPROVAL",
+      attempts: sql`GREATEST(${runtimeJobs.attempts} - 1, 0)`,
+      lockedAt: null,
+      lockToken: null,
+      completedAt: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(runtimeJobs.id, jobId),
+        eq(runtimeJobs.lockToken, lockToken),
+        eq(runtimeJobs.status, "RUNNING"),
+        sql`EXISTS (
+          SELECT 1 FROM write_gates
+          WHERE write_gates.execution_id = ${runtimeJobs.executionId}
+            AND write_gates.user_id = ${runtimeJobs.userId}
+            AND write_gates.status IN ('pending', 'approved', 'executing')
+        )`
+      )
+    )
+    .returning();
+  return job ?? null;
+}
+
+export async function releaseRuntimeJobAfterApproval(executionId: string, userId: string) {
+  const db = getDb();
+  const now = new Date();
+  const [job] = await db
+    .update(runtimeJobs)
+    .set({
+      status: "PENDING",
+      availableAt: now,
+      lastError: null,
+      lockedAt: null,
+      lockToken: null,
+      completedAt: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(runtimeJobs.executionId, executionId),
+        eq(runtimeJobs.userId, userId),
+        eq(runtimeJobs.status, "WAITING_APPROVAL")
+      )
+    )
+    .returning();
+  return job ?? null;
+}
+
+/** Reabre jobs em espera quando nenhum gate vinculado continua ativo. */
+export async function releaseResolvedApprovalJobs(limit = 50) {
+  const db = getDb();
+  const rows = await db
+    .select({ id: runtimeJobs.id })
+    .from(runtimeJobs)
+    .where(
+      and(
+        eq(runtimeJobs.status, "WAITING_APPROVAL"),
+        sql`NOT EXISTS (
+          SELECT 1 FROM write_gates
+          WHERE write_gates.execution_id = ${runtimeJobs.executionId}
+            AND write_gates.user_id = ${runtimeJobs.userId}
+            AND write_gates.status IN ('pending', 'approved', 'executing')
+        )`
+      )
+    )
+    .orderBy(desc(runtimeJobs.updatedAt))
+    .limit(Math.max(1, Math.min(200, limit)));
+
+  const released: string[] = [];
+  for (const row of rows) {
+    const [updated] = await db
+      .update(runtimeJobs)
+      .set({
+        status: "PENDING",
+        availableAt: new Date(),
+        lastError: null,
+        lockedAt: null,
+        lockToken: null,
+        completedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(runtimeJobs.id, row.id),
+          eq(runtimeJobs.status, "WAITING_APPROVAL"),
+          sql`NOT EXISTS (
+            SELECT 1 FROM write_gates
+            WHERE write_gates.execution_id = ${runtimeJobs.executionId}
+              AND write_gates.user_id = ${runtimeJobs.userId}
+              AND write_gates.status IN ('pending', 'approved', 'executing')
+          )`
+        )
+      )
+      .returning({ id: runtimeJobs.id });
+    if (updated) released.push(updated.id);
+  }
+  return released;
+}
+
 export async function retryRuntimeJob(jobId: string, lockToken: string, error: string) {
   const db = getDb();
   const now = new Date();
@@ -237,7 +380,7 @@ export async function cancelRuntimeJobForExecution(executionId: string, userId: 
       and(
         eq(runtimeJobs.executionId, executionId),
         eq(runtimeJobs.userId, userId),
-        inArray(runtimeJobs.status, ["PENDING", "RUNNING"])
+        inArray(runtimeJobs.status, ["PENDING", "RUNNING", "WAITING_APPROVAL"])
       )
     )
     .returning();

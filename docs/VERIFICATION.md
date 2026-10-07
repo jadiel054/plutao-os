@@ -76,7 +76,7 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 
 ## 7. Layer G — Model Layer (Hybrid Cloud + Local)
 
-- [x] **Cloud Groq Provider:** Integrates `openai/gpt-oss-120b` via Groq API. Verified in production.
+- [x] **Provedor de modelo na nuvem:** Integra um modelo remoto pela API configurada. Verificado em produção.
 - [x] **Local Transformers.js Provider:** `@huggingface/transformers` dynamic import running client-side local models (`LocalProvider`).
 - [x] **WebGPU Acceleration:** `checkWebGPUSupport()` detects WebGPU availability with automatic fallback to CPU.
 - [x] **Model Mode Selection:** `useModelMode` hook persists `auto` | `online` | `offline` in `localStorage` (`plutao_model_mode`).
@@ -150,3 +150,14 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 
 - [ ] **Pending Intents / Sync Queue:** Implemented in the current code path, but not reverified in the 17/09/2026 production smoke test. A new network-loss test is required before marking the end-to-end behavior as VERIFIED.
 - [ ] **Service Worker Background Execution:** Long-running mission execution when PWA tab is completely closed (`NOT IMPLEMENTED`).
+
+## 14. Mission Graph V2 — implementação local
+
+- [x] **Intake comum:** Chat, Cockpit e reconciliação offline usam `/api/missions`, com autenticação, ownership de conversa, origem e idempotency key; testes de rota cobrem replay e conflito.
+- [x] **Grafo persistido:** missions novas recebem grafo V2 unitário; planos são validados e adaptados a topologia serial antes de enqueue.
+- [x] **Scheduler serial:** uma invocation processa no máximo um nó, valida dependências/checkpoint e retoma a mesma execution/job por continuation.
+- [x] **Evidence por nó:** DoD lê apenas evidence da mesma execution/nó; solicitações `GATE_PENDING` são excluídas como prova de efeito.
+- [x] **Espera humana:** Write Gate persiste executionId, pausa o job em `WAITING_APPROVAL` e o libera após a decisão, preservando o gate server-side.
+- [ ] **Produção:** o schema `runtime_jobs` da 0024 foi observado; as colunas e constraints de 0025/0026 estão ausentes e aguardam confirmação para aplicação. Depois, executar smoke autenticado multi-nó, refresh/retomada no PWA/APK e gate pendente.
+- [x] **Computador (local):** Computador e MissionExecutionView exibem topologia, dependências, status de nó, tentativas e espera de aprovação. Validação visual com dados reais após as migrations permanece pendente; eventos do chat continuam sendo uma projeção separada.
+- [ ] **Especialistas e paralelismo:** perfis executáveis, execução simultânea, isolamento entre nós e testes concorrentes permanecem desativados/futuros.

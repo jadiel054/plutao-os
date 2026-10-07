@@ -4,7 +4,9 @@ import { missions } from "@plutao/db";
 import {
   applyStepTransition,
   createPlanFromTitles,
+  missionPlanV1ToGraphV2,
   parseMissionPlan,
+  validateMissionGraphV2,
   type MissionPlanV1,
   type MissionStepStatus,
   type ProjectBrief,
@@ -23,6 +25,8 @@ async function loadOwnedPlan(missionId: string, userId: string) {
       id: missions.id,
       objective: missions.objective,
       plan: missions.plan,
+      missionGraph: missions.missionGraph,
+      graphVersion: missions.graphVersion,
       status: missions.status,
     })
     .from(missions)
@@ -35,7 +39,8 @@ async function savePlan(
   missionId: string,
   userId: string,
   plan: MissionPlanV1,
-  missionStatus?: string
+  missionStatus?: string,
+  graph?: ReturnType<typeof missionPlanV1ToGraphV2>
 ) {
   const db = getDb();
   const completedSteps = plan.steps
@@ -55,6 +60,10 @@ async function savePlan(
     patch.status = missionStatus;
     patch.currentState = missionStatus;
   }
+  if (graph) {
+    patch.graphVersion = graph.version;
+    patch.missionGraph = graph;
+  }
 
   const updated = await db
     .update(missions)
@@ -64,6 +73,8 @@ async function savePlan(
       id: missions.id,
       objective: missions.objective,
       plan: missions.plan,
+      missionGraph: missions.missionGraph,
+      graphVersion: missions.graphVersion,
       status: missions.status,
       completedSteps: missions.completedSteps,
       pendingSteps: missions.pendingSteps,
@@ -89,6 +100,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       objective: row.objective,
       status: row.status,
       plan,
+      graphVersion: row.graphVersion,
+      graph: row.missionGraph,
     });
   } catch (e) {
     console.error("[missions/:id/plan GET]", e);
@@ -119,6 +132,21 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     }
 
     if (action === "create_plan") {
+      const currentPlan = parseMissionPlan(row.plan);
+      if (
+        currentPlan?.aligned ||
+        ["EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "CANCELLED"].includes(
+          String(row.status).toUpperCase()
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error: "MISSION_GRAPH_IMMUTABLE",
+            message: "O grafo não pode ser alterado após o alinhamento ou início da execução.",
+          },
+          { status: 409 }
+        );
+      }
       const titles = Array.isArray(body.stepTitles)
         ? body.stepTitles
             .map((t: unknown) => String(t ?? "").trim())
@@ -137,8 +165,16 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
               objective: String(row.objective ?? ""),
             };
       const plan = createPlanFromTitles(titles, brief);
-      const saved = await savePlan(id, user.id, plan, "PLANNING");
-      return NextResponse.json({ mission: saved, plan });
+      const graph = missionPlanV1ToGraphV2(plan);
+      const validation = validateMissionGraphV2(graph);
+      if (!validation.ok) {
+        return NextResponse.json(
+          { error: "MISSION_GRAPH_INVALID", issues: validation.issues },
+          { status: 422 }
+        );
+      }
+      const saved = await savePlan(id, user.id, plan, "PLANNING", graph);
+      return NextResponse.json({ mission: saved, plan, graph });
     }
 
     let plan = parseMissionPlan(row.plan);
@@ -157,6 +193,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         );
       }
       const now = new Date().toISOString();
+      const graphCandidate = row.missionGraph ?? missionPlanV1ToGraphV2(plan);
+      const graphValidation = validateMissionGraphV2(graphCandidate);
+      if (!graphValidation.ok) {
+        return NextResponse.json(
+          { error: "MISSION_GRAPH_INVALID", issues: graphValidation.issues },
+          { status: 409 }
+        );
+      }
       plan = {
         ...plan,
         aligned: true,
@@ -172,8 +216,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           },
         ],
       };
-      const saved = await savePlan(id, user.id, plan, "EXECUTING");
-      return NextResponse.json({ mission: saved, plan });
+      const saved = await savePlan(id, user.id, plan, "EXECUTING", graphValidation.graph);
+      return NextResponse.json({ mission: saved, plan, graph: graphValidation.graph });
     }
 
     if (action === "transition") {

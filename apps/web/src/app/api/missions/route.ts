@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
 import { getOwnedConversation } from "@/lib/missions/ownership";
 import { matchesMissionIntake, parseMissionIntake } from "@/lib/missions/intake";
+import { missionObjectiveToGraphV2 } from "@plutao/domain";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,7 @@ export async function GET() {
         shareToken: missions.shareToken,
         creationSource: missions.creationSource,
         conversationId: missions.conversationId,
+        graphVersion: missions.graphVersion,
         createdAt: missions.createdAt,
         updatedAt: missions.updatedAt,
       })
@@ -72,6 +74,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getDb();
+    const missionGraph = missionObjectiveToGraphV2(input.objective);
     const initialDecisions = input.idempotencyKey
       ? [
           {
@@ -94,6 +97,8 @@ export async function POST(req: NextRequest) {
           definitionOfDone: input.definitionOfDone,
           creationSource: input.creationSource,
           conversationId: input.conversationId,
+          graphVersion: missionGraph.version,
+          missionGraph,
           status: "CREATED",
           currentState: "CREATED",
           completedSteps: [],
@@ -111,6 +116,7 @@ export async function POST(req: NextRequest) {
           definitionOfDone: missions.definitionOfDone,
           creationSource: missions.creationSource,
           conversationId: missions.conversationId,
+          graphVersion: missions.graphVersion,
           createdAt: missions.createdAt,
           updatedAt: missions.updatedAt,
         });

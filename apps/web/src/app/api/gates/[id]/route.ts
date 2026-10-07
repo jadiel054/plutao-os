@@ -18,6 +18,8 @@ import { missions } from "@plutao/db";
 import { and, eq } from "drizzle-orm";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { sanitizeText } from "@/lib/security/sanitize";
+import { getOwnedExecution } from "@/lib/runtime/service";
+import { releaseRuntimeJobAfterApproval } from "@/lib/runtime/durableJobs";
 
 export const runtime = "nodejs";
 /** Allow long autonomous cycles post-gate approval on Vercel Pro (Hobby caps lower). */
@@ -31,7 +33,9 @@ async function appendEvidence(
   missionId: string | null | undefined,
   userId: string,
   content: string,
-  type: "tool_result" | "tool_error" | "decision"
+  type: "tool_result" | "tool_error" | "decision",
+  executionId?: string | null,
+  writeGateId?: string | null
 ) {
   if (!missionId) return;
   try {
@@ -43,6 +47,14 @@ async function appendEvidence(
       .limit(1);
     if (!rows[0]) return;
     const prev = parseEvidence(rows[0].evidence);
+    const execution = executionId ? await getOwnedExecution(executionId, userId) : null;
+    const checkpoint = execution?.checkpoint && typeof execution.checkpoint === "object"
+      ? (execution.checkpoint as Record<string, unknown>)
+      : {};
+    const graphRuntime = checkpoint.missionGraphRuntime && typeof checkpoint.missionGraphRuntime === "object"
+      ? (checkpoint.missionGraphRuntime as Record<string, unknown>)
+      : {};
+    const activeNodeId = typeof graphRuntime.activeNodeId === "string" ? graphRuntime.activeNodeId : null;
     const item: EvidenceItem = {
       id: crypto.randomUUID(),
       // H3 — nenhuma evidência recebe texto cru (tokens/segredos ficam de fora).
@@ -51,12 +63,16 @@ async function appendEvidence(
       source: "write_gate",
       taskId: null,
       missionId,
+      executionId: executionId ?? undefined,
+      metadata: activeNodeId || writeGateId
+        ? { ...(activeNodeId ? { missionNodeId: activeNodeId, graphVersion: 2 } : {}), ...(writeGateId ? { writeGateId } : {}) }
+        : undefined,
       createdAt: new Date().toISOString(),
     };
     await db
       .update(missions)
       .set({ evidence: [...prev, item], updatedAt: new Date() })
-      .where(eq(missions.id, missionId));
+      .where(and(eq(missions.id, missionId), eq(missions.userId, userId)));
   } catch {
     /* non-fatal */
   }
@@ -67,31 +83,32 @@ type ProviderResult = { ok: true; output: string } | { ok: false; error: string 
 async function executeApprovedGate(
   provider: string,
   execInput: string,
-  userId: string
+  userId: string,
+  executionId?: string | null
 ): Promise<ProviderResult | null> {
   switch (provider) {
     case "github": {
-      const r = await runGithub(execInput, userId);
+      const r = await runGithub(execInput, userId, executionId ?? undefined);
       return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
     }
     case "vercel": {
-      const r = await runVercel(execInput, userId);
+      const r = await runVercel(execInput, userId, executionId ?? undefined);
       return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
     }
     case "cloudflare": {
-      const r = await runCloudflare(execInput, userId);
+      const r = await runCloudflare(execInput, userId, executionId ?? undefined);
       return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
     }
     case "render": {
-      const r = await runRender(execInput, userId);
+      const r = await runRender(execInput, userId, executionId ?? undefined);
       return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
     }
     case "supabase": {
-      const r = await runSupabase(execInput, userId);
+      const r = await runSupabase(execInput, userId, executionId ?? undefined);
       return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
     }
     case "telegram": {
-      const r = await runTelegram(execInput, userId);
+      const r = await runTelegram(execInput, userId, executionId ?? undefined);
       return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
     }
     default:
@@ -120,8 +137,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       gate.missionId,
       user.id,
       `gate rejeitado: ${gate.provider}/${gate.capability} → ${gate.target}`,
-      "decision"
+      "decision",
+      gate.executionId,
+      gate.id
     );
+    if (gate.executionId) await releaseRuntimeJobAfterApproval(gate.executionId, user.id);
     return NextResponse.json({ ok: true, status: "rejected", gate: updated });
   }
 
@@ -149,9 +169,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     missionId: gate.missionId,
   });
 
-  const result = await executeApprovedGate(provider, execInput, user.id);
+  const result = await executeApprovedGate(provider, execInput, user.id, gate.executionId);
   if (!result) {
-    await failUnconsumedGate(id, user.id, `provider não suportado: ${provider}`);
+    const error = `provider não suportado: ${provider}`;
+    await failUnconsumedGate(id, user.id, error);
+    await appendEvidence(gate.missionId, user.id, `gate falhou: ${error}`, "tool_error", gate.executionId, gate.id);
+    if (gate.executionId) await releaseRuntimeJobAfterApproval(gate.executionId, user.id);
     return NextResponse.json({ error: `provider_not_supported: ${provider}` }, { status: 400 });
   }
 
@@ -159,11 +182,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   // classificada como escrita), ele não pode ficar preso em `approved`.
   const after = await getWriteGate(id, user.id);
   if (after && after.status === "approved") {
+    const error = "execução não consumiu o gate — operação recusada por segurança";
     await failUnconsumedGate(
       id,
       user.id,
-      "execução não consumiu o gate — operação recusada por segurança"
+      error
     );
+    await appendEvidence(gate.missionId, user.id, `gate falhou: ${error}`, "tool_error", gate.executionId, gate.id);
+    if (gate.executionId) await releaseRuntimeJobAfterApproval(gate.executionId, user.id);
+    return NextResponse.json({ error, status: "failed" }, { status: 502 });
   }
 
   if (!result.ok) {
@@ -171,8 +198,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       gate.missionId,
       user.id,
       `gate aprovado mas falhou: ${provider}/${capability} → ${result.error}`,
-      "tool_error"
+      "tool_error",
+      gate.executionId,
+      gate.id
     );
+    if (gate.executionId) await releaseRuntimeJobAfterApproval(gate.executionId, user.id);
     return NextResponse.json(
       { ok: false, status: "failed", error: sanitizeText(result.error) },
       { status: 502 }
@@ -183,22 +213,26 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     gate.missionId,
     user.id,
     `gate aprovado e executado: ${provider}/${capability}\n${result.output}`,
-    "tool_result"
+    "tool_result",
+    gate.executionId,
+    gate.id
   );
 
-  if (gate.missionId) {
-    try {
-      await runAutonomousMissionServer({
-        missionId: gate.missionId,
-        userId: user.id,
-      });
-    } catch (e) {
-      console.error(
-        "[api/gates/[id]/route] Error resuming mission after gate approval:",
-        sanitizeText(e instanceof Error ? e.message : String(e))
-      );
+  const releasedJob = gate.executionId
+    ? await releaseRuntimeJobAfterApproval(gate.executionId, user.id)
+    : null;
+  if (gate.missionId && !gate.executionId) {
+    if (!releasedJob) {
+      try {
+        await runAutonomousMissionServer({ missionId: gate.missionId, userId: user.id });
+      } catch (e) {
+        console.error(
+          "[api/gates/[id]/route] Error resuming legacy mission after gate approval:",
+          sanitizeText(e instanceof Error ? e.message : String(e))
+        );
+      }
     }
   }
 
-  return NextResponse.json({ ok: true, status: "executed", output: result.output });
+  return NextResponse.json({ ok: true, status: "executed", output: result.output, resumed: Boolean(releasedJob) });
 }

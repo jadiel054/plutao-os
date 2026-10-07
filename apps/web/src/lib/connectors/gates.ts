@@ -103,6 +103,15 @@ export async function listPendingGates(userId: string, missionId?: string | null
     .limit(20);
 }
 
+export async function listWriteGatesForExecution(executionId: string, userId: string) {
+  const db = createDb();
+  return db
+    .select({ id: writeGates.id, status: writeGates.status })
+    .from(writeGates)
+    .where(and(eq(writeGates.executionId, executionId), eq(writeGates.userId, userId)))
+    .limit(100);
+}
+
 export async function markGateRejected(gateId: string, userId: string) {
   const db = createDb();
   const [row] = await db

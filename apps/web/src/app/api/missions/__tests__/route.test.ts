@@ -102,6 +102,8 @@ describe("POST /api/missions unified intake", () => {
         objective: "Preparar entrega",
         creationSource: "chat",
         conversationId,
+        graphVersion: 2,
+        missionGraph: expect.objectContaining({ version: 2, nodes: expect.any(Array) }),
         idempotencyKey: "chat-attempt-1",
       })
     );

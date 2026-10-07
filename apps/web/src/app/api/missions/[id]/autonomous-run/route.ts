@@ -6,6 +6,8 @@ import { ensureExecutionsTable } from "@/lib/runtime/ensure";
 import { enqueueMissionExecutionJob } from "@/lib/runtime/durableJobs";
 import { createRequestId, recordRuntimeTelemetry } from "@/lib/observability/runtimeTelemetry";
 import { sanitizeError } from "@/lib/security/sanitize";
+import { getMissionGraphSerialOrder } from "@plutao/domain";
+import { ensurePersistedMissionGraph, MissionGraphPersistenceError } from "@/lib/missions/graphPersistence";
 
 export const runtime = "nodejs";
 
@@ -62,12 +64,27 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
     }
 
+    const graph = await ensurePersistedMissionGraph(missionId, user.id);
+    const serialOrder = getMissionGraphSerialOrder(graph);
+    if (!serialOrder) {
+      return NextResponse.json(
+        {
+          ok: false,
+          missionId,
+          error: "MISSION_GRAPH_SERIAL_LIMIT",
+          message: "O worker serial aceita até 20 nós por execução nesta etapa.",
+        },
+        { status: 422 }
+      );
+    }
+
     const queued = await enqueueMissionExecutionJob({
       missionId,
       userId: user.id,
       currentTaskId,
       conversationId,
       maxIterations,
+      maxAttempts: 10 + serialOrder.length * 4,
       requestId,
     });
     const jobStatus = String(queued.job.status).toUpperCase();
@@ -105,6 +122,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       { status: 202 }
     );
   } catch (error) {
+    if (error instanceof MissionGraphPersistenceError) {
+      return NextResponse.json(
+        { ok: false, missionId, error: error.code },
+        { status: error.code === "MISSION_NOT_FOUND" ? 404 : 409 }
+      );
+    }
     const safeError = sanitizeError(error, "DURABLE_QUEUE_UNAVAILABLE");
     console.error("[missions/:id/autonomous-run enqueue]", safeError);
     await recordRuntimeTelemetry({

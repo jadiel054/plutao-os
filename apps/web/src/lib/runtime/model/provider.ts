@@ -5,13 +5,13 @@
  * 
  * Fluxo:
  * 1. Recebe configuração do ModelSelector
- * 2. Cria o provedor apropriado (GroqProvider ou LocalAdapter)
+ * 2. Cria o provedor apropriado (remoto ou LocalAdapter)
  * 3. Retorna instância pronta para uso no Agent Loop
  * 
  * Integração:
  * - Usa ModelSelector para determinar o modo
  * - Usa LocalAdapter para modelo local
- * - Usa chatCompletion para modelo online (Groq)
+ * - Usa chatCompletion para modelo online
  */
 
 import { getModelConfig } from "./config";
@@ -55,11 +55,11 @@ export interface IModelProvider {
 }
 
 // ============================================================
-// GroqProvider - Provedor para modelos online (Groq)
+// Adaptador do provedor remoto para modelos online.
 // ============================================================
 
 /**
- * GroqProvider - Implementação do provedor para Groq API
+ * Adaptador online que implementa a interface de provedor de modelo.
  */
 export class GroqProvider implements IModelProvider {
   private config: ReturnType<typeof getModelConfig> | null;

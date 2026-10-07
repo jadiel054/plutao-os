@@ -51,7 +51,7 @@ Foi criada a missão:
 
 > Criar um plano de três passos para organizar uma pequena rotina diária e verificar cada passo.
 
-A missão apareceu como `CREATED`. Ao acionar **Executar missão**, o sistema registrou uma execução, avançou até `VERIFYING` e produziu um plano textual por meio do modelo configurado. A timeline exibiu a execução e o registro `model:groq:openai/gpt-oss-120b · model_step`.
+A missão apareceu como `CREATED`. Ao acionar **Executar missão**, o sistema registrou uma execução, avançou até `VERIFYING` e produziu um plano textual por meio do modelo configurado. A timeline exibiu a execução e o registro sanitizado `model:plutao-primary · model_step`.
 
 ### 4. Verificação DoD
 

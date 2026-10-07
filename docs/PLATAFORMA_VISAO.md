@@ -34,7 +34,7 @@
 - 🧠 **Falta de continuidade**: Conversas reiniciam, contexto se perde
 
 ### Solução almejada:
-- 🟡 **Modo Híbrido**: IA na nuvem + IA local no dispositivo — o melhor dos dois mundos *(implementado: Groq + Local/Transformers.js; expansão para 6+ provedores prevista)*
+- 🟡 **Modo Híbrido**: IA na nuvem + IA local no dispositivo — o melhor dos dois mundos *(roteamento remoto e execução local implementados; expansão gradual prevista)*
 - ✅ **Offline-First**: Funciona sem internet — modelo rolando direto no navegador via WebGPU/CPU
 - 🟡 **Persistência Contínua**: Checkpoints salvos — a IA lembra de tudo *(implementado no banco; execução com navegador fechada em verificação)*
 - ✅ **Seus dados, suas regras**: Isolamento por usuário implementado; RLS nativo do Postgres em configuração
@@ -88,7 +88,7 @@ Deploy:     Vercel (Frontend) + Neon (Database)
 - **Modelos de IA** → catálogo híbrido (cloud + local)
 - **Checkpoints** → estado da IA salvo no banco de dados
 - **Missões** → tarefas com persistência contínua
-- **Provedores** → Groq (confirmado) + Local/Transformers.js (confirmado) + expansão para Gemini, Ollama, Cloudflare, OpenRouter, DeepSeek *(planejada)*
+- **Provedores** → serviço remoto configurável + runtime local *(expansão gradual planejada)*
 
 ### Modo Híbrido — O Coração do Plutão:
 
@@ -98,7 +98,7 @@ Deploy:     Vercel (Frontend) + Neon (Database)
 ├──────────────┬──────────────────┬──────────────────┤
 │   🌐 ONLINE  │   ⚡ AUTOMÁTICO  │   📴 OFFLINE     │
 │  (Nuvem)     │  (Melhor opção)  │  (Dispositivo)   │
-│ - Groq ✅    │ - Escolhe o mais │ - Transformers.js✅│
+│ - Nuvem ✅   │ - Escolhe o mais │ - Runtime local ✅ │
 │ - 4+ em breve│   rápido/disponível│ - WebGPU → CPU ✅ │
 │              │ - Fallback auto   │ - Sem conexão ✅ │
 ├──────────────┴──────────────────┴──────────────────┤
@@ -115,7 +115,7 @@ Deploy:     Vercel (Frontend) + Neon (Database)
 - IA roda em servidores de alta performance
 - Respostas rápidas, modelos grandes
 - Fallback automático se provedor falhar
-- *(Groq confirmado; outros 4+ em implementação)*
+- *(provedor principal conectado; expansão de opções em implementação)*
 
 ### 2️⃣ Modo Offline ✅
 - Modelo baixado roda **direto no navegador** do usuário
@@ -142,8 +142,8 @@ Deploy:     Vercel (Frontend) + Neon (Database)
 > 📌 **Legenda:** ✅ Disponível | 🟡 Parcial | ⏳ Planejado
 
 ### 🧠 Núcleo de IA
-- ✅ Multi-provedor base (Groq + Local/Transformers.js) — 2 implementados
-- ⏳ Expansão para 6+ provedores (Gemini, Ollama, Cloudflare, OpenRouter, DeepSeek)
+- ✅ Base híbrida (provedor remoto + runtime local) — implementada
+- ⏳ Expansão gradual de provedores compatíveis
 - ✅ IA Local Offline — Transformers.js + WebGPU + CPU fallback
 - ✅ Seleção Inteligente — Auto/Online/Offline
 - ✅ Checkpoints Persistidos — salvos no banco de dados

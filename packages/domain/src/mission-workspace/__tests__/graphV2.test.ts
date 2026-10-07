@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   missionPlanV1ToGraphV2,
+  missionObjectiveToGraphV2,
+  getMissionGraphSerialOrder,
+  MISSION_GRAPH_SERIAL_MAX_NODES,
   validateMissionGraphV2,
   type MissionGraphV2,
 } from "../graphV2";
@@ -125,5 +128,36 @@ describe("MissionGraphV2 contract", () => {
     const result = validateMissionGraphV2(candidate);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.graph.nodes[0]?.id).toBe("only");
+  });
+
+  it("returns a stable topological sequence for serial execution", () => {
+    const candidate = graph([
+      node("final", ["middle"]),
+      node("independent"),
+      node("middle", ["first"]),
+      node("first"),
+    ]);
+    expect(getMissionGraphSerialOrder(candidate)?.map((item) => item.id)).toEqual([
+      "independent",
+      "first",
+      "middle",
+      "final",
+    ]);
+  });
+
+  it("fails closed when the graph exceeds the serial worker limit", () => {
+    const tooLarge = graph(
+      Array.from({ length: MISSION_GRAPH_SERIAL_MAX_NODES + 1 }, (_, index) =>
+        node(`serial-${index}`)
+      )
+    );
+    expect(getMissionGraphSerialOrder(tooLarge)).toBeNull();
+  });
+
+  it("creates a valid isolated work node for a simple objective", () => {
+    const candidate = missionObjectiveToGraphV2("  Preparar uma análise  ");
+    expect(validateMissionGraphV2(candidate).ok).toBe(true);
+    expect(candidate.nodes).toHaveLength(1);
+    expect(candidate.nodes[0]?.description).toBe("Preparar uma análise");
   });
 });

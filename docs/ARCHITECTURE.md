@@ -38,7 +38,7 @@
                  ▼                                           ▼
 ┌─────────────────────────────────┐         ┌─────────────────────────────────┐
 │       ONLINE MODEL ROUTER       │         │      OFFLINE LOCAL ROUTER       │
-│  (Groq: openai/gpt-oss-120b)    │         │ (WebGPU / @huggingface/transformers)│
+│     (Cloud model provider)      │         │   (WebGPU / local runtime)     │
 └────────────────┬────────────────┘         └────────────────┬────────────────┘
                  │                                           │
                  └─────────────────────┬─────────────────────┘
@@ -91,7 +91,7 @@ plutao-os/
 | **Durable Runtime & Checkpoints** | `apps/web/src/lib/runtime/checkpoint.ts` | State persistence, step memoization, and mission state recovery across sessions. (**VERIFIED**) |
 | **Agent Loop** | `packages/domain/src/runtime/agentLoop.ts`, `apps/web/src/lib/runtime/agent-loop.ts` | Multi-turn reasoning, tool call interpretation, result reinjection, iteration limiting. (**VERIFIED**) |
 | **Tool Dispatcher & Tools** | `apps/web/src/lib/runtime/tools/` | Tool Dispatcher executing `Filesystem Tool V1` (list, read, write, mkdir, stat) and `Note` tool. (**VERIFIED**) |
-| **Model Layer (Hybrid)** | `packages/domain/src/models/registry.ts`, `packages/domain/src/runtime/providers/` | Cloud Groq (`openai/gpt-oss-120b`) + Local Transformers.js (`WebGPU` / `CPU` fallback). (**VERIFIED**) |
+| **Model Layer (Hybrid)** | `packages/domain/src/models/registry.ts`, `packages/domain/src/runtime/providers/` | Provedor remoto + runtime local (`WebGPU` / fallback `CPU`). (**VERIFIED**) |
 | **Evidence Engine** | `apps/web/src/app/api/missions/[id]/evidence` | Structured execution traces, tool outputs, and audit logs stored in `evidence` column. (**VERIFIED**) |
 | **Verification & DoD Gate** | `apps/web/src/lib/missions/dod.ts`, `/api/missions/[id]/verify` | Deterministic verification of outputs against Definition of Done before transitioning to `COMPLETED`. (**VERIFIED**) |
 | **Autonomia V1.1** | `apps/web/src/lib/cockpit/runAutonomousMission.ts` | Single-click end-to-end execution: EXECUTING → Agent Loop → Runtime → VERIFYING → DoD Check → COMPLETED. (**VERIFIED**) |

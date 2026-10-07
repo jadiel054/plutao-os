@@ -198,7 +198,7 @@ function describeWrite(
 
 type WriteOutcome = { ok: true; output: string } | { ok: false; error: string };
 
-export async function runGithub(input: string, userId: string): Promise<ToolResult> {
+export async function runGithub(input: string, userId: string, executionId?: string): Promise<ToolResult> {
   const started = Date.now();
   const parsed = parseInput(input);
   if ("error" in parsed) {
@@ -326,6 +326,7 @@ export async function runGithub(input: string, userId: string): Promise<ToolResu
       payload: buildWritePayload(parsed),
       contentPreview,
       missionId: parsed.missionId ?? null,
+      executionId: executionId ?? null,
       gateId: parsed._gateId,
     });
 

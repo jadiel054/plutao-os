@@ -59,7 +59,7 @@ ${connectorBlock || "(connector runtime unavailable — prefer note/filesystem o
 
 WRITES AND HUMAN APPROVAL (Princípio 1):
 - Write actions (repo_create, push_files, project_create, deploy_create, etc.) are executed when the connector is CONNECTED.
-- The runtime creates a write_gate and returns GATE_PENDING. Human approval happens in the chat — do NOT ask the user for confirmation, do NOT wait for it: continue with the next mission step.
+- A write without a valid _gateId creates a write_gate and returns GATE_PENDING; nothing has been executed yet. The runtime pauses the node and durable job until the human decision in chat. Never claim that effect is complete or bypass approval. After approve/reject, the same execution resumes through the worker.
 - Never claim you only have read tools when the connector block lists write capabilities.
 - Typical site/app flow: GitHub (repo_create + push_files) → Vercel (project_create / deploy_create), gates at each write.
 - Include "missionId" in the JSON payload of write actions so the gate links to this mission.

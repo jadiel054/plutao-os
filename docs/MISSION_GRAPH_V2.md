@@ -1,6 +1,6 @@
 # Contrato de missão e grafo v2 do Plutão
 
-**Status:** contrato de domínio v2 e validação implementados; persistência, scheduler de nós e interfaces ainda não migrados.
+**Status (2026-10-07):** intake unificado, grafo versionado persistido, execução serial no worker e espera/retomada de Write Gate implementados localmente. Eventos canônicos de missão, visualização do grafo no Computador e paralelismo/especialistas executáveis ainda não estão implementados. Migrations 0024–0026 e smoke de produção continuam pendentes.
 
 ## Objetivo
 
@@ -34,11 +34,23 @@ A API deve manter a regra atual de acesso: não conceder execução de missão a
 ## Compatibilidade e rollout
 
 1. Leitura dual: aceitar planos V1 e grafos V2; mostrar V1 por um adaptador de visualização.
-2. Gravação V2 só para missões novas, atrás de feature flag e depois do smoke de produção.
-3. Primeiro scheduler V2 serial: liberar um nó quando todas as dependências passaram; retries são limitados; sem ciclos nem fan-out ilimitado.
-4. Registrar resultado e evidência por nó. A missão só chega a `COMPLETED` após o verificador validar o DoD com evidências.
-5. Ativar perfis especialistas e concorrência gradualmente, depois de testes de isolamento, claim, cancelamento e idempotência.
-6. Remover V1 apenas depois de inventário e plano de migração/retensão aprovados.
+2. **Estado atual:** novas missões recebem grafo unitário V2 no intake; planos V1 são adaptados a uma cadeia serial validada. A gravação ainda não tem feature flag.
+3. O worker serial libera um nó por invocation quando dependências passaram, valida checkpoint/fingerprint e limita topologia a 20 nós nesta tranche.
+4. Cada nó mantém tentativas/estado no checkpoint e sincroniza o status legado de passo quando existe. DoD usa somente evidências da mesma execution/nó; `GATE_PENDING` não vale como efeito executado.
+5. Write Gates vinculados à execution pausam o job como `WAITING_APPROVAL`; aprovação/rejeição grava evidência correlacionada e libera o mesmo job. A corrida entre decisão humana, pausa do worker e persistência da evidence é reconciliada sem executar o nó em paralelo; gates terminais abandonados também são recuperados pelo cron. Nenhuma capability adicional é concedida ao nó.
+6. O worker processa um job por invocation para caber no limite de duração da plataforma. Isso privilegia segurança; throughput e velocidade precisam ser medidos antes de paralelizar.
+7. Perfis especialistas e concorrência permanecem desabilitados; habilitá-los exige isolamento, claim/cancelamento, idempotência, limites de custo e testes concorrentes.
+8. Missões legadas com plano parcialmente executado e sem checkpoint V2 são bloqueadas para revisão, evitando repetição silenciosa de efeitos.
+9. Remover V1 apenas depois de inventário e plano de migração/retensão aprovados.
+
+## Persistência e execução serial implementadas
+
+- `/api/missions` é o intake comum de chat, Cockpit e reconciliação offline: autenticação, ownership opcional da conversa, chave idempotente e origem são validados no servidor.
+- `missions.graphVersion` e `missions.missionGraph` guardam a topologia versionada; o estado de execução por nó fica no checkpoint da execution, não na definição imutável.
+- `/api/missions/:id/plan` cria/alinha o plano V1 e persiste a representação V2 validada; depois de alinhar/iniciar, a topologia fica imutável.
+- O enqueue valida/backfilla o grafo antes de criar o job. Topologias acima de 20 nós são rejeitadas nesta versão serial.
+- Uma chamada do worker processa no máximo um nó e usa continuation do mesmo job. Aprovação humana põe o job em espera em vez de converter pedido de aprovação em sucesso.
+- O schema de `runtime_jobs` da 0024 está presente no Neon de produção; as colunas de intake e grafo de 0025/0026 ainda estão ausentes. Aplicá-las antes do deploy correspondente, após a confirmação explícita.
 
 ## PWA, APK e execução offline
 
@@ -50,10 +62,10 @@ O modo local/offline é uma modalidade separada. Não trocar automaticamente uma
 
 ## Computador: evolução integrada ao grafo
 
-O painel atual é um feed textual de `action`/`observation` ligado a `conversationId`, com replay SSE. Ele não é ainda uma tela completa de computador remoto nem uma visualização do grafo. A evolução deve ser incremental:
+O painel do Computador combina o feed textual de `action`/`observation` ligado a `conversationId` e replay SSE com uma leitura do grafo e do checkpoint persistido da missão selecionada. `MissionExecutionView` mostra a mesma topologia junto à timeline V1 de compatibilidade. Isso não é uma tela de computador remoto nem uma trilha canônica de eventos por missão. A evolução restante deve ser incremental:
 
-1. **Visão por missão:** selecionar missão e nó ativo; funcionar mesmo se a missão nasceu no Cockpit e não tem conversa.
-2. **Timeline de especialistas:** agrupar eventos por nó, perfil, tentativa e dependências, com estado, duração, retry e bloqueio.
+1. **Visão por missão:** implementação local concluída para nós, dependências, status serial, tentativas e gate aguardando aprovação; falta validar no navegador e contra dados reais após migration.
+2. **Timeline de especialistas:** agrupar eventos por nó, perfil, tentativa e dependências, com duração, retry e bloqueio.
 3. **Ações e observações legíveis:** mostrar capability, resumo sanitizado do input, resultado, status e link para artefato completo; segredos e payloads sensíveis continuam redigidos.
 4. **Evidência visual real:** se houver browser/screenshot capability autorizada, anexar snapshots e artefatos com data, origem e relação ao nó; não simular uma tela ao vivo usando texto de ferramentas.
 5. **Intervenção segura:** controles de pausar, retomar, cancelar e aprovar aparecem junto ao nó que os exige; confirmação permanece ligada ao gate server-side.
@@ -65,6 +77,10 @@ Eventos devem usar uma trilha canônica de missão e cursor estável; o stream d
 ## Critérios de aceite antes de habilitar execução V2
 
 - Mesmo pedido no chat e no Cockpit gera contratos de missão equivalentes e idempotentes.
+- Toda missão nova inclui grafo V2 unitário; plano do chat/cockpit persiste grafo serial topologicamente válido.
+- Uma invocation executa no máximo um nó; continuation reutiliza job e execution; retomada de checkpoint não duplica tentativa ou efeito já idempotente.
+- Write Gate pendente deixa execution recuperável, job fora do claim, e aprovação/rejeição retoma o mesmo job sem bypass.
+- Evidência `GATE_PENDING`, de outro nó ou de outra execution nunca satisfaz o DoD do nó atual.
 - Planos V1 carregam e mantêm ordem/status; grafos com ciclo são rejeitados antes de executar.
 - Fechar/reabrir PWA e APK recupera a mesma missão sem duplicate enqueue.
 - Eventos fazem replay após desconexão e não dependem apenas de memória do cliente.

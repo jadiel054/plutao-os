@@ -312,7 +312,7 @@ export function getStatusLabel(
     return webGPUSupported ? "OFFLINE (WebGPU)" : "OFFLINE (CPU)";
   }
   if (mode === "online" && isOnline) {
-    return "ONLINE (Groq)";
+    return "ONLINE";
   }
   if (!isOnline) {
     return "Sem conexão";

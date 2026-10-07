@@ -22,6 +22,7 @@ Reflects the Neon database **plutao** as of 2026-09-09:
 | `0023_plan_entitlement_lock` | `users.plan_locked` | Additive/idempotent. Billing webhooks continue syncing Stripe identifiers but cannot overwrite a manually granted plan when this flag is true. |
 | `0024_autonomous_platform_foundation` | Durable `runtime_jobs` queue with leases, retries and execution ownership | Additive/idempotent. Apply with the direct Neon URL before enabling the runtime worker cron. |
 | `0025_mission_intake` | Mission creation source and optional conversation ownership link | Additive/idempotent. Apply with the direct Neon URL before deploying the unified mission intake endpoint. |
+| `0026_mission_graph_v2` | Nullable `graph_version` and `mission_graph` definition on missions | Additive/idempotent. Apply before deploying graph persistence or the serial graph worker. |
 
 Journal: `meta/_journal.json` lists all applied and pending migration tags.
 
