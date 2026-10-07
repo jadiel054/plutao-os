@@ -28,6 +28,7 @@ import { sandboxNamespace } from "../namespace";
 // Test setup
 const TEST_EXECUTION_ID = "test-execution-001";
 const ANOTHER_EXECUTION_ID = "test-execution-002";
+const TEST_USER_ID = "11111111-1111-4111-8111-111111111111";
 
 // Helper to create fresh storage for each test
 function setupFreshStorage() {
@@ -54,7 +55,8 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     it("should list empty directory", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "list", payload: { path: "" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -65,13 +67,14 @@ describe("Filesystem Tool - Happy Path Tests", () => {
 
     it("should list directory with files", async () => {
       // Create some files first
-      await filesystemWrite("test.txt", "hello", TEST_EXECUTION_ID);
-      await filesystemWrite("notes/readme.txt", "notes content", TEST_EXECUTION_ID);
-      await filesystemMkdir("projects", TEST_EXECUTION_ID);
+      await filesystemWrite("test.txt", "hello", TEST_EXECUTION_ID, TEST_USER_ID);
+      await filesystemWrite("notes/readme.txt", "notes content", TEST_EXECUTION_ID, TEST_USER_ID);
+      await filesystemMkdir("projects", TEST_EXECUTION_ID, TEST_USER_ID);
 
       const result = await runFilesystem(
         JSON.stringify({ action: "list", payload: { path: "" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -85,12 +88,13 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     });
 
     it("should list subdirectory", async () => {
-      await filesystemMkdir("subdir", TEST_EXECUTION_ID);
-      await filesystemWrite("subdir/file.txt", "content", TEST_EXECUTION_ID);
+      await filesystemMkdir("subdir", TEST_EXECUTION_ID, TEST_USER_ID);
+      await filesystemWrite("subdir/file.txt", "content", TEST_EXECUTION_ID, TEST_USER_ID);
 
       const result = await runFilesystem(
         JSON.stringify({ action: "list", payload: { path: "subdir" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -104,11 +108,12 @@ describe("Filesystem Tool - Happy Path Tests", () => {
 
   describe("filesystem.read", () => {
     it("should read existing file", async () => {
-      await filesystemWrite("test.txt", "hello world", TEST_EXECUTION_ID);
+      await filesystemWrite("test.txt", "hello world", TEST_EXECUTION_ID, TEST_USER_ID);
 
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "test.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -120,12 +125,13 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     });
 
     it("should read file in subdirectory", async () => {
-      await filesystemMkdir("notes", TEST_EXECUTION_ID);
-      await filesystemWrite("notes/readme.txt", "readme content", TEST_EXECUTION_ID);
+      await filesystemMkdir("notes", TEST_EXECUTION_ID, TEST_USER_ID);
+      await filesystemWrite("notes/readme.txt", "readme content", TEST_EXECUTION_ID, TEST_USER_ID);
 
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "notes/readme.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -137,7 +143,8 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     it("should return FILE_NOT_FOUND for non-existent file", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "nonexistent.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -150,7 +157,8 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     it("should write new file", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "new.txt", content: "new content" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -161,11 +169,12 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     });
 
     it("should overwrite existing file", async () => {
-      await filesystemWrite("test.txt", "original", TEST_EXECUTION_ID);
+      await filesystemWrite("test.txt", "original", TEST_EXECUTION_ID, TEST_USER_ID);
       
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "test.txt", content: "updated" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -174,20 +183,21 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       expect(output.size).toBe(7);
 
       // Verify content was updated
-      const readResult = await filesystemRead("test.txt", TEST_EXECUTION_ID);
+      const readResult = await filesystemRead("test.txt", TEST_EXECUTION_ID, TEST_USER_ID);
       expect(readResult.content).toBe("updated");
     });
 
     it("should create parent directories automatically", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "deep/nested/path/file.txt", content: "content" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
       
       // Verify file exists
-      const readResult = await filesystemRead("deep/nested/path/file.txt", TEST_EXECUTION_ID);
+      const readResult = await filesystemRead("deep/nested/path/file.txt", TEST_EXECUTION_ID, TEST_USER_ID);
       expect(readResult.content).toBe("content");
     });
 
@@ -196,12 +206,13 @@ describe("Filesystem Tool - Happy Path Tests", () => {
       
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "utf8.txt", content: utf8Content } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
       
-      const readResult = await filesystemRead("utf8.txt", TEST_EXECUTION_ID);
+      const readResult = await filesystemRead("utf8.txt", TEST_EXECUTION_ID, TEST_USER_ID);
       expect(readResult.content).toBe(utf8Content);
     });
   });
@@ -210,7 +221,8 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     it("should create new directory", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "mkdir", payload: { path: "newdir" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -221,11 +233,12 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     });
 
     it("should be idempotent - return created:false for existing directory", async () => {
-      await filesystemMkdir("existing", TEST_EXECUTION_ID);
+      await filesystemMkdir("existing", TEST_EXECUTION_ID, TEST_USER_ID);
       
       const result = await runFilesystem(
         JSON.stringify({ action: "mkdir", payload: { path: "existing" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -237,7 +250,8 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     it("should create nested directories", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "mkdir", payload: { path: "a/b/c" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -249,11 +263,12 @@ describe("Filesystem Tool - Happy Path Tests", () => {
 
   describe("filesystem.stat", () => {
     it("should stat existing file", async () => {
-      await filesystemWrite("test.txt", "content", TEST_EXECUTION_ID);
+      await filesystemWrite("test.txt", "content", TEST_EXECUTION_ID, TEST_USER_ID);
 
       const result = await runFilesystem(
         JSON.stringify({ action: "stat", payload: { path: "test.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -265,11 +280,12 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     });
 
     it("should stat existing directory", async () => {
-      await filesystemMkdir("testdir", TEST_EXECUTION_ID);
+      await filesystemMkdir("testdir", TEST_EXECUTION_ID, TEST_USER_ID);
 
       const result = await runFilesystem(
         JSON.stringify({ action: "stat", payload: { path: "testdir" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -282,7 +298,8 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     it("should stat missing path", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "stat", payload: { path: "nonexistent" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -295,7 +312,8 @@ describe("Filesystem Tool - Happy Path Tests", () => {
     it("should return root directory as existing", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "stat", payload: { path: "" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -320,7 +338,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block ../ traversal", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "../secret.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -331,7 +350,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block ../../ traversal", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "../../../etc/passwd" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -342,7 +362,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block traversal in middle of path", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "foo/../../secret.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -353,7 +374,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block traversal in write operation", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "../malicious.txt", content: "bad" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -364,7 +386,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block traversal in mkdir operation", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "mkdir", payload: { path: "../../malicious" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -375,7 +398,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block traversal in stat operation", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "stat", payload: { path: "../secret" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -386,7 +410,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block traversal in list operation", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "list", payload: { path: "../../etc" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -399,7 +424,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block absolute Unix paths", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "/etc/passwd" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -410,7 +436,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should block absolute path in write", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "/tmp/malicious.txt", content: "bad" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -421,7 +448,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should allow empty path for root directory", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -432,7 +460,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should reject invalid JSON input", async () => {
       const result = await runFilesystem(
         "not valid json",
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -443,7 +472,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should reject missing action", async () => {
       const result = await runFilesystem(
         JSON.stringify({ payload: { path: "test.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -454,7 +484,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should reject unknown action", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "unknown", payload: { path: "test.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -465,7 +496,8 @@ describe("Filesystem Tool - Security Tests", () => {
     it("should reject missing payload", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read" }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -490,7 +522,8 @@ describe("Filesystem Tool - Size Limit Tests", () => {
       
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "large.txt", content } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -501,7 +534,8 @@ describe("Filesystem Tool - Size Limit Tests", () => {
       
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "huge.txt", content } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -515,14 +549,15 @@ describe("Filesystem Tool - Size Limit Tests", () => {
       const largeContent = "a".repeat(MAX_FILE_SIZE + 1);
       // H8 — o namespace real é `userId__executionId` (antes: executionId cru).
       await (storage as InMemoryStorage).writeFile(
-        sandboxNamespace(undefined, TEST_EXECUTION_ID),
+        sandboxNamespace(TEST_USER_ID, TEST_EXECUTION_ID),
         "large.txt",
         largeContent
       );
 
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "large.txt" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -536,7 +571,8 @@ describe("Filesystem Tool - Size Limit Tests", () => {
       
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "utf8-large.txt", content } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       // Should be close to the limit
@@ -557,12 +593,13 @@ describe("Filesystem Tool - Execution Isolation Tests", () => {
   describe("Execution-Based Isolation", () => {
     it("should isolate files between different execution IDs", async () => {
       // Write to first execution
-      await filesystemWrite("secret.txt", "execution 1 secret", TEST_EXECUTION_ID);
+      await filesystemWrite("secret.txt", "execution 1 secret", TEST_EXECUTION_ID, TEST_USER_ID);
 
       // Try to read from second execution - should not find it
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "secret.txt" } }),
-        ANOTHER_EXECUTION_ID
+        ANOTHER_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -572,12 +609,13 @@ describe("Filesystem Tool - Execution Isolation Tests", () => {
 
     it("should isolate directories between different execution IDs", async () => {
       // Create directory in first execution
-      await filesystemMkdir("private", TEST_EXECUTION_ID);
+      await filesystemMkdir("private", TEST_EXECUTION_ID, TEST_USER_ID);
 
       // Try to list from second execution - should not see it
       const result = await runFilesystem(
         JSON.stringify({ action: "stat", payload: { path: "private" } }),
-        ANOTHER_EXECUTION_ID
+        ANOTHER_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -588,12 +626,12 @@ describe("Filesystem Tool - Execution Isolation Tests", () => {
 
     it("should allow same path in different executions", async () => {
       // Write same file to both executions
-      await filesystemWrite("test.txt", "execution 1 content", TEST_EXECUTION_ID);
-      await filesystemWrite("test.txt", "execution 2 content", ANOTHER_EXECUTION_ID);
+      await filesystemWrite("test.txt", "execution 1 content", TEST_EXECUTION_ID, TEST_USER_ID);
+      await filesystemWrite("test.txt", "execution 2 content", ANOTHER_EXECUTION_ID, TEST_USER_ID);
 
       // Read from each execution
-      const result1 = await filesystemRead("test.txt", TEST_EXECUTION_ID);
-      const result2 = await filesystemRead("test.txt", ANOTHER_EXECUTION_ID);
+      const result1 = await filesystemRead("test.txt", TEST_EXECUTION_ID, TEST_USER_ID);
+      const result2 = await filesystemRead("test.txt", ANOTHER_EXECUTION_ID, TEST_USER_ID);
 
       expect(result1.content).toBe("execution 1 content");
       expect(result2.content).toBe("execution 2 content");
@@ -601,14 +639,14 @@ describe("Filesystem Tool - Execution Isolation Tests", () => {
 
     it("should isolate list operations between executions", async () => {
       // Create files in first execution
-      await filesystemWrite("file1.txt", "content", TEST_EXECUTION_ID);
+      await filesystemWrite("file1.txt", "content", TEST_EXECUTION_ID, TEST_USER_ID);
 
       // Create different files in second execution
-      await filesystemWrite("file2.txt", "content", ANOTHER_EXECUTION_ID);
+      await filesystemWrite("file2.txt", "content", ANOTHER_EXECUTION_ID, TEST_USER_ID);
 
       // List from each execution
-      const list1 = await filesystemList("", TEST_EXECUTION_ID);
-      const list2 = await filesystemList("", ANOTHER_EXECUTION_ID);
+      const list1 = await filesystemList("", TEST_EXECUTION_ID, TEST_USER_ID);
+      const list2 = await filesystemList("", ANOTHER_EXECUTION_ID, TEST_USER_ID);
 
       const names1 = list1.entries.map(e => e.name);
       const names2 = list2.entries.map(e => e.name);
@@ -634,7 +672,8 @@ describe("Filesystem Tool - Integration Tests", () => {
     it("should recognize filesystem tool", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "list", payload: { path: "." } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.tool).toBe("filesystem");
@@ -643,7 +682,8 @@ describe("Filesystem Tool - Integration Tests", () => {
     it("should return structured ToolResult", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "stat", payload: { path: "." } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result).toHaveProperty("ok");
@@ -656,7 +696,8 @@ describe("Filesystem Tool - Integration Tests", () => {
     it("should include output for successful operations", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "write", payload: { path: "test.txt", content: "hello" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(true);
@@ -666,7 +707,8 @@ describe("Filesystem Tool - Integration Tests", () => {
     it("should include error for failed operations", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "../secret" } }),
-        TEST_EXECUTION_ID
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
       );
 
       expect(result.ok).toBe(false);
@@ -674,21 +716,16 @@ describe("Filesystem Tool - Integration Tests", () => {
     });
   });
 
-  describe("Default Execution ID", () => {
-    it("should use default execution ID when none provided", async () => {
+  describe("Execution ID validation", () => {
+    it("should reject authenticated operations when execution ID is omitted", async () => {
       const result = await runFilesystem(
-        JSON.stringify({ action: "write", payload: { path: "test.txt", content: "hello" } })
+        JSON.stringify({ action: "write", payload: { path: "test.txt", content: "hello" } }),
+        undefined,
+        TEST_USER_ID
       );
 
-      expect(result.ok).toBe(true);
-
-      // Verify it was written to default execution
-      const readResult = await runFilesystem(
-        JSON.stringify({ action: "read", payload: { path: "test.txt" } }),
-        "default"
-      );
-
-      expect(readResult.ok).toBe(true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe("INVALID_INPUT");
     });
   });
 });
@@ -705,12 +742,13 @@ describe("Filesystem Tool - Edge Cases", () => {
   it("should handle empty file content", async () => {
     const result = await runFilesystem(
       JSON.stringify({ action: "write", payload: { path: "empty.txt", content: "" } }),
-      TEST_EXECUTION_ID
+      TEST_EXECUTION_ID,
+      TEST_USER_ID
     );
 
     expect(result.ok).toBe(true);
     
-    const readResult = await filesystemRead("empty.txt", TEST_EXECUTION_ID);
+    const readResult = await filesystemRead("empty.txt", TEST_EXECUTION_ID, TEST_USER_ID);
     expect(readResult.content).toBe("");
     expect(readResult.size).toBe(0);
   });
@@ -720,12 +758,13 @@ describe("Filesystem Tool - Edge Cases", () => {
     
     const result = await runFilesystem(
       JSON.stringify({ action: "write", payload: { path: specialName, content: "content" } }),
-      TEST_EXECUTION_ID
+      TEST_EXECUTION_ID,
+      TEST_USER_ID
     );
 
     expect(result.ok).toBe(true);
     
-    const readResult = await filesystemRead(specialName, TEST_EXECUTION_ID);
+    const readResult = await filesystemRead(specialName, TEST_EXECUTION_ID, TEST_USER_ID);
     expect(readResult.content).toBe("content");
   });
 
@@ -734,21 +773,23 @@ describe("Filesystem Tool - Edge Cases", () => {
     
     const result = await runFilesystem(
       JSON.stringify({ action: "write", payload: { path: deepPath, content: "deep" } }),
-      TEST_EXECUTION_ID
+      TEST_EXECUTION_ID,
+      TEST_USER_ID
     );
 
     expect(result.ok).toBe(true);
     
-    const readResult = await filesystemRead(deepPath, TEST_EXECUTION_ID);
+    const readResult = await filesystemRead(deepPath, TEST_EXECUTION_ID, TEST_USER_ID);
     expect(readResult.content).toBe("deep");
   });
 
   it("should handle root path with empty string", async () => {
-    await filesystemWrite("test.txt", "content", TEST_EXECUTION_ID);
+    await filesystemWrite("test.txt", "content", TEST_EXECUTION_ID, TEST_USER_ID);
 
     const result = await runFilesystem(
       JSON.stringify({ action: "stat", payload: { path: "" } }),
-      TEST_EXECUTION_ID
+      TEST_EXECUTION_ID,
+      TEST_USER_ID
     );
 
     expect(result.ok).toBe(true);
@@ -759,11 +800,12 @@ describe("Filesystem Tool - Edge Cases", () => {
   });
 
   it("should handle empty directory", async () => {
-    await filesystemMkdir("empty", TEST_EXECUTION_ID);
+    await filesystemMkdir("empty", TEST_EXECUTION_ID, TEST_USER_ID);
 
     const result = await runFilesystem(
       JSON.stringify({ action: "list", payload: { path: "empty" } }),
-      TEST_EXECUTION_ID
+      TEST_EXECUTION_ID,
+      TEST_USER_ID
     );
 
     expect(result.ok).toBe(true);
@@ -776,7 +818,8 @@ describe("Filesystem Tool - Edge Cases", () => {
     // Test with backslashes - should be normalized
     const result = await runFilesystem(
       JSON.stringify({ action: "write", payload: { path: "test/file.txt", content: "content" } }),
-      TEST_EXECUTION_ID
+      TEST_EXECUTION_ID,
+      TEST_USER_ID
     );
 
     // Should work (backslashes are normalized)
