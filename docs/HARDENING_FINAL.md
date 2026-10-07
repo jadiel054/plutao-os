@@ -143,7 +143,7 @@ Os warnings e os `stderr` de testes que simulam ausência de `DATABASE_URL` não
 
 - `checkMcpRateLimit()` agora incrementa um bucket atômico em `rate_limit_buckets`; não existe fallback de quota em `Map` local entre instâncias Vercel.
 - `write_gates.expires_at` é obrigatório, criado com TTL de 15 minutos e validado tanto antes quanto durante o claim atômico.
-- `reapExpiredWriteGates()` marca aprovações expiradas e execuções `executing` abandonadas como `failed`; `/api/cron/cleanup-write-gates` aceita somente `CRON_SECRET` e é declarado no `apps/web/vercel.json` a cada cinco minutos.
+- `reapExpiredWriteGates()` marca aprovações expiradas e execuções `executing` abandonadas como `failed`; `/api/cron/cleanup-write-gates` aceita somente `CRON_SECRET`. O Vercel Hobby executa a configuração declarada em `apps/web/vercel.json` diariamente; o workflow `.github/workflows/cleanup_write_gates.yml` chama o mesmo endpoint a cada cinco minutos, sem exigir upgrade.
 - `writeCheckpoint()` e `saveCheckpoint()` usam merge JSONB no SQL e compare-and-swap por `user_id` + checkpoint observado; concorrência perde com `CHECKPOINT_CONFLICT`, nunca sobrescreve silenciosamente o estado mais novo.
 
 Fora esses itens operacionais explícitos, os bloqueios de segurança, identidade, loop, token budget, replay, fallback SQL e documentação identificados na auditoria foram tratados no código e cobertos por testes.
