@@ -18,6 +18,7 @@ import {
   storageStat,
 } from "./storage";
 import { SandboxSecurityError, SandboxErrorCode } from "./sandbox";
+import { sandboxNamespace } from "./namespace";
 import type { ToolResult } from "./types";
 
 // Limite de tamanho para leitura/escrita de arquivos (1MB para V1)
@@ -228,14 +229,19 @@ async function statPath(
  */
 export async function runFilesystem(
   input: string,
-  executionId?: string
+  executionId?: string,
+  userId?: string
 ): Promise<ToolResult> {
   const start = Date.now();
-  
-  // Se não tiver executionId, usa um default para compatibilidade
-  const effectiveExecutionId = executionId || "default";
-  
+
   try {
+    // H8 — namespace SEMPRE por usuário+execução.
+    // Antes: `executionId || "default"` compartilhava o mesmo namespace entre
+    // TODOS os usuários sem execução associada (vazamento entre tenants).
+    // Fica DENTRO do try para que um ID malformado vire SandboxSecurityError
+    // tratado (código INVALID_INPUT) e não uma exceção crua para o chamador.
+    const effectiveExecutionId = sandboxNamespace(userId, executionId);
+
     // Parse do input JSON
     let parsedInput: FilesystemToolInput;
     try {
@@ -369,24 +375,24 @@ export async function filesystemRead(path: string, executionId?: string): Promis
   return JSON.parse(result.output) as FilesystemReadOutput;
 }
 
-export async function filesystemWrite(path: string, content: string, executionId?: string): Promise<FilesystemWriteOutput> {
-  const result = await runFilesystem(JSON.stringify({ action: "write", payload: { path, content } }), executionId);
+export async function filesystemWrite(path: string, content: string, executionId?: string, userId?: string): Promise<FilesystemWriteOutput> {
+  const result = await runFilesystem(JSON.stringify({ action: "write", payload: { path, content } }), executionId, userId);
   if (!result.ok) {
     throw new SandboxSecurityError(result.error as SandboxErrorCode, result.error);
   }
   return JSON.parse(result.output) as FilesystemWriteOutput;
 }
 
-export async function filesystemMkdir(path: string, executionId?: string): Promise<FilesystemMkdirOutput> {
-  const result = await runFilesystem(JSON.stringify({ action: "mkdir", payload: { path } }), executionId);
+export async function filesystemMkdir(path: string, executionId?: string, userId?: string): Promise<FilesystemMkdirOutput> {
+  const result = await runFilesystem(JSON.stringify({ action: "mkdir", payload: { path } }), executionId, userId);
   if (!result.ok) {
     throw new SandboxSecurityError(result.error as SandboxErrorCode, result.error);
   }
   return JSON.parse(result.output) as FilesystemMkdirOutput;
 }
 
-export async function filesystemStat(path: string, executionId?: string): Promise<FilesystemStatOutput> {
-  const result = await runFilesystem(JSON.stringify({ action: "stat", payload: { path } }), executionId);
+export async function filesystemStat(path: string, executionId?: string, userId?: string): Promise<FilesystemStatOutput> {
+  const result = await runFilesystem(JSON.stringify({ action: "stat", payload: { path } }), executionId, userId);
   if (!result.ok) {
     throw new SandboxSecurityError(result.error as SandboxErrorCode, result.error);
   }
