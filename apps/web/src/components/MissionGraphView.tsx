@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { validateMissionGraphV2 } from "@plutao/domain";
 import type { MissionGraphNodeV2 } from "@plutao/domain";
 
@@ -91,11 +92,19 @@ export function MissionGraphView({
   runtime: rawRuntime,
   jobStatus,
   compact = false,
+  specialistProfiles = [],
+  specialistsEditable = false,
+  specialistsBusy = false,
+  onSpecialistChange,
 }: {
   graph: unknown;
   runtime?: unknown;
   jobStatus?: string | null;
   compact?: boolean;
+  specialistProfiles?: Array<{ id: string; label: string }>;
+  specialistsEditable?: boolean;
+  specialistsBusy?: boolean;
+  onSpecialistChange?: (nodeId: string, specialistProfileId: string | null) => void;
 }) {
   const validated = validateMissionGraphV2(rawGraph);
   if (!validated.ok) return null;
@@ -128,6 +137,7 @@ export function MissionGraphView({
         {orderedNodes.map((node, index) => {
           const state = runtime?.nodes[node.id];
           const status = state?.status ?? "PENDING";
+          const assignedProfile = specialistProfiles.find((profile) => profile.id === node.specialistProfileId);
           return (
             <li key={node.id} className={`min-w-0 rounded-lg border p-2.5 ${STATUS_STYLE[status]}`}>
               <div className="flex items-start gap-2">
@@ -141,6 +151,27 @@ export function MissionGraphView({
                     <span>{STATUS_COPY[status]}</span>
                     {state && state.attempts > 0 ? <span>tentativa {state.attempts}</span> : null}
                   </div>
+                  {specialistsEditable && onSpecialistChange ? (
+                    <label className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-[var(--text-secondary)]">
+                      <span>Especialista</span>
+                      <select
+                        aria-label={`Especialista do nó ${node.title}`}
+                        value={node.specialistProfileId ?? ""}
+                        disabled={specialistsBusy}
+                        onChange={(event) => onSpecialistChange(node.id, event.target.value || null)}
+                        className="min-w-0 max-w-full rounded-md border border-[var(--border)] bg-[var(--base)] px-2 py-1 text-[10px] text-[var(--text-primary)] disabled:opacity-50"
+                      >
+                        <option value="">Perfil padrão</option>
+                        {specialistProfiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>{profile.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : node.specialistProfileId ? (
+                    <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
+                      Especialista: {assignedProfile?.label ?? node.specialistProfileId.replaceAll("_", " ")}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               {node.dependsOn.length > 0 ? (

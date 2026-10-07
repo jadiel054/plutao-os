@@ -81,6 +81,7 @@ export function AgentComputerPanel({ conversationId, missionId, preferOpen }: Pr
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [missionGraph, setMissionGraph] = useState<unknown>(null);
   const [missionGraphRuntime, setMissionGraphRuntime] = useState<unknown>(null);
+  const [specialistProfiles, setSpecialistProfiles] = useState<Array<{ id: string; label: string }>>([]);
   const [missionJobStatus, setMissionJobStatus] = useState<string | null>(null);
   const [cursorIndex, setCursorIndex] = useState<number | null>(null);
   const [streamStatus, setStreamStatus] = useState<
@@ -98,6 +99,7 @@ export function AgentComputerPanel({ conversationId, missionId, preferOpen }: Pr
     if (!missionId) {
       setMissionGraph(null);
       setMissionGraphRuntime(null);
+      setSpecialistProfiles([]);
       setMissionJobStatus(null);
       return;
     }
@@ -124,11 +126,23 @@ export function AgentComputerPanel({ conversationId, missionId, preferOpen }: Pr
         if (cancelled) return;
         setMissionGraph(planData?.graph ?? null);
         setMissionGraphRuntime(checkpoint?.missionGraphRuntime ?? null);
+        setSpecialistProfiles(
+          Array.isArray(planData?.specialistProfiles)
+            ? planData.specialistProfiles.filter(
+                (profile: unknown): profile is { id: string; label: string } =>
+                  typeof profile === "object" &&
+                  profile !== null &&
+                  typeof (profile as { id?: unknown }).id === "string" &&
+                  typeof (profile as { label?: unknown }).label === "string"
+              )
+            : []
+        );
         setMissionJobStatus(typeof runtimeJob?.status === "string" ? runtimeJob.status : null);
       } catch {
         if (cancelled) return;
         setMissionGraph(null);
         setMissionGraphRuntime(null);
+        setSpecialistProfiles([]);
         setMissionJobStatus(null);
       }
     };
@@ -307,6 +321,7 @@ export function AgentComputerPanel({ conversationId, missionId, preferOpen }: Pr
               runtime={missionGraphRuntime}
               jobStatus={missionJobStatus}
               compact
+              specialistProfiles={specialistProfiles}
             />
           ) : null}
           <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--base)]/40 p-2.5 min-h-[72px]">

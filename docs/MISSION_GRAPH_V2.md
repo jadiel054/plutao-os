@@ -1,6 +1,6 @@
 # Contrato de missão e grafo v2 do Plutão
 
-**Status (2026-10-07):** intake unificado, grafo versionado persistido, execução serial no worker, espera/retomada de Write Gate e visualização do grafo no Computador implementados localmente. O schema 0024–0026 está aplicado e verificado em produção; o código ainda precisa de deploy e smoke autenticado. Eventos canônicos de missão e paralelismo/especialistas executáveis continuam pendentes.
+**Status (2026-10-07):** intake unificado, grafo versionado persistido, execução serial no worker, espera/retomada de Write Gate, visualização do grafo e dois perfis especialistas seriais implementados localmente. O schema 0024–0026 está aplicado e verificado em produção; o código ainda precisa de deploy e smoke autenticado. Eventos canônicos e paralelismo continuam pendentes.
 
 ## Objetivo
 
@@ -39,15 +39,21 @@ A API deve manter a regra atual de acesso: não conceder execução de missão a
 4. Cada nó mantém tentativas/estado no checkpoint e sincroniza o status legado de passo quando existe. DoD usa somente evidências da mesma execution/nó; `GATE_PENDING` não vale como efeito executado.
 5. Write Gates vinculados à execution pausam o job como `WAITING_APPROVAL`; aprovação/rejeição grava evidência correlacionada e libera o mesmo job. A corrida entre decisão humana, pausa do worker e persistência da evidence é reconciliada sem executar o nó em paralelo; gates terminais abandonados também são recuperados pelo cron. Nenhuma capability adicional é concedida ao nó.
 6. O worker processa um job por invocation para caber no limite de duração da plataforma. Isso privilegia segurança; throughput e velocidade precisam ser medidos antes de paralelizar.
-7. Perfis especialistas e concorrência permanecem desabilitados; habilitá-los exige isolamento, claim/cancelamento, idempotência, limites de custo e testes concorrentes.
+7. Perfis especialistas podem ser atribuídos a nós em modo serial, com allowlist restritiva e gates inalterados. Concorrência permanece desabilitada; habilitá-la exige isolamento, claim/cancelamento, idempotência, limites de custo e testes concorrentes.
 8. Missões legadas com plano parcialmente executado e sem checkpoint V2 são bloqueadas para revisão, evitando repetição silenciosa de efeitos.
 9. Remover V1 apenas depois de inventário e plano de migração/retensão aprovados.
+
+## Perfis especialistas seriais
+
+`software_engineer` orienta inspeção/implementação/testes e permite `note`, `filesystem`, `github`, `vercel` e `files.export_markdown`. `teaching_assistant` orienta explicações e materiais de aprendizagem e permite `note`, `filesystem` e exports PDF/XLSX/Markdown. São perfis de prompt e allowlist no mesmo runtime/worker — não criam workers paralelos nem elevam acesso.
+
+A atribuição usa `PATCH /api/missions/:id/plan` com `action: "assign_specialist"`, enquanto o plano não está alinhado. Após o alinhamento, o grafo é imutável. `requiredCapabilities` do nó, quando usado com perfil, contém IDs como `tool:github`; todos devem pertencer à allowlist desse perfil. A política do nó é validada no endpoint, novamente no scheduler/model step, e no dispatcher antes de qualquer execução. O registro de capabilities do conector, ownership, status conectado, controles, rate limits e Write Gates continuam sendo a autoridade final. Perfil desconhecido, capability incompatível ou nó ativo ausente resulta em falha fechada.
 
 ## Persistência e execução serial implementadas
 
 - `/api/missions` é o intake comum de chat, Cockpit e reconciliação offline: autenticação, ownership opcional da conversa, chave idempotente e origem são validados no servidor.
 - `missions.graphVersion` e `missions.missionGraph` guardam a topologia versionada; o estado de execução por nó fica no checkpoint da execution, não na definição imutável.
-- `/api/missions/:id/plan` cria/alinha o plano V1 e persiste a representação V2 validada; depois de alinhar/iniciar, a topologia fica imutável.
+- `/api/missions/:id/plan` cria/alinha o plano V1 e persiste a representação V2 validada; gravações pré-alinhamento e alinhamento comparam estado/grafo esperado para recusar corridas concorrentes. Depois de alinhar/iniciar, a topologia fica imutável.
 - O enqueue valida/backfilla o grafo antes de criar o job. Topologias acima de 20 nós são rejeitadas nesta versão serial.
 - Uma chamada do worker processa no máximo um nó e usa continuation do mesmo job. Aprovação humana põe o job em espera em vez de converter pedido de aprovação em sucesso.
 - O schema de `runtime_jobs` da 0024 já existia. As migrations 0025/0026 foram aplicadas em `main` em 2026-10-07; a inspeção read-only confirmou colunas, tipos, nulabilidade, default, FK `ON DELETE SET NULL` e índice. O smoke autenticado e a validação após deploy do código permanecem necessários.

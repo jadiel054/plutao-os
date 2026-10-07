@@ -21,6 +21,7 @@ export interface MissionGraphNodeV2 {
   definitionOfDone?: string | null;
   /** null delega a escolha ao perfil padrão do runtime. */
   specialistProfileId: string | null;
+  /** Em nós especialistas, IDs `tool:<toolName>` devem pertencer à allowlist do perfil. */
   requiredCapabilities: string[];
   dependsOn: string[];
   retryPolicy: {

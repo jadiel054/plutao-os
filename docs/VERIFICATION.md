@@ -161,4 +161,5 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 - [x] **Schema de produção:** migrations 0025/0026 aplicadas em `main`; consulta read-only confirmou campos, tipos, nullable/default, FK de conversa e índice.
 - [ ] **Smoke de produção:** executar após deploy do código: missão multi-nó autenticada, refresh/retomada no PWA/APK e gate pendente/aprovação/rejeição.
 - [x] **Computador (local):** Computador e MissionExecutionView exibem topologia, dependências, status de nó, tentativas e espera de aprovação. Validação visual com dados reais após as migrations permanece pendente; eventos do chat continuam sendo uma projeção separada.
-- [ ] **Especialistas e paralelismo:** perfis executáveis, execução simultânea, isolamento entre nós e testes concorrentes permanecem desativados/futuros.
+- [x] **Perfis especialistas (local):** `software_engineer` e `teaching_assistant`, seleção pré-alinhamento, prompt por papel e allowlist aplicada no dispatcher; typecheck e testes de política/rota/prompt.
+- [ ] **Paralelismo:** execução concorrente, isolamento entre nós e testes de corrida seguem desativados/futuros.

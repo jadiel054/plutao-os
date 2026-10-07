@@ -12,6 +12,7 @@ import { getOwnedMission, parseEvidence } from "@/lib/missions/ownership";
 import { listWriteGatesForExecution } from "@/lib/connectors/gates";
 import { verifyDefinitionOfDone } from "@/lib/missions/dod";
 import { selectMissionNodeEvidence } from "@/lib/missions/missionNodeEvidence";
+import { resolveSpecialistPolicy } from "@/lib/missions/specialistProfiles";
 import {
   finishSerialMissionGraphNode,
   initializeMissionGraphRuntime,
@@ -128,10 +129,7 @@ export async function runNextMissionGraphNodeSerial(opts: {
     };
   }
   const unsupportedNode = order.find(
-    (node) =>
-      node.kind === "approval" ||
-      node.specialistProfileId !== null ||
-      node.requiredCapabilities.length > 0
+    (node) => node.kind === "approval"
   );
   if (unsupportedNode) {
     return {
@@ -140,6 +138,19 @@ export async function runNextMissionGraphNodeSerial(opts: {
       nodeId: unsupportedNode.id,
       error: "MISSION_GRAPH_NODE_FEATURE_NOT_ENABLED",
       stopReason: "MISSION_GRAPH_NODE_FEATURE_NOT_ENABLED",
+    };
+  }
+
+  const invalidSpecialistNode = order.find(
+    (node) => !resolveSpecialistPolicy(node.specialistProfileId, node.requiredCapabilities).ok
+  );
+  if (invalidSpecialistNode) {
+    return {
+      kind: "failed",
+      iterations: 0,
+      nodeId: invalidSpecialistNode.id,
+      error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID",
+      stopReason: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID",
     };
   }
 

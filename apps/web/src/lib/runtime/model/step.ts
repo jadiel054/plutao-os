@@ -28,6 +28,7 @@ import { callModelWithRetry, classifyModelError, type ModelProviderLike } from "
 import { loadConnectorRuntime } from "@/lib/chat/connectorRuntime";
 import { sanitizeText } from "@/lib/security/sanitize";
 import { loadAgentIdentity } from "@/lib/agente/identity";
+import { resolveSpecialistPolicy } from "@/lib/missions/specialistProfiles";
 import type { ModelConfig, ModelMessage, ModelStepResult } from "./types";
 import type { ModelMode } from "@plutao/domain";
 
@@ -175,6 +176,57 @@ export async function runModelStep(
 
   const evidence = parseEvidence(mission.evidence).slice(-8);
   const cp = asCp(execution.checkpoint);
+  const activeNodeId = cp.missionGraphRuntime?.activeNodeId;
+  const missionGraph = mission.missionGraph as
+    | { version?: number; nodes?: Array<Record<string, unknown>> }
+    | null;
+  const hasPersistedMissionGraph = mission.missionGraph !== null && mission.missionGraph !== undefined;
+  if (
+    hasPersistedMissionGraph &&
+    (missionGraph?.version !== 2 || typeof activeNodeId !== "string")
+  ) {
+    return { error: "MISSION_GRAPH_ACTIVE_NODE_INVALID" };
+  }
+  if (activeNodeId != null && typeof activeNodeId !== "string") {
+    return { error: "MISSION_GRAPH_ACTIVE_NODE_INVALID" };
+  }
+  const activeNode = typeof activeNodeId === "string" && missionGraph?.version === 2 && Array.isArray(missionGraph.nodes)
+    ? missionGraph.nodes.find((candidate) => candidate.id === activeNodeId)
+    : undefined;
+  if (typeof activeNodeId === "string" && !activeNode) {
+    return { error: "MISSION_GRAPH_ACTIVE_NODE_INVALID" };
+  }
+  if (activeNode && !Object.prototype.hasOwnProperty.call(activeNode, "specialistProfileId")) {
+    return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" };
+  }
+  if (
+    activeNode &&
+    activeNode.specialistProfileId !== null &&
+    typeof activeNode.specialistProfileId !== "string"
+  ) {
+    return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" };
+  }
+  const specialistProfileId =
+    activeNode?.specialistProfileId === null || typeof activeNode?.specialistProfileId === "string"
+      ? activeNode.specialistProfileId
+      : null;
+  const rawRequiredCapabilities = activeNode?.requiredCapabilities;
+  if (
+    activeNode &&
+    (!Array.isArray(rawRequiredCapabilities) ||
+      !rawRequiredCapabilities.every((capability) => typeof capability === "string"))
+  ) {
+    return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" };
+  }
+  const requiredCapabilities = (rawRequiredCapabilities ?? []) as string[];
+  const specialistResolution = resolveSpecialistPolicy(specialistProfileId, requiredCapabilities);
+  if (!specialistResolution.ok) {
+    return {
+      error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID",
+      code: specialistResolution.reason,
+    };
+  }
+  const specialist = specialistResolution.profile;
 
   const cpWithMode: CheckpointShape = {
     ...cp,
@@ -184,16 +236,12 @@ export async function runModelStep(
   const userPrompt = [
     `Mission objective: ${mission.objective}`,
     (() => {
-      const activeNodeId = cp.missionGraphRuntime?.activeNodeId;
-      const graph = mission.missionGraph as { version?: number; nodes?: Array<Record<string, unknown>> } | null;
-      const node = graph?.version === 2 && Array.isArray(graph.nodes)
-        ? graph.nodes.find((candidate) => candidate.id === activeNodeId)
-        : undefined;
-      if (!node) return null;
+      if (!activeNode) return null;
       return [
-        `Active serial mission node: ${String(node.title ?? node.id)}`,
-        typeof node.description === "string" ? `Node description: ${node.description}` : null,
-        typeof node.definitionOfDone === "string" ? `Node definition of done: ${node.definitionOfDone}` : null,
+        `Active serial mission node: ${String(activeNode.title ?? activeNode.id)}`,
+        specialist ? `Assigned specialist: ${specialist.label}` : null,
+        typeof activeNode.description === "string" ? `Node description: ${activeNode.description}` : null,
+        typeof activeNode.definitionOfDone === "string" ? `Node definition of done: ${activeNode.definitionOfDone}` : null,
         "Work only on this active node. Do not begin a later node; the durable worker will release it after this node is verified.",
       ].filter(Boolean).join("\n");
     })(),
@@ -210,7 +258,7 @@ export async function runModelStep(
     .join("\n");
 
   const messages: ModelMessage[] = [
-    { role: "system", content: buildSystemPrompt(agent, connectorBlock, execution.missionId) },
+    { role: "system", content: buildSystemPrompt(agent, connectorBlock, execution.missionId, specialist) },
     { role: "user", content: userPrompt },
     ...additionalMessages,
   ];
