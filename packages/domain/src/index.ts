@@ -217,6 +217,12 @@ export type {
   MissionStep,
   MissionEvent,
   MissionPlanV1,
+  MissionGraphNodeKind,
+  MissionGraphNodeV2,
+  MissionGraphV2,
+  MissionGraphValidationCode,
+  MissionGraphValidationIssue,
+  MissionGraphValidationResult,
 } from "./mission-workspace";
 
 export {
@@ -229,6 +235,12 @@ export {
   createPlanFromTitles,
   parseMissionPlan,
   applyStepTransition,
+  MISSION_GRAPH_MAX_NODES,
+  MISSION_GRAPH_MAX_DEPENDENCIES_PER_NODE,
+  MISSION_NODE_MAX_ATTEMPTS,
+  MISSION_NODE_MAX_TIMEOUT_SECONDS,
+  validateMissionGraphV2,
+  missionPlanV1ToGraphV2,
 } from "./mission-workspace";
 
 export type { AgentRoleId, AgentRoleDefinition } from "./agents";
