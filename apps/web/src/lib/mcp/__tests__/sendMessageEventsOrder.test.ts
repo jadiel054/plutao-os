@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const emitOrder: string[] = [];
+const capturedMessages: unknown[][] = [];
 
 vi.mock("@/lib/events/appendConversationEvent", () => ({
   emitUserMessage: vi.fn(async () => {
@@ -46,7 +47,10 @@ vi.mock("@/lib/runtime/model/config", () => ({
 }));
 
 vi.mock("@/lib/runtime/model/client", () => ({
-  chatCompletion: async () => ({ content: "ok" }),
+  chatCompletion: async (_config: unknown, messages: unknown[]) => {
+    capturedMessages.push(messages);
+    return { content: "ok" };
+  },
 }));
 
 vi.mock("@/lib/mcp/auth", () => ({
@@ -60,11 +64,13 @@ vi.mock("@/lib/mcp/audit", () => ({
 }));
 
 import { emitUserMessage, emitAssistantMessage } from "@/lib/events/appendConversationEvent";
+import { NIX_IDENTITY, OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
 import { toolSendMessage } from "../tools";
 
 describe("H1 toolSendMessage event order", () => {
   beforeEach(() => {
     emitOrder.length = 0;
+    capturedMessages.length = 0;
     vi.clearAllMocks();
   });
 
@@ -83,5 +89,20 @@ describe("H1 toolSendMessage event order", () => {
     expect(emitUserMessage).toHaveBeenCalled();
     expect(emitAssistantMessage).toHaveBeenCalled();
     expect(emitOrder).toEqual(["user", "assistant"]);
+  });
+
+  it("usa a MESMA identidade e os princípios operacionais do chat", async () => {
+    await toolSendMessage("user-1", { content: "Quem é você?" });
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(capturedMessages.length).toBeGreaterThan(0);
+    const system = capturedMessages[0].find(
+      (m) => (m as { role?: string }).role === "system"
+    ) as { content?: string } | undefined;
+
+    expect(system?.content).toContain(NIX_IDENTITY);
+    expect(system?.content).toContain(OPERATOR_GOLDEN_RULE);
+    // Regressão: o caminho MCP usava uma persona diferente da do chat.
+    expect(system?.content).not.toContain("Você é o Plutão, agente de execução");
   });
 });
