@@ -46,7 +46,7 @@ O endpoint `POST /api/missions/:id/autonomous-run` **somente enfileira** uma exe
 Em produção:
 
 1. Defina `CRON_SECRET` no ambiente da Vercel.
-2. Confirme que as migrations `0024_autonomous_platform_foundation.sql`, `0025_mission_intake.sql` e `0026_mission_graph_v2.sql` foram aplicadas no Neon, em ordem.
+2. Migrations 0024–0026 já foram aplicadas no Neon `main` em 2026-10-07; confira o schema antes do rollout. O smoke autenticado multi-nó continua pendente.
 3. Execute uma missão de teste com pelo menos dois nós dependentes e confirme que o mesmo job passa por continuations serializadas até `runtime_jobs.SUCCEEDED` e `executions.COMPLETED`.
 4. Confirme que uma falha terminal de nó não vira sucesso do job e que o DoD usa evidence da execution/nó correspondente.
 5. Teste um Write Gate pendente: confirme job `WAITING_APPROVAL`, execução recuperável, aprovação/rejeição vinculada à evidence do nó e retomada do mesmo job.
@@ -61,10 +61,9 @@ Se o worker ou a migration estiverem indisponíveis, o endpoint público respond
 3. Set `DATABASE_URL` in Vercel for real health checks
 4. Set `CRON_SECRET` and verify the durable worker cron
 5. Confirm Neon allows connections from Vercel IPs (Neon default allows)
-6. Apply migrations `0024`, `0025` and `0026` through the repository migration workflow, in order
+6. Antes de novas migrations, reconcilie o histórico/baseline do Drizzle: nesta inspeção não foi localizada tabela de histórico nos schemas `drizzle`/`drizzle_meta`; evite reaplicar migrations antigas.
 
 ## Out of scope until approved
 
-- Running migrations on Neon
 - Auth
 - Custom domains / production hardening

@@ -1,6 +1,6 @@
 # Contrato de missão e grafo v2 do Plutão
 
-**Status (2026-10-07):** intake unificado, grafo versionado persistido, execução serial no worker e espera/retomada de Write Gate implementados localmente. Eventos canônicos de missão, visualização do grafo no Computador e paralelismo/especialistas executáveis ainda não estão implementados. Migrations 0024–0026 e smoke de produção continuam pendentes.
+**Status (2026-10-07):** intake unificado, grafo versionado persistido, execução serial no worker, espera/retomada de Write Gate e visualização do grafo no Computador implementados localmente. O schema 0024–0026 está aplicado e verificado em produção; o código ainda precisa de deploy e smoke autenticado. Eventos canônicos de missão e paralelismo/especialistas executáveis continuam pendentes.
 
 ## Objetivo
 
@@ -50,7 +50,7 @@ A API deve manter a regra atual de acesso: não conceder execução de missão a
 - `/api/missions/:id/plan` cria/alinha o plano V1 e persiste a representação V2 validada; depois de alinhar/iniciar, a topologia fica imutável.
 - O enqueue valida/backfilla o grafo antes de criar o job. Topologias acima de 20 nós são rejeitadas nesta versão serial.
 - Uma chamada do worker processa no máximo um nó e usa continuation do mesmo job. Aprovação humana põe o job em espera em vez de converter pedido de aprovação em sucesso.
-- O schema de `runtime_jobs` da 0024 está presente no Neon de produção; as colunas de intake e grafo de 0025/0026 ainda estão ausentes. Aplicá-las antes do deploy correspondente, após a confirmação explícita.
+- O schema de `runtime_jobs` da 0024 já existia. As migrations 0025/0026 foram aplicadas em `main` em 2026-10-07; a inspeção read-only confirmou colunas, tipos, nulabilidade, default, FK `ON DELETE SET NULL` e índice. O smoke autenticado e a validação após deploy do código permanecem necessários.
 
 ## PWA, APK e execução offline
 
@@ -64,7 +64,7 @@ O modo local/offline é uma modalidade separada. Não trocar automaticamente uma
 
 O painel do Computador combina o feed textual de `action`/`observation` ligado a `conversationId` e replay SSE com uma leitura do grafo e do checkpoint persistido da missão selecionada. `MissionExecutionView` mostra a mesma topologia junto à timeline V1 de compatibilidade. Isso não é uma tela de computador remoto nem uma trilha canônica de eventos por missão. A evolução restante deve ser incremental:
 
-1. **Visão por missão:** implementação local concluída para nós, dependências, status serial, tentativas e gate aguardando aprovação; falta validar no navegador e contra dados reais após migration.
+1. **Visão por missão:** implementação local concluída para nós, dependências, status serial, tentativas e gate aguardando aprovação; falta validar visualmente após deploy e em missão real.
 2. **Timeline de especialistas:** agrupar eventos por nó, perfil, tentativa e dependências, com duração, retry e bloqueio.
 3. **Ações e observações legíveis:** mostrar capability, resumo sanitizado do input, resultado, status e link para artefato completo; segredos e payloads sensíveis continuam redigidos.
 4. **Evidência visual real:** se houver browser/screenshot capability autorizada, anexar snapshots e artefatos com data, origem e relação ao nó; não simular uma tela ao vivo usando texto de ferramentas.

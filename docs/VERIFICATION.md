@@ -158,6 +158,7 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 - [x] **Scheduler serial:** uma invocation processa no máximo um nó, valida dependências/checkpoint e retoma a mesma execution/job por continuation.
 - [x] **Evidence por nó:** DoD lê apenas evidence da mesma execution/nó; solicitações `GATE_PENDING` são excluídas como prova de efeito.
 - [x] **Espera humana:** Write Gate persiste executionId, pausa o job em `WAITING_APPROVAL` e o libera após a decisão, preservando o gate server-side.
-- [ ] **Produção:** o schema `runtime_jobs` da 0024 foi observado; as colunas e constraints de 0025/0026 estão ausentes e aguardam confirmação para aplicação. Depois, executar smoke autenticado multi-nó, refresh/retomada no PWA/APK e gate pendente.
+- [x] **Schema de produção:** migrations 0025/0026 aplicadas em `main`; consulta read-only confirmou campos, tipos, nullable/default, FK de conversa e índice.
+- [ ] **Smoke de produção:** executar após deploy do código: missão multi-nó autenticada, refresh/retomada no PWA/APK e gate pendente/aprovação/rejeição.
 - [x] **Computador (local):** Computador e MissionExecutionView exibem topologia, dependências, status de nó, tentativas e espera de aprovação. Validação visual com dados reais após as migrations permanece pendente; eventos do chat continuam sendo uma projeção separada.
 - [ ] **Especialistas e paralelismo:** perfis executáveis, execução simultânea, isolamento entre nós e testes concorrentes permanecem desativados/futuros.
