@@ -1,12 +1,15 @@
 /**
  * Tool render — REST via API Key do conector do usuário.
- * Reads: executam direto.
- * Writes: criam write_gate (pending) até aprovação humana; depois executam.
+ *
+ * Reads: executam direto (sujeitos ao registro de capacidades).
+ * Writes (H1/H9): exigem write_gate aprovado por humano, validado no servidor.
+ * O booleano `_gateApproved` foi REMOVIDO.
  */
 
 import { getConnectorRow, getAccessToken } from "@/lib/connectors/service";
 import { renderManifest } from "@/lib/connectors/manifests/render";
-import { createWriteGate } from "@/lib/connectors/gates";
+import { guardWrite, type GateFinalize } from "@/lib/connectors/writeGateGuard";
+import { capabilityBlockReason } from "@/lib/capabilities/registry";
 import {
   maskValue,
   renderServicesList,
@@ -44,7 +47,7 @@ type RenderPayload = {
   clearCache?: boolean;
   key?: string;
   value?: string;
-  _gateApproved?: boolean;
+  /** H1 — id do write_gate aprovado. Único campo de autorização aceito. */
   _gateId?: string;
   missionId?: string;
 };
@@ -61,7 +64,12 @@ function parseInput(raw: string): RenderPayload | { error: string } {
     }
 
     const sId = j.service_id ? String(j.service_id) : j.serviceId ? String(j.serviceId) : undefined;
-    const cCache = typeof j.clearCache === "boolean" ? j.clearCache : typeof j.clear_cache === "boolean" ? j.clear_cache : j.clear_cache === "true" || j.clearCache === "true";
+    const cCache =
+      typeof j.clearCache === "boolean"
+        ? j.clearCache
+        : typeof j.clear_cache === "boolean"
+          ? j.clear_cache
+          : j.clear_cache === "true" || j.clearCache === "true";
 
     return {
       action: action as RenderAction,
@@ -71,7 +79,6 @@ function parseInput(raw: string): RenderPayload | { error: string } {
       clearCache: cCache,
       key: j.key ? String(j.key) : undefined,
       value: j.value !== undefined && j.value !== null ? String(j.value) : undefined,
-      _gateApproved: j._gateApproved === true,
       _gateId: j._gateId ? String(j._gateId) : undefined,
       missionId: j.missionId ? String(j.missionId) : undefined,
     };
@@ -79,6 +86,47 @@ function parseInput(raw: string): RenderPayload | { error: string } {
     return { error: "input deve ser JSON válido" };
   }
 }
+
+/** Payload normalizado que entra no hash do gate. */
+function buildWritePayload(parsed: RenderPayload): Record<string, unknown> {
+  return {
+    serviceId: parsed.serviceId || parsed.service_id,
+    clearCache: parsed.clearCache,
+    key: parsed.key,
+    value: parsed.value,
+  };
+}
+
+function describeWrite(parsed: RenderPayload): {
+  target: string;
+  summary: string;
+  contentPreview: string | null;
+} {
+  const sId = parsed.serviceId || parsed.service_id || "";
+  let target = "";
+  let summary = "";
+  let preview = "";
+
+  if (parsed.action === "deploy_trigger") {
+    target = `services/${sId}/deploys`;
+    summary = `Disparar deploy para o serviço "${sId}"`;
+    preview = [`Serviço ID: ${sId}`, `Limpar Cache: ${parsed.clearCache ? "Sim" : "Não"}`].join(
+      "\n"
+    );
+  } else if (parsed.action === "env_set") {
+    target = `services/${sId}/env-vars`;
+    summary = `Definir variável de ambiente "${parsed.key}" no serviço "${sId}"`;
+    preview = [
+      `Serviço ID: ${sId}`,
+      `Chave: ${parsed.key || "—"}`,
+      `Valor: ${parsed.value !== undefined ? maskValue(parsed.value) : "—"}`,
+    ].join("\n");
+  }
+
+  return { target, summary, contentPreview: preview || null };
+}
+
+type WriteOutcome = { ok: true; output: string } | { ok: false; error: string };
 
 export async function runRender(input: string, userId: string): Promise<ToolResult> {
   const started = Date.now();
@@ -91,6 +139,12 @@ export async function runRender(input: string, userId: string): Promise<ToolResu
       error: parsed.error,
       durationMs: Date.now() - started,
     };
+  }
+
+  // H9 — registro de capacidades (fail-closed).
+  const blocked = capabilityBlockReason("render", parsed.action);
+  if (blocked) {
+    return { ok: false, tool: "render", input, error: blocked, durationMs: Date.now() - started };
   }
 
   const row = await getConnectorRow(userId, "render");
@@ -117,6 +171,7 @@ export async function runRender(input: string, userId: string): Promise<ToolResu
 
   const caps = parseCapabilities(row.capabilities);
   const manifestCap = renderManifest.capabilities.find((c) => c.name === parsed.action);
+  // H7 — fail-closed.
   const cap =
     caps.find((c) => c.name === parsed.action) ||
     (manifestCap
@@ -142,73 +197,62 @@ export async function runRender(input: string, userId: string): Promise<ToolResu
     cap.mode === "write" ||
     WRITE_ACTIONS.includes(parsed.action as (typeof WRITE_ACTIONS)[number]);
 
-  if (isWrite && !parsed._gateApproved) {
-    let target = "";
-    let summary = "";
-    let preview = "";
-
+  const performWrite = async (): Promise<WriteOutcome> => {
     const sId = parsed.serviceId || parsed.service_id || "";
 
     if (parsed.action === "deploy_trigger") {
-      target = `services/${sId}/deploys`;
-      summary = `Disparar deploy para o serviço "${sId}"`;
-      preview = [
-        `Serviço ID: ${sId}`,
-        `Limpar Cache: ${parsed.clearCache ? "Sim" : "Não"}`,
-      ].join("\n");
-    } else if (parsed.action === "env_set") {
-      target = `services/${sId}/env-vars`;
-      summary = `Definir variável de ambiente "${parsed.key}" no serviço "${sId}"`;
-      preview = [
-        `Serviço ID: ${sId}`,
-        `Chave: ${parsed.key || "—"}`,
-        `Valor: ${parsed.value !== undefined ? maskValue(parsed.value) : "—"}`,
-      ].join("\n");
-    }
-
-    try {
-      const gate = await createWriteGate({
-        userId,
-        missionId: parsed.missionId ?? null,
-        provider: "render",
-        capability: parsed.action,
-        target,
-        summary,
-        payload: {
-          action: parsed.action,
-          serviceId: sId,
-          clearCache: parsed.clearCache,
-          key: parsed.key,
-          value: parsed.value,
-        },
-        contentPreview: preview,
+      const res = await renderDeployTrigger(token, {
+        serviceId: sId,
+        clearCache: parsed.clearCache,
       });
-
-      return {
-        ok: true,
-        tool: "render",
-        input,
-        output: [
-          "GATE_PENDING",
-          `gate_id: ${gate.id}`,
-          `capability: ${parsed.action}`,
-          `target: ${target}`,
-          `summary: ${summary}`,
-          "Aguardando aprovação humana no chat (Princípio 1). Não execute write sem aprovação.",
-        ].join("\n"),
-        durationMs: Date.now() - started,
-      };
-    } catch (e) {
-      const reason = e instanceof Error ? e.message : "Falha ao criar write_gate";
-      console.error("[runRender createWriteGate error]", { action: parsed.action, input, error: reason });
-      return {
-        ok: false,
-        tool: "render",
-        input,
-        error: `Não consegui iniciar a operação ${parsed.action}: ${reason}`,
-        durationMs: Date.now() - started,
-      };
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
     }
+
+    if (parsed.action === "env_set") {
+      const res = await renderEnvSet(token, {
+        serviceId: sId,
+        key: parsed.key || "",
+        value: parsed.value ?? "",
+      });
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
+    }
+
+    return { ok: false, error: `Write '${parsed.action}' não reconhecida.` };
+  };
+
+  if (isWrite) {
+    const { target, summary, contentPreview } = describeWrite(parsed);
+    const guard = await guardWrite({
+      userId,
+      provider: "render",
+      capability: parsed.action,
+      target,
+      summary,
+      payload: buildWritePayload(parsed),
+      contentPreview,
+      missionId: parsed.missionId ?? null,
+      gateId: parsed._gateId,
+    });
+
+    if (guard.kind === "refused") {
+      return { ok: false, tool: "render", input, error: guard.error, durationMs: Date.now() - started };
+    }
+    if (guard.kind === "gate_pending") {
+      return { ok: true, tool: "render", input, output: guard.output, durationMs: Date.now() - started };
+    }
+
+    const finalize: GateFinalize = guard.finalize;
+    const outcome = await performWrite();
+    await finalize({
+      ok: outcome.ok,
+      output: outcome.ok ? outcome.output : null,
+      error: outcome.ok ? null : outcome.error,
+    });
+
+    if (!outcome.ok) {
+      return { ok: false, tool: "render", input, error: outcome.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "render", input, output: outcome.output, durationMs: Date.now() - started };
   }
 
   if (parsed.action === "services_list") {
@@ -222,7 +266,13 @@ export async function runRender(input: string, userId: string): Promise<ToolResu
   if (parsed.action === "service_get") {
     const sId = parsed.serviceId || parsed.service_id || "";
     if (!sId) {
-      return { ok: false, tool: "render", input, error: "Parâmetro 'service_id' é obrigatório para obter detalhes do serviço.", durationMs: Date.now() - started };
+      return {
+        ok: false,
+        tool: "render",
+        input,
+        error: "Parâmetro 'service_id' é obrigatório para obter detalhes do serviço.",
+        durationMs: Date.now() - started,
+      };
     }
     const res = await renderServiceGet(token, sId);
     if (!res.ok) {
@@ -234,36 +284,15 @@ export async function runRender(input: string, userId: string): Promise<ToolResu
   if (parsed.action === "deploys_list") {
     const sId = parsed.serviceId || parsed.service_id || "";
     if (!sId) {
-      return { ok: false, tool: "render", input, error: "Parâmetro 'service_id' é obrigatório para listar deploys.", durationMs: Date.now() - started };
+      return {
+        ok: false,
+        tool: "render",
+        input,
+        error: "Parâmetro 'service_id' é obrigatório para listar deploys.",
+        durationMs: Date.now() - started,
+      };
     }
     const res = await renderDeploysList(token, sId);
-    if (!res.ok) {
-      return { ok: false, tool: "render", input, error: res.error, durationMs: Date.now() - started };
-    }
-    return { ok: true, tool: "render", input, output: res.output, durationMs: Date.now() - started };
-  }
-
-  if (parsed.action === "deploy_trigger") {
-    const sId = parsed.serviceId || parsed.service_id || "";
-    const res = await renderDeployTrigger(token, {
-      serviceId: sId,
-      clearCache: parsed.clearCache,
-    });
-    if (!res.ok) {
-      return { ok: false, tool: "render", input, error: res.error, durationMs: Date.now() - started };
-    }
-    return { ok: true, tool: "render", input, output: res.output, durationMs: Date.now() - started };
-  }
-
-  if (parsed.action === "env_set") {
-    const sId = parsed.serviceId || parsed.service_id || "";
-    const key = parsed.key || "";
-    const value = parsed.value ?? "";
-    const res = await renderEnvSet(token, {
-      serviceId: sId,
-      key,
-      value,
-    });
     if (!res.ok) {
       return { ok: false, tool: "render", input, error: res.error, durationMs: Date.now() - started };
     }

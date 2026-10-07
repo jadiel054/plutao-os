@@ -20,6 +20,7 @@
     { "idx": 15, "version": "7", "when": 1727800000000, "tag": "0017_conversation_events", "breakpoints": true },
     { "idx": 16, "version": "7", "when": 1727900000000, "tag": "0018_model_vitrine", "breakpoints": true },
     { "idx": 17, "version": "7", "when": 1728000000000, "tag": "0019_consent_records", "breakpoints": true },
-    { "idx": 18, "version": "7", "when": 1728100000000, "tag": "0020_mcp_oauth_clients", "breakpoints": true }
+    { "idx": 18, "version": "7", "when": 1728100000000, "tag": "0020_mcp_oauth_clients", "breakpoints": true },
+    { "idx": 19, "version": "7", "when": 1791374400000, "tag": "0021_hardening_write_gates", "breakpoints": true }
   ]
 }

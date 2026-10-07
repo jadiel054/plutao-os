@@ -17,6 +17,8 @@ vi.mock("../service", () => ({
 
 vi.mock("../gates", () => ({
   createWriteGate: vi.fn(),
+  consumeGateForWrite: vi.fn(),
+  finalizeGateExecution: vi.fn(),
 }));
 
 describe("Supabase Connector & Tool", () => {
@@ -93,7 +95,30 @@ describe("Supabase Connector & Tool", () => {
 
       expect(res.ok).toBe(false);
       if (!res.ok) {
-        expect(res.error).toBe("Operação recusada: table_read permite apenas consultas SELECT.");
+        // H4 — validação estrita de colunas substitui a heurística antiga.
+        expect(res.error).toContain("select");
+      }
+    });
+
+    it("rejeita filtros que tentam redefinir parâmetros reservados (H4)", async () => {
+      const res = await supabaseTableRead(
+        { accessToken: "sbp_test123" },
+        { projectRef: "xyz123456789", table: "users", where: "limit=eq.1" }
+      );
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error).toContain("reservado");
+      }
+    });
+
+    it("rejeita operador não permitido no where (H4)", async () => {
+      const res = await supabaseTableRead(
+        { accessToken: "sbp_test123" },
+        { projectRef: "xyz123456789", table: "users", where: "id=or.1" }
+      );
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error).toContain("não permitido");
       }
     });
 
@@ -115,6 +140,25 @@ describe("Supabase Connector & Tool", () => {
 
       expect(res.ok).toBe(true);
       expect(requestedUrl).toContain("limit=100");
+    });
+
+    it("falha fechado se o PostgREST falha após um filtro validado", async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: async () => "temporarily unavailable",
+      } as Response);
+
+      const res = await supabaseTableRead(
+        { accessToken: "sbp_test123" },
+        { projectRef: "xyz123456789", table: "users", where: "id=eq.1" }
+      );
+
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error).toContain("fallback SQL desabilitado");
+      }
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -201,6 +245,9 @@ describe("Supabase Connector & Tool", () => {
         summary: 'Executar SQL no projeto Supabase "xyz123456789"',
         payload: { action: "sql_exec", projectRef: "xyz123456789", query: "INSERT INTO users (name) VALUES ('Alice')" },
         contentPreview: "INSERT INTO users (name) VALUES ('Alice')",
+        payloadHash: null,
+        consumedAt: null,
+        consumedBy: null,
         status: "pending",
         decision: null,
         decidedAt: null,

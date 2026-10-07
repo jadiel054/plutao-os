@@ -1,4 +1,5 @@
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 /** G2: action + observation no event stream quando tools de conector rodam no chat. */
 export async function emitConnectorToolEvents(
@@ -65,8 +66,8 @@ export async function emitConnectorToolEvents(
       typeof t.input === "string" ? t.input : JSON.stringify(t.input ?? {});
     push(
       "github",
-      `${t.capability ?? "github"} · ${input.slice(0, 200)}`,
-      t.output ?? "",
+      `${t.capability ?? "github"} · ${sanitizeText(input).slice(0, 200)}`,
+      sanitizeText(t.output ?? ""),
       t.status !== "error"
     );
   }
@@ -76,8 +77,8 @@ export async function emitConnectorToolEvents(
       typeof t.input === "string" ? t.input : JSON.stringify(t.input ?? {});
     push(
       "vercel",
-      `${t.capability ?? "vercel"} · ${input.slice(0, 200)}`,
-      t.output ?? "",
+      `${t.capability ?? "vercel"} · ${sanitizeText(input).slice(0, 200)}`,
+      sanitizeText(t.output ?? ""),
       t.status !== "error"
     );
   }
@@ -86,7 +87,12 @@ export async function emitConnectorToolEvents(
     const tool = t.tool || t.capability || "tool";
     const input =
       typeof t.input === "string" ? t.input : JSON.stringify(t.input ?? {});
-    push(String(tool), `${input.slice(0, 200)}`, t.output ?? "", t.status !== "error");
+    push(
+      String(tool),
+      sanitizeText(input).slice(0, 200),
+      sanitizeText(t.output ?? ""),
+      t.status !== "error"
+    );
   }
   await Promise.allSettled(jobs);
 }

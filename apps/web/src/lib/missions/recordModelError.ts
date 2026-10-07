@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
+import { sanitizeError, sanitizeText } from "@/lib/security/sanitize";
 
 export const DEFAULT_MODEL_ERROR_HINT =
   "Provedor indisponível ou limite de tokens atingido — verifique a chave MODEL_API_KEY no Vercel.";
@@ -39,13 +40,10 @@ export async function recordModelError(
 
     if (!rows[0]) return null;
 
-    const errDetail =
-      error instanceof Error ? error.message : String(error || "");
-    const content =
-      `MODEL_CALL_FAILED: ${errDetail}${hint ? ` (hint: ${hint})` : ""}`.slice(
-        0,
-        600
-      );
+    const errDetail = sanitizeError(error, "erro no modelo");
+    const content = sanitizeText(
+      `MODEL_CALL_FAILED: ${errDetail}${hint ? ` (hint: ${hint})` : ""}`
+    ).slice(0, 600);
 
     const item: EvidenceItem = {
       id: crypto.randomUUID(),

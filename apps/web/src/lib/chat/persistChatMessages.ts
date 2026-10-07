@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { conversations, messages as messagesTable } from "@plutao/db";
-import type { getDb } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { emitUserMessage, emitAssistantMessage } from "@/lib/events/appendConversationEvent";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -15,17 +16,19 @@ export async function persistMessagePair(
   if (!conversationId) return;
   try {
     const now = new Date();
+    const safeUserText = sanitizeText(userText);
+    const safeAssistantText = sanitizeText(assistantText);
     await db.insert(messagesTable).values([
       {
         conversationId,
         role: "user",
-        content: userText,
+        content: safeUserText,
         createdAt: now,
       },
       {
         conversationId,
         role: "assistant",
-        content: assistantText,
+        content: safeAssistantText,
         createdAt: new Date(now.getTime() + 10),
       },
     ]);
@@ -38,8 +41,8 @@ export async function persistMessagePair(
     // Ordenação: user seq < assistant seq (cadeia await, não paralelo)
     void (async () => {
       try {
-        await emitUserMessage(conversationId, userText);
-        await emitAssistantMessage(conversationId, assistantText);
+        await emitUserMessage(conversationId, safeUserText);
+        await emitAssistantMessage(conversationId, safeAssistantText);
       } catch (e) {
         console.error("[events persistMessagePair ordered]", e);
       }

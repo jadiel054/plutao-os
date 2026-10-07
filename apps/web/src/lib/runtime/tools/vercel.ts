@@ -1,14 +1,17 @@
 /**
  * Tool vercel — REST via token OAuth/PAT do conector do usuário.
- * Reads: executam direto.
- * Writes: criam write_gate (pending) até aprovação humana; depois executam.
+ *
+ * Reads: executam direto (sujeitos ao registro de capacidades).
+ * Writes (H1/H9): exigem write_gate aprovado por humano, validado no servidor.
+ * O booleano `_gateApproved` foi REMOVIDO.
  */
 
 import { getConnectorRow, getAccessToken } from "@/lib/connectors/service";
 import { runRestCapability } from "@/lib/connectors/runRestCapability";
 import { vercelManifest } from "@/lib/connectors/manifests/vercel";
 import { vercelCreateProject, vercelCreateDeployment } from "@/lib/connectors/vercelWrite";
-import { createWriteGate } from "@/lib/connectors/gates";
+import { guardWrite, type GateFinalize } from "@/lib/connectors/writeGateGuard";
+import { capabilityBlockReason } from "@/lib/capabilities/registry";
 import type { ConnectorCapability } from "@plutao/domain";
 import type { ToolResult } from "./types";
 
@@ -42,7 +45,7 @@ type VercelPayload = {
   branch?: string;
   target?: "production" | "preview";
   teamId?: string;
-  _gateApproved?: boolean;
+  /** H1 — id do write_gate aprovado. Único campo de autorização aceito. */
   _gateId?: string;
   missionId?: string;
 };
@@ -58,8 +61,7 @@ function parseInput(raw: string): VercelPayload | { error: string } {
       return { error: `action inválida. Use: ${allowed.join(", ")}` };
     }
     const targetRaw = j.target ? String(j.target) : undefined;
-    const target =
-      targetRaw === "preview" || targetRaw === "production" ? targetRaw : undefined;
+    const target = targetRaw === "preview" || targetRaw === "production" ? targetRaw : undefined;
 
     let repoId: number | undefined;
     if (typeof j.repoId === "number" && Number.isFinite(j.repoId)) {
@@ -80,7 +82,6 @@ function parseInput(raw: string): VercelPayload | { error: string } {
       branch: j.branch ? String(j.branch) : undefined,
       target,
       teamId: j.teamId ? String(j.teamId) : undefined,
-      _gateApproved: j._gateApproved === true,
       _gateId: j._gateId ? String(j._gateId) : undefined,
       missionId: j.missionId ? String(j.missionId) : undefined,
     };
@@ -88,6 +89,51 @@ function parseInput(raw: string): VercelPayload | { error: string } {
     return { error: "input deve ser JSON válido" };
   }
 }
+
+/** Payload normalizado que entra no hash do gate. */
+function buildWritePayload(parsed: VercelPayload): Record<string, unknown> {
+  return {
+    name: parsed.name,
+    framework: parsed.framework,
+    gitRepo: parsed.gitRepo,
+    repoId: parsed.repoId,
+    branch: parsed.branch,
+    target: parsed.target,
+    projectId: parsed.projectId,
+    teamId: parsed.teamId,
+  };
+}
+
+function describeWrite(parsed: VercelPayload): {
+  target: string;
+  summary: string;
+  contentPreview: string | null;
+} {
+  const target =
+    parsed.action === "project_create"
+      ? `vercel.com/new/${parsed.name || "project"}`
+      : `vercel.com/${parsed.name || parsed.projectId || "deploy"}`;
+
+  let summary: string;
+  if (parsed.action === "project_create") {
+    summary = `Criar projeto Vercel "${parsed.name}"${parsed.gitRepo ? ` (git: ${parsed.gitRepo})` : ""}`;
+  } else {
+    const targetLabel = parsed.target === "preview" ? "preview" : "production (autodetect)";
+    summary = `Criar deployment "${parsed.name || parsed.projectId}"${
+      parsed.gitRepo ? ` de ${parsed.gitRepo}` : ""
+    } → ${targetLabel}`;
+  }
+
+  const contentPreview = parsed.gitRepo
+    ? `git: ${parsed.gitRepo}@${parsed.branch || "main"}${
+        parsed.repoId != null ? ` repoId=${parsed.repoId}` : ""
+      }`
+    : parsed.framework || null;
+
+  return { target, summary, contentPreview };
+}
+
+type WriteOutcome = { ok: true; output: string } | { ok: false; error: string };
 
 export async function runVercel(input: string, userId: string): Promise<ToolResult> {
   const started = Date.now();
@@ -100,6 +146,12 @@ export async function runVercel(input: string, userId: string): Promise<ToolResu
       error: parsed.error,
       durationMs: Date.now() - started,
     };
+  }
+
+  // H9 — registro de capacidades (fail-closed).
+  const blocked = capabilityBlockReason("vercel", parsed.action);
+  if (blocked) {
+    return { ok: false, tool: "vercel", input, error: blocked, durationMs: Date.now() - started };
   }
 
   const row = await getConnectorRow(userId, "vercel");
@@ -126,6 +178,7 @@ export async function runVercel(input: string, userId: string): Promise<ToolResu
 
   const caps = parseCapabilities(row.capabilities);
   const manifestCap = vercelManifest.capabilities.find((c) => c.name === parsed.action);
+  // H7 — fail-closed.
   const cap =
     caps.find((c) => c.name === parsed.action) ||
     (manifestCap
@@ -151,127 +204,66 @@ export async function runVercel(input: string, userId: string): Promise<ToolResu
     cap.mode === "write" ||
     WRITE_ACTIONS.includes(parsed.action as (typeof WRITE_ACTIONS)[number]);
 
-  if (isWrite && !parsed._gateApproved) {
-    const target =
-      parsed.action === "project_create"
-        ? `vercel.com/new/${parsed.name || "project"}`
-        : `vercel.com/${parsed.name || parsed.projectId || "deploy"}`;
-
-    let summary: string;
+  const performWrite = async (): Promise<WriteOutcome> => {
     if (parsed.action === "project_create") {
-      summary = `Criar projeto Vercel "${parsed.name}"${parsed.gitRepo ? ` (git: ${parsed.gitRepo})` : ""}`;
-    } else {
-      const targetLabel =
-        parsed.target === "preview" ? "preview" : "production (autodetect)";
-      summary = `Criar deployment "${parsed.name || parsed.projectId}"${
-        parsed.gitRepo ? ` de ${parsed.gitRepo}` : ""
-      } → ${targetLabel}`;
-    }
-
-    try {
-      const gate = await createWriteGate({
-        userId,
-        missionId: parsed.missionId ?? null,
-        provider: "vercel",
-        capability: parsed.action,
-        target,
-        summary,
-        payload: {
-          action: parsed.action,
-          name: parsed.name,
-          framework: parsed.framework,
-          gitRepo: parsed.gitRepo,
-          repoId: parsed.repoId,
-          branch: parsed.branch,
-          target: parsed.target,
-          projectId: parsed.projectId,
-          teamId: parsed.teamId,
-        },
-        contentPreview: parsed.gitRepo
-          ? `git: ${parsed.gitRepo}@${parsed.branch || "main"}${
-              parsed.repoId != null ? ` repoId=${parsed.repoId}` : ""
-            }`
-          : parsed.framework || null,
+      const res = await vercelCreateProject(token, {
+        name: parsed.name || "plutao-project",
+        framework: parsed.framework,
+        gitRepo: parsed.gitRepo,
+        teamId: parsed.teamId,
       });
-
-      return {
-        ok: true,
-        tool: "vercel",
-        input,
-        output: [
-          "GATE_PENDING",
-          `gate_id: ${gate.id}`,
-          `capability: ${parsed.action}`,
-          `target: ${target}`,
-          `summary: ${summary}`,
-          "Aguardando aprovação humana no chat (Princípio 1). Não execute write sem aprovação.",
-        ].join("\n"),
-        durationMs: Date.now() - started,
-      };
-    } catch (e) {
-      const reason = e instanceof Error ? e.message : "Falha ao criar write_gate";
-      console.error("[runVercel createWriteGate error]", { action: parsed.action, input, error: reason });
-      return {
-        ok: false,
-        tool: "vercel",
-        input,
-        error: `Não consegui iniciar a operação ${parsed.action}: ${reason}`,
-        durationMs: Date.now() - started,
-      };
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
     }
-  }
 
-  if (parsed.action === "project_create") {
-    const res = await vercelCreateProject(token, {
-      name: parsed.name || "plutao-project",
-      framework: parsed.framework,
-      gitRepo: parsed.gitRepo,
-      teamId: parsed.teamId,
+    if (parsed.action === "deploy_create") {
+      const res = await vercelCreateDeployment(token, {
+        projectName: parsed.name || String(parsed.projectId || ""),
+        projectId: parsed.projectId,
+        gitRepo: parsed.gitRepo,
+        repoId: parsed.repoId,
+        branch: parsed.branch,
+        target: parsed.target,
+        teamId: parsed.teamId,
+      });
+      return res.ok ? { ok: true, output: res.output } : { ok: false, error: res.error };
+    }
+
+    return { ok: false, error: `Write '${parsed.action}' não reconhecida.` };
+  };
+
+  if (isWrite) {
+    const { target, summary, contentPreview } = describeWrite(parsed);
+    const guard = await guardWrite({
+      userId,
+      provider: "vercel",
+      capability: parsed.action,
+      target,
+      summary,
+      payload: buildWritePayload(parsed),
+      contentPreview,
+      missionId: parsed.missionId ?? null,
+      gateId: parsed._gateId,
     });
-    if (!res.ok) {
-      return {
-        ok: false,
-        tool: "vercel",
-        input,
-        error: res.error,
-        durationMs: Date.now() - started,
-      };
-    }
-    return {
-      ok: true,
-      tool: "vercel",
-      input,
-      output: res.output,
-      durationMs: Date.now() - started,
-    };
-  }
 
-  if (parsed.action === "deploy_create") {
-    const res = await vercelCreateDeployment(token, {
-      projectName: parsed.name || String(parsed.projectId || ""),
-      projectId: parsed.projectId,
-      gitRepo: parsed.gitRepo,
-      repoId: parsed.repoId,
-      branch: parsed.branch,
-      target: parsed.target,
-      teamId: parsed.teamId,
-    });
-    if (!res.ok) {
-      return {
-        ok: false,
-        tool: "vercel",
-        input,
-        error: res.error,
-        durationMs: Date.now() - started,
-      };
+    if (guard.kind === "refused") {
+      return { ok: false, tool: "vercel", input, error: guard.error, durationMs: Date.now() - started };
     }
-    return {
-      ok: true,
-      tool: "vercel",
-      input,
-      output: res.output,
-      durationMs: Date.now() - started,
-    };
+    if (guard.kind === "gate_pending") {
+      return { ok: true, tool: "vercel", input, output: guard.output, durationMs: Date.now() - started };
+    }
+
+    const finalize: GateFinalize = guard.finalize;
+    const outcome = await performWrite();
+    await finalize({
+      ok: outcome.ok,
+      output: outcome.ok ? outcome.output : null,
+      error: outcome.ok ? null : outcome.error,
+    });
+
+    if (!outcome.ok) {
+      return { ok: false, tool: "vercel", input, error: outcome.error, durationMs: Date.now() - started };
+    }
+    return { ok: true, tool: "vercel", input, output: outcome.output, durationMs: Date.now() - started };
   }
 
   const args: Record<string, unknown> = {

@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { missions } from "@plutao/db";
 import { eq, and } from "drizzle-orm";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 export type ToolCallTrace = {
   id: string;
@@ -453,7 +454,7 @@ Para escritas (repo_create / push_files / github.files.write / github.branches.c
         const evidenceItem: EvidenceItem = {
           id: trace.id,
           type: res.ok ? "tool_result" : "tool_error",
-          content: `tool:github capability:${action} → ${trace.output}`,
+          content: sanitizeText(`tool:github capability:${action} → ${trace.output}`),
           source: "tool_dispatcher",
           taskId: null,
           missionId: opts.missionId,

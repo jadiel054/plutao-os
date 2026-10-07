@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, inArray, and } from "drizzle-orm";
-import { agents, artifacts as artifactsTable, users, usageCounters, conversations, missions } from "@plutao/db";
+import { artifacts as artifactsTable, users, usageCounters, conversations } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";
@@ -15,13 +15,23 @@ import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
-import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { recordModelError } from "@/lib/missions/recordModelError";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
 import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
 import { emitConnectorToolEvents } from "./emitConnectorToolEvents";
-import { NIX_IDENTITY, OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
+import { OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
+import {
+  buildIdentityBlock,
+  loadAgentIdentity,
+} from "@/lib/agente/identity";
+import {
+  sanitizeTitle,
+  sanitizeText,
+  sanitizeValue,
+  sanitizeError,
+  sanitizeErrorForClient,
+} from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
 
@@ -41,6 +51,15 @@ type AttachedArtifactMeta = {
 
 const MAX_MESSAGE_LENGTH = 4000;
 const MAX_TOTAL_HISTORY_LENGTH = 16000;
+const TRACE_EXTRA_SENSITIVE_KEYS = ["value", "fullInput", "fullOutput"] as const;
+
+function safeTraceInput(input: unknown): unknown {
+  return sanitizeValue(input, { extraSensitiveKeys: TRACE_EXTRA_SENSITIVE_KEYS });
+}
+
+function safeTraceOutput(output: string): string {
+  return sanitizeText(output);
+}
 
 async function getOrCreateConversation(
   db: ReturnType<typeof getDb>,
@@ -61,7 +80,11 @@ async function getOrCreateConversation(
       }
     }
 
-    const title = initialText && initialText.trim() ? initialText.trim().slice(0, 40) : "Nova conversa";
+    // H3 — título é exposto via MCP (plutao_list_conversations): sanitizado.
+    const title =
+      initialText && initialText.trim()
+        ? sanitizeTitle(initialText.trim().slice(0, 40)) || "Nova conversa"
+        : "Nova conversa";
     const now = new Date();
     const created = await db
       .insert(conversations)
@@ -125,7 +148,10 @@ export async function POST(req: NextRequest) {
     user = await getAuthOrGuestUser();
   } catch (err) {
     if (err instanceof GuestRateLimitError) {
-      return NextResponse.json({ error: err.message }, { status: 429 });
+      return NextResponse.json(
+        { error: sanitizeErrorForClient(err, { fallback: "Limite de uso atingido." }).error },
+        { status: 429 }
+      );
     }
     console.error("[POST /api/chat auth error]", err);
     return NextResponse.json({ error: "Erro de autenticação no servidor" }, { status: 500 });
@@ -355,26 +381,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let agentName = "Nix";
-    let agentIdentity = "o operador do Plutão OS, assistente pessoal do usuário";
-    try {
-      const agentRows = await db
-        .select({
-          name: agents.name,
-          identity: agents.identity,
-          personality: agents.personality,
-        })
-        .from(agents)
-        .where(eq(agents.userId, user.id))
-        .limit(1);
-
-      if (agentRows[0]) {
-        if (agentRows[0].name) agentName = agentRows[0].name;
-        if (agentRows[0].identity) agentIdentity = agentRows[0].identity;
-      }
-    } catch {
-      /* fallback */
-    }
+    // Identidade do agente — perfil de Configurações > Agente.
+    // Antes: os valores eram carregados e DESCARTADOS (só o nome aparecia na
+    // mensagem de fallback sem chave de API), então personalizar identidade ou
+    // personalidade não tinha efeito algum no comportamento do agente.
+    const agentProfile = await loadAgentIdentity(user.id);
+    const agentName = agentProfile.name;
 
     const MAX_INJECT_CHARS = 12000;
     let artifactBlocks = "";
@@ -395,7 +407,7 @@ export async function POST(req: NextRequest) {
       artifactBlocks = parts.join("\n\n");
     }
 
-    const systemPrompt = `${NIX_IDENTITY}
+    const systemPrompt = `${buildIdentityBlock(agentProfile)}
 
 FORMATO DE RESPOSTA OBRIGATÓRIO:
 Você DEVE iniciar TODA resposta gerando o bloco de raciocínio antes da resposta final ao usuário:
@@ -601,7 +613,7 @@ ${
                       const line = rawLine.trim();
                       if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                         const stepIndex = dynamicReasoningSteps.length + 1;
-                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                         dynamicReasoningSteps.push(stepItem);
                         emit("reasoning_step", stepItem);
                       }
@@ -615,7 +627,7 @@ ${
                       const line = rawLine.trim();
                       if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                         const stepIndex = dynamicReasoningSteps.length + 1;
-                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                         dynamicReasoningSteps.push(stepItem);
                         emit("reasoning_step", stepItem);
                       }
@@ -651,7 +663,7 @@ ${
                         const line = rawLine.trim();
                         if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                           const stepIndex = dynamicReasoningSteps.length + 1;
-                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                           dynamicReasoningSteps.push(stepItem);
                           emit("reasoning_step", stepItem);
                         }
@@ -665,7 +677,7 @@ ${
                         const line = rawLine.trim();
                         if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                           const stepIndex = dynamicReasoningSteps.length + 1;
-                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                           dynamicReasoningSteps.push(stepItem);
                           emit("reasoning_step", stepItem);
                         }
@@ -685,7 +697,7 @@ ${
                 const line = rawLine.trim();
                 if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
                   const stepIndex = dynamicReasoningSteps.length + 1;
-                  const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: line };
+                  const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
                   dynamicReasoningSteps.push(stepItem);
                   emit("reasoning_step", stepItem);
                 }
@@ -693,10 +705,9 @@ ${
             }
 
             // Fallback reasoning steps if LLM did not generate <raciocinio> tags
-            const finalReasoningSteps =
-              dynamicReasoningSteps.length > 0
-                ? dynamicReasoningSteps
-                : reasoningSteps;
+            const finalReasoningSteps = (
+              dynamicReasoningSteps.length > 0 ? dynamicReasoningSteps : reasoningSteps
+            ).map((step) => ({ ...step, text: sanitizeText(step.text) }));
 
             // ==========================================
             // FASE 2 — EXECUÇÃO (Tools de conectores - APÓS RACIOCÍNIO)
@@ -714,16 +725,16 @@ ${
                 id: toolId,
                 provider: "github",
                 capability: toolRunRes.github.capability,
-                summaryInput: toolRunRes.github.trace?.input,
+                summaryInput: safeTraceInput(toolRunRes.github.trace?.input),
               });
 
               if (toolRunRes.github.trace) {
                 emit("tool_result", {
                   id: toolId,
                   status: toolRunRes.github.trace.status,
-                  summaryOutput: toolRunRes.github.trace.output.slice(0, 300),
-                  fullInput: toolRunRes.github.trace.input,
-                  fullOutput: toolRunRes.github.trace.output,
+                  summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.github.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
                   durationMs: toolRunRes.github.trace.durationMs,
                 });
               }
@@ -735,16 +746,16 @@ ${
                 id: toolId,
                 provider: "vercel",
                 capability: toolRunRes.vercel.capability,
-                summaryInput: toolRunRes.vercel.trace?.input,
+                summaryInput: safeTraceInput(toolRunRes.vercel.trace?.input),
               });
 
               if (toolRunRes.vercel.trace) {
                 emit("tool_result", {
                   id: toolId,
                   status: toolRunRes.vercel.trace.status,
-                  summaryOutput: toolRunRes.vercel.trace.output.slice(0, 300),
-                  fullInput: toolRunRes.vercel.trace.input,
-                  fullOutput: toolRunRes.vercel.trace.output,
+                  summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
                   durationMs: toolRunRes.vercel.trace.durationMs,
                 });
               }
@@ -769,35 +780,16 @@ ${
                 },
               ];
 
-              let inStreamAnswerBlock = false;
               let rawStreamOutput = "";
 
               try {
                 const answerGenerator = streamChatCompletion(streamModelConfig, responsePayloadMessages);
                 for await (const chunk of answerGenerator) {
                   rawStreamOutput += chunk;
-                  if (!inStreamAnswerBlock) {
-                    if (rawStreamOutput.includes("<resposta>")) {
-                      inStreamAnswerBlock = true;
-                      const idx = rawStreamOutput.indexOf("<resposta>");
-                      const firstText = rawStreamOutput.slice(idx + "<resposta>".length);
-                      if (firstText) {
-                        emit("content_delta", { text: firstText });
-                      }
-                    } else if (!rawStreamOutput.includes("<")) {
-                      // Direct output without tags
-                      emit("content_delta", { text: chunk });
-                    }
-                  } else {
-                    const cleanChunk = chunk.replace("</resposta>", "");
-                    if (cleanChunk) {
-                      emit("content_delta", { text: cleanChunk });
-                    }
-                  }
                 }
               } catch (err) {
                 console.error("[chat streaming FASE 3 error]", err);
-                const errDetail = err instanceof Error ? err.message : String(err);
+                const errDetail = sanitizeError(err, "erro no modelo");
                 if (missionId) {
                   await recordModelError({
                     missionId,
@@ -806,7 +798,6 @@ ${
                   });
                 }
                 const errorMsg = `Não foi possível gerar a resposta final com o modelo: ${errDetail}. Verifique suas configurações de modelo.`;
-                emit("content_delta", { text: errorMsg });
                 rawStreamOutput = errorMsg;
               }
 
@@ -814,7 +805,12 @@ ${
               if (cleaned.includes("<resposta>")) {
                 cleaned = cleaned.split("<resposta>")[1] || "";
               }
-              assistantContent = cleaned.replace(/<\/?resposta>/g, "").trim();
+              assistantContent = sanitizeText(cleaned.replace(/<\/?resposta>/g, "").trim());
+              if (assistantContent) {
+                for (const word of assistantContent.split(" ")) {
+                  if (word) emit("content_delta", { text: `${word} ` });
+                }
+              }
             }
 
             if (!assistantContent) {
@@ -830,6 +826,7 @@ ${
               if (!cleanedAnswer) {
                 cleanedAnswer = "Não consegui gerar uma resposta agora. Tente novamente.";
               }
+              cleanedAnswer = sanitizeText(cleanedAnswer);
 
               const words = cleanedAnswer.split(" ");
               let chunk = "";
@@ -842,6 +839,8 @@ ${
               }
               assistantContent = cleanedAnswer;
             }
+
+            assistantContent = sanitizeText(assistantContent);
 
             const suggestedPlan = extractSuggestedPlan(assistantContent);
             const suggestedConnectors = detectSuggestedConnectors({
@@ -860,7 +859,7 @@ ${
                       provider: "github",
                       capability: toolRunRes.github.capability,
                       status: toolRunRes.github.trace.status,
-                      outputSnippet: toolRunRes.github.trace.output,
+                      outputSnippet: safeTraceOutput(toolRunRes.github.trace.output),
                     }
                   : null,
                 toolRunRes.vercel.executed && toolRunRes.vercel.trace
@@ -868,7 +867,7 @@ ${
                       provider: "vercel",
                       capability: toolRunRes.vercel.capability,
                       status: toolRunRes.vercel.trace.status,
-                      outputSnippet: toolRunRes.vercel.trace.output,
+                      outputSnippet: safeTraceOutput(toolRunRes.vercel.trace.output),
                     }
                   : null,
               ].filter(Boolean) as Array<{
@@ -888,7 +887,15 @@ ${
             if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);
             if (toolRunRes.vercel.trace) toolTraces.push(toolRunRes.vercel.trace);
 
-            const trace = toolTraces.length > 0 ? { toolCalls: toolTraces } : undefined;
+            // H3 — sanitização central do trace antes de sair no SSE.
+            const trace =
+              toolTraces.length > 0
+                ? {
+                    toolCalls: sanitizeValue(toolTraces, {
+                      extraSensitiveKeys: ["value"],
+                    }),
+                  }
+                : undefined;
 
             const steps: Array<
               | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
@@ -908,11 +915,11 @@ ${
                   status: toolRunRes.github.trace.status,
                   summaryInput:
                     typeof toolRunRes.github.trace.input === "string"
-                      ? toolRunRes.github.trace.input
-                      : JSON.stringify(toolRunRes.github.trace.input),
-                  summaryOutput: toolRunRes.github.trace.output.slice(0, 300),
-                  fullInput: toolRunRes.github.trace.input,
-                  fullOutput: toolRunRes.github.trace.output,
+                      ? safeTraceOutput(toolRunRes.github.trace.input)
+                      : JSON.stringify(safeTraceInput(toolRunRes.github.trace.input)),
+                  summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.github.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
                   durationMs: toolRunRes.github.trace.durationMs,
                 },
               });
@@ -928,11 +935,11 @@ ${
                   status: toolRunRes.vercel.trace.status,
                   summaryInput:
                     typeof toolRunRes.vercel.trace.input === "string"
-                      ? toolRunRes.vercel.trace.input
-                      : JSON.stringify(toolRunRes.vercel.trace.input),
-                  summaryOutput: toolRunRes.vercel.trace.output.slice(0, 300),
-                  fullInput: toolRunRes.vercel.trace.input,
-                  fullOutput: toolRunRes.vercel.trace.output,
+                      ? safeTraceOutput(toolRunRes.vercel.trace.input)
+                      : JSON.stringify(safeTraceInput(toolRunRes.vercel.trace.input)),
+                  summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
                   durationMs: toolRunRes.vercel.trace.durationMs,
                 },
               });
@@ -972,9 +979,12 @@ ${
               trace,
             });
           } catch (err) {
-            emit("error", {
-              error: err instanceof Error ? err.message : "Erro no streaming de resposta",
+            // H3 — erro para o cliente sem stack/segredo, com ref de correlação.
+            const safeError = sanitizeErrorForClient(err, {
+              fallback: "Erro no streaming de resposta",
             });
+            console.error("[api/chat] stream error", { ref: safeError.ref, error: sanitizeError(err) });
+            emit("error", { error: safeError.error, ref: safeError.ref });
           } finally {
             controller.close();
           }
@@ -1038,7 +1048,7 @@ ${
       const isGemini = effectiveModelConfig.provider === "gemini";
       const fallbackConfig = isGemini ? getModelConfig() : null;
 
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = sanitizeError(err);
       const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
 
       if (isGemini && fallbackConfig && !isClient4xx) {
@@ -1099,11 +1109,12 @@ ${
       .replace(/<\/?resposta>/g, "")
       .trim();
 
-    const assistantContent =
+    const assistantContent = sanitizeText(
       cleanedNonStreamAnswer ||
-      (validatedArtifacts.length > 0
-        ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
-        : "Não consegui gerar uma resposta agora. Tente novamente.");
+        (validatedArtifacts.length > 0
+          ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
+          : "Não consegui gerar uma resposta agora. Tente novamente.")
+    );
 
     const suggestedPlan = extractSuggestedPlan(assistantContent);
     const suggestedConnectors = detectSuggestedConnectors({
@@ -1122,7 +1133,7 @@ ${
               provider: "github",
               capability: toolRunRes.github.capability,
               status: toolRunRes.github.trace.status,
-              outputSnippet: toolRunRes.github.trace.output,
+              outputSnippet: safeTraceOutput(toolRunRes.github.trace.output),
             }
           : null,
         toolRunRes.vercel.executed && toolRunRes.vercel.trace
@@ -1130,7 +1141,7 @@ ${
               provider: "vercel",
               capability: toolRunRes.vercel.capability,
               status: toolRunRes.vercel.trace.status,
-              outputSnippet: toolRunRes.vercel.trace.output,
+              outputSnippet: safeTraceOutput(toolRunRes.vercel.trace.output),
             }
           : null,
       ].filter(Boolean) as Array<{
@@ -1150,10 +1161,19 @@ ${
     if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);
     if (toolRunRes.vercel.trace) toolTraces.push(toolRunRes.vercel.trace);
 
-    const trace = toolTraces.length > 0 ? { toolCalls: toolTraces } : undefined;
+    // H3 — sanitização central do trace antes de sair no SSE.
+            const trace =
+              toolTraces.length > 0
+                ? {
+                    toolCalls: sanitizeValue(toolTraces, {
+                      extraSensitiveKeys: ["value"],
+                    }),
+                  }
+                : undefined;
 
-    const activeReasoningSteps =
-      extractedReasoningSteps.length > 0 ? extractedReasoningSteps : reasoningSteps;
+    const activeReasoningSteps = (
+      extractedReasoningSteps.length > 0 ? extractedReasoningSteps : reasoningSteps
+    ).map((step) => ({ ...step, text: sanitizeText(step.text) }));
 
     const steps: Array<
       | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
@@ -1173,11 +1193,11 @@ ${
           status: toolRunRes.github.trace.status,
           summaryInput:
             typeof toolRunRes.github.trace.input === "string"
-              ? toolRunRes.github.trace.input
-              : JSON.stringify(toolRunRes.github.trace.input),
-          summaryOutput: toolRunRes.github.trace.output.slice(0, 300),
-          fullInput: toolRunRes.github.trace.input,
-          fullOutput: toolRunRes.github.trace.output,
+              ? safeTraceOutput(toolRunRes.github.trace.input)
+              : JSON.stringify(safeTraceInput(toolRunRes.github.trace.input)),
+          summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+          fullInput: safeTraceInput(toolRunRes.github.trace.input),
+          fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
           durationMs: toolRunRes.github.trace.durationMs,
         },
       });
@@ -1193,11 +1213,11 @@ ${
           status: toolRunRes.vercel.trace.status,
           summaryInput:
             typeof toolRunRes.vercel.trace.input === "string"
-              ? toolRunRes.vercel.trace.input
-              : JSON.stringify(toolRunRes.vercel.trace.input),
-          summaryOutput: toolRunRes.vercel.trace.output.slice(0, 300),
-          fullInput: toolRunRes.vercel.trace.input,
-          fullOutput: toolRunRes.vercel.trace.output,
+              ? safeTraceOutput(toolRunRes.vercel.trace.input)
+              : JSON.stringify(safeTraceInput(toolRunRes.vercel.trace.input)),
+          summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+          fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+          fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
           durationMs: toolRunRes.vercel.trace.durationMs,
         },
       });

@@ -13,6 +13,8 @@
  */
 
 import { resolve, normalize, sep } from "node:path";
+import { mkdir, realpath } from "node:fs/promises";
+import { ensureSandboxRoot, resolveSandboxPath, SandboxSecurityError } from "./sandbox";
 
 // Tipos de storage disponíveis
 export type StorageType = "memory" | "local" | "custom";
@@ -219,18 +221,41 @@ export class LocalFilesystemStorage implements StorageBackend {
   
   constructor(basePath: string = "apps/web/sandbox", executionPrefix: string = "exec") {
     this.basePath = resolve(process.cwd(), basePath);
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(executionPrefix)) {
+      throw new SandboxSecurityError("INVALID_INPUT", "executionPrefix inválido para o storage local");
+    }
     this.executionPrefix = executionPrefix;
   }
   
   private getExecutionPath(executionId: string): string {
+    // H8 — nunca "limpa" um namespace inválido nem cai em default.
+    if (!/^[A-Za-z0-9_-]{1,160}$/.test(executionId)) {
+      throw new SandboxSecurityError("INVALID_INPUT", "namespace de execução inválido");
+    }
     return resolve(this.basePath, this.executionPrefix, executionId);
   }
   
   private async ensureExecutionPath(executionId: string): Promise<string> {
-    const { mkdir } = await import("node:fs/promises");
+    const realBase = await ensureSandboxRoot(this.basePath);
     const path = this.getExecutionPath(executionId);
     await mkdir(path, { recursive: true });
-    return path;
+    const realExecution = await realpath(path).catch(() => path);
+    const base = normalize(realBase);
+    const candidate = normalize(realExecution);
+    if (candidate !== base && !candidate.startsWith(base + sep)) {
+      throw new SandboxSecurityError(
+        "SYMLINK_ESCAPE",
+        "namespace de execução resolve para fora do storage local"
+      );
+    }
+    return realExecution;
+  }
+
+  private async resolveExecutionPath(executionId: string, path: string): Promise<string> {
+    const executionRoot = await this.ensureExecutionPath(executionId);
+    // `resolveSandboxPath` valida o ancestral existente mais próximo e symlinks;
+    // ponto representa a raiz porque o helper rejeita string vazia.
+    return resolveSandboxPath(path || ".", executionRoot);
   }
   
   private sanitizePath(path: string): string {
@@ -247,7 +272,7 @@ export class LocalFilesystemStorage implements StorageBackend {
     const { stat } = await import("node:fs/promises");
     
     const sanitizedPath = this.sanitizePath(path);
-    const fullPath = resolve(this.getExecutionPath(executionId), sanitizedPath);
+    const fullPath = await this.resolveExecutionPath(executionId, sanitizedPath);
     
     try {
       const fileStat = await stat(fullPath);
@@ -270,13 +295,16 @@ export class LocalFilesystemStorage implements StorageBackend {
     const { mkdir } = await import("node:fs/promises");
     
     const sanitizedPath = this.sanitizePath(path);
-    const fullPath = resolve(this.getExecutionPath(executionId), sanitizedPath);
+    const fullPath = await this.resolveExecutionPath(executionId, sanitizedPath);
     
     // Cria diretórios pai
     const dirPath = fullPath.substring(0, fullPath.lastIndexOf(sep));
     await mkdir(dirPath, { recursive: true });
     
-    await writeFile(fullPath, content);
+    // Revalida depois de criar diretórios para não seguir um symlink criado
+    // durante a preparação do caminho.
+    const verifiedPath = await this.resolveExecutionPath(executionId, sanitizedPath);
+    await writeFile(verifiedPath, content);
     
     const size = Buffer.isBuffer(content)
       ? content.length
@@ -292,7 +320,7 @@ export class LocalFilesystemStorage implements StorageBackend {
     const { stat } = await import("node:fs/promises");
     
     const sanitizedPath = this.sanitizePath(path);
-    const fullPath = resolve(this.getExecutionPath(executionId), sanitizedPath);
+    const fullPath = await this.resolveExecutionPath(executionId, sanitizedPath);
     
     try {
       const entries = await readdir(fullPath);
@@ -323,7 +351,7 @@ export class LocalFilesystemStorage implements StorageBackend {
     const { stat } = await import("node:fs/promises");
     
     const sanitizedPath = this.sanitizePath(path);
-    const fullPath = resolve(this.getExecutionPath(executionId), sanitizedPath);
+    const fullPath = await this.resolveExecutionPath(executionId, sanitizedPath);
     
     try {
       const existing = await stat(fullPath);
@@ -345,7 +373,7 @@ export class LocalFilesystemStorage implements StorageBackend {
     const { stat } = await import("node:fs/promises");
     
     const sanitizedPath = this.sanitizePath(path);
-    const fullPath = resolve(this.getExecutionPath(executionId), sanitizedPath);
+    const fullPath = await this.resolveExecutionPath(executionId, sanitizedPath);
     
     try {
       const fileStat = await stat(fullPath);

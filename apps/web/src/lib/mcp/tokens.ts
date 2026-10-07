@@ -204,6 +204,16 @@ export function normalizeScopes(requested: string | null | undefined): string {
   return [...set].join(" ");
 }
 
+/**
+ * H5(a) — validação de redirect_uri.
+ *
+ * Antes: allowlist vazia devolvia `true` (liberava QUALQUER https) e a
+ * comparação era por `startsWith`, então `https://app.exemplo.com.evil.io`
+ * passava por começar com `https://app.exemplo.com`. Agora:
+ *  - allowlist vazia FALHA FECHADO (só localhost em http é mantido);
+ *  - a comparação é por origin E caminho exatos; uma entrada somente com
+ *    origin não autoriza callbacks arbitrários.
+ */
 export function isRedirectUriAllowed(uri: string): boolean {
   let parsed: URL;
   try {
@@ -215,12 +225,28 @@ export function isRedirectUriAllowed(uri: string): boolean {
     return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
   }
   if (parsed.protocol !== "https:") return false;
+  // Fragmento não participa da decisão e nunca deve existir em redirect_uri.
+  if (parsed.hash) return false;
   const allow = (process.env.MCP_OAUTH_REDIRECT_ALLOWLIST || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (allow.length === 0) return true;
-  return allow.some((prefix) => uri === prefix || uri.startsWith(prefix));
+  // Fail-closed: sem allowlist configurada, nenhum redirect https é aceito.
+  if (allow.length === 0) return false;
+  return allow.some((entry) => {
+    let allowed: URL;
+    try {
+      allowed = new URL(entry);
+    } catch {
+      return false;
+    }
+    if (allowed.origin !== parsed.origin) return false;
+    // Toda entrada HTTPS precisa declarar o callback completo; `/` não é
+    // wildcard e só autoriza o path raiz explicitamente.
+    const allowedPath = allowed.pathname.replace(/\/$/, "") || "/";
+    const targetPath = parsed.pathname.replace(/\/$/, "") || "/";
+    return targetPath === allowedPath;
+  });
 }
 
 export function timingSafeStringEqual(a: string, b: string): boolean {

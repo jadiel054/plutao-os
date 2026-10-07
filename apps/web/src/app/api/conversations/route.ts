@@ -3,6 +3,7 @@ import { eq, desc } from "drizzle-orm";
 import { conversations, projects } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
+import { sanitizeTitle } from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
 
@@ -46,7 +47,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : "Nova conversa";
+    // H3 — título visível via MCP: sanitizado contra segredos e quebras.
+    const title =
+      typeof body.title === "string" && body.title.trim()
+        ? sanitizeTitle(body.title.trim().slice(0, 200)) || "Nova conversa"
+        : "Nova conversa";
     const projectId = typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
 
     const db = getDb();

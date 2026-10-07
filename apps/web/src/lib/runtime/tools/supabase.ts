@@ -1,11 +1,16 @@
 /**
  * Tool supabase — REST via token PAT e credentials do conector do usuário.
- * Reads: executam direto.
- * Writes (sql_exec): criam write_gate (pending) com preview de 200 chars até aprovação humana.
+ *
+ * Reads: executam direto (sujeitos ao registro de capacidades).
+ *   - `table_read` usa FILTROS ESTRUTURADOS (H4): `where` livre é rejeitado e
+ *     nunca é concatenado em SQL/URL.
+ * Writes (`sql_exec`): exigem write_gate aprovado por humano, validado no
+ * servidor. O booleano `_gateApproved` foi REMOVIDO.
  */
 
 import { getConnectorRow } from "@/lib/connectors/service";
-import { createWriteGate } from "@/lib/connectors/gates";
+import { guardWrite, type GateFinalize } from "@/lib/connectors/writeGateGuard";
+import { capabilityBlockReason } from "@/lib/capabilities/registry";
 import {
   getSupabaseCredentials,
   isQueryBlocklisted,
@@ -29,7 +34,7 @@ type SupabasePayload = {
   select?: string;
   where?: string;
   query?: string;
-  _gateApproved?: boolean;
+  /** H1 — id do write_gate aprovado. Único campo de autorização aceito. */
   _gateId?: string;
   missionId?: string;
 };
@@ -47,19 +52,30 @@ function parseInput(raw: string): SupabasePayload | { error: string } {
 
     return {
       action: action as SupabaseAction,
-      projectRef: j.projectRef ? String(j.projectRef) : j.project_ref ? String(j.project_ref) : undefined,
+      projectRef: j.projectRef
+        ? String(j.projectRef)
+        : j.project_ref
+          ? String(j.project_ref)
+          : undefined,
       table: j.table ? String(j.table) : undefined,
       limit: typeof j.limit === "number" ? Math.min(100, Math.max(1, j.limit)) : 50,
       select: j.select ? String(j.select) : "*",
       where: j.where ? String(j.where) : undefined,
       query: j.query ? String(j.query) : undefined,
-      _gateApproved: j._gateApproved === true,
       _gateId: j._gateId ? String(j._gateId) : undefined,
       missionId: j.missionId ? String(j.missionId) : undefined,
     };
   } catch {
     return { error: "input deve ser JSON válido" };
   }
+}
+
+/** Payload normalizado que entra no hash do gate. */
+function buildWritePayload(parsed: SupabasePayload): Record<string, unknown> {
+  return {
+    projectRef: parsed.projectRef,
+    query: parsed.query,
+  };
 }
 
 export async function runSupabase(input: string, userId: string): Promise<ToolResult> {
@@ -73,6 +89,12 @@ export async function runSupabase(input: string, userId: string): Promise<ToolRe
       error: parsed.error,
       durationMs: Date.now() - started,
     };
+  }
+
+  // H9 — registro de capacidades (fail-closed).
+  const blocked = capabilityBlockReason("supabase", parsed.action);
+  if (blocked) {
+    return { ok: false, tool: "supabase", input, error: blocked, durationMs: Date.now() - started };
   }
 
   const row = await getConnectorRow(userId, "supabase");
@@ -100,21 +122,9 @@ export async function runSupabase(input: string, userId: string): Promise<ToolRe
   if (parsed.action === "projects_list") {
     const res = await supabaseListProjects(creds);
     if (!res.ok) {
-      return {
-        ok: false,
-        tool: "supabase",
-        input,
-        error: res.error,
-        durationMs: Date.now() - started,
-      };
+      return { ok: false, tool: "supabase", input, error: res.error, durationMs: Date.now() - started };
     }
-    return {
-      ok: true,
-      tool: "supabase",
-      input,
-      output: res.output,
-      durationMs: Date.now() - started,
-    };
+    return { ok: true, tool: "supabase", input, output: res.output, durationMs: Date.now() - started };
   }
 
   if (parsed.action === "tables_list") {
@@ -129,21 +139,9 @@ export async function runSupabase(input: string, userId: string): Promise<ToolRe
     }
     const res = await supabaseListTables(creds, parsed.projectRef);
     if (!res.ok) {
-      return {
-        ok: false,
-        tool: "supabase",
-        input,
-        error: res.error,
-        durationMs: Date.now() - started,
-      };
+      return { ok: false, tool: "supabase", input, error: res.error, durationMs: Date.now() - started };
     }
-    return {
-      ok: true,
-      tool: "supabase",
-      input,
-      output: res.output,
-      durationMs: Date.now() - started,
-    };
+    return { ok: true, tool: "supabase", input, output: res.output, durationMs: Date.now() - started };
   }
 
   if (parsed.action === "table_read") {
@@ -173,21 +171,9 @@ export async function runSupabase(input: string, userId: string): Promise<ToolRe
       where: parsed.where,
     });
     if (!res.ok) {
-      return {
-        ok: false,
-        tool: "supabase",
-        input,
-        error: res.error,
-        durationMs: Date.now() - started,
-      };
+      return { ok: false, tool: "supabase", input, error: res.error, durationMs: Date.now() - started };
     }
-    return {
-      ok: true,
-      tool: "supabase",
-      input,
-      output: res.output,
-      durationMs: Date.now() - started,
-    };
+    return { ok: true, tool: "supabase", input, output: res.output, durationMs: Date.now() - started };
   }
 
   if (parsed.action === "sql_exec") {
@@ -210,84 +196,49 @@ export async function runSupabase(input: string, userId: string): Promise<ToolRe
       };
     }
 
-    // Defense in depth: check blocklist even before gate or approval
+    // Defense in depth: blocklist antes de qualquer gate/execução.
     if (isQueryBlocklisted(parsed.query)) {
       return {
         ok: false,
         tool: "supabase",
         input,
-        error: "Operação recusada: comandos DROP, TRUNCATE ou ALTER em DATABASE/SCHEMA são proibidos pela política de segurança do Supabase.",
+        error:
+          "Operação recusada: comandos DROP, TRUNCATE ou ALTER em DATABASE/SCHEMA são proibidos pela política de segurança do Supabase.",
         durationMs: Date.now() - started,
       };
     }
 
-    // Require human write gate approval (Princípio 1)
-    if (!parsed._gateApproved) {
-      const target = `project:${parsed.projectRef}`;
-      const summary = `Executar SQL no projeto Supabase "${parsed.projectRef}"`;
-      const contentPreview = parsed.query.slice(0, 200);
+    const guard = await guardWrite({
+      userId,
+      provider: "supabase",
+      capability: "sql_exec",
+      target: `project:${parsed.projectRef}`,
+      summary: `Executar SQL no projeto Supabase "${parsed.projectRef}"`,
+      payload: buildWritePayload(parsed),
+      contentPreview: parsed.query.slice(0, 200),
+      missionId: parsed.missionId ?? null,
+      gateId: parsed._gateId,
+    });
 
-      try {
-        const gate = await createWriteGate({
-          userId,
-          missionId: parsed.missionId ?? null,
-          provider: "supabase",
-          capability: "sql_exec",
-          target,
-          summary,
-          payload: {
-            action: "sql_exec",
-            projectRef: parsed.projectRef,
-            query: parsed.query,
-          },
-          contentPreview,
-        });
-
-        return {
-          ok: true,
-          tool: "supabase",
-          input,
-          output: [
-            "GATE_PENDING",
-            `gate_id: ${gate.id}`,
-            `capability: sql_exec`,
-            `target: ${target}`,
-            `summary: ${summary}`,
-            "Aguardando aprovação humana no chat (Princípio 1). Não execute write sem aprovação.",
-          ].join("\n"),
-          durationMs: Date.now() - started,
-        };
-      } catch (e) {
-        const reason = e instanceof Error ? e.message : "Falha ao criar write_gate para sql_exec";
-        console.error("[runSupabase createWriteGate error]", { action: parsed.action, input, error: reason });
-        return {
-          ok: false,
-          tool: "supabase",
-          input,
-          error: `Não consegui iniciar a operação ${parsed.action}: ${reason}`,
-          durationMs: Date.now() - started,
-        };
-      }
+    if (guard.kind === "refused") {
+      return { ok: false, tool: "supabase", input, error: guard.error, durationMs: Date.now() - started };
+    }
+    if (guard.kind === "gate_pending") {
+      return { ok: true, tool: "supabase", input, output: guard.output, durationMs: Date.now() - started };
     }
 
-    // Gate approved, execute SQL
+    const finalize: GateFinalize = guard.finalize;
     const res = await supabaseSqlExec(creds, parsed.projectRef, parsed.query);
+    await finalize({
+      ok: res.ok,
+      output: res.ok ? res.output : null,
+      error: res.ok ? null : res.error,
+    });
+
     if (!res.ok) {
-      return {
-        ok: false,
-        tool: "supabase",
-        input,
-        error: res.error,
-        durationMs: Date.now() - started,
-      };
+      return { ok: false, tool: "supabase", input, error: res.error, durationMs: Date.now() - started };
     }
-    return {
-      ok: true,
-      tool: "supabase",
-      input,
-      output: res.output,
-      durationMs: Date.now() - started,
-    };
+    return { ok: true, tool: "supabase", input, output: res.output, durationMs: Date.now() - started };
   }
 
   return {

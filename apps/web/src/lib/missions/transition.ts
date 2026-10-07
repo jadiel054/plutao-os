@@ -18,6 +18,11 @@ export type TransitionResult =
       ok: true;
       status: MissionStatus;
       allowed: MissionStatus[];
+      /** H2 — true quando COMPLETED foi recusado e o estado virou INCONCLUSIVE. */
+      capped?: boolean;
+      requested?: MissionStatus;
+      message?: string;
+      dod?: unknown;
     }
   | {
       ok: false;
@@ -31,15 +36,17 @@ export type TransitionResult =
 
 /**
  * Apply a single lifecycle transition for an owned mission.
- * Enforces DoD gate on VERIFYING → COMPLETED unless force=true.
+ *
+ * H2 — o parâmetro `force` foi REMOVIDO. Ele permitia `force=true` levar a
+ * missão a COMPLETED sem nenhuma evidência (bypass do DoD). Agora, quando o
+ * DoD não passa, o estado máximo alcançável é `INCONCLUSIVE` — nunca COMPLETED.
  */
 export async function transitionMissionStatus(opts: {
   missionId: string;
   userId: string;
   toStatus: string;
-  force?: boolean;
 }): Promise<TransitionResult> {
-  const { missionId, userId, force = false } = opts;
+  const { missionId, userId } = opts;
   if (!isMissionStatus(opts.toStatus)) {
     return { ok: false, error: "Status inválido", to: opts.toStatus };
   }
@@ -67,7 +74,7 @@ export async function transitionMissionStatus(opts: {
     };
   }
 
-  if (from === "VERIFYING" && to === "COMPLETED" && !force) {
+  if (to === "COMPLETED") {
     const full = await getOwnedMission(missionId, userId);
     if (!full) {
       return { ok: false, error: "Missão não encontrada" };
@@ -79,12 +86,32 @@ export async function transitionMissionStatus(opts: {
       evidence,
     });
     if (!dod.passed) {
+      // H2 — sem evidência o teto é INCONCLUSIVE (nunca COMPLETED).
+      if (!canTransition(from, "INCONCLUSIVE")) {
+        return {
+          ok: false,
+          error: "DoD_FAILED",
+          message: dod.summary,
+          dod,
+          allowed: nextStatuses(from),
+        };
+      }
+      await db
+        .update(missions)
+        .set({
+          status: "INCONCLUSIVE",
+          currentState: "INCONCLUSIVE",
+          updatedAt: new Date(),
+        })
+        .where(and(eq(missions.id, missionId), eq(missions.userId, userId)));
       return {
-        ok: false,
-        error: "DoD_FAILED",
+        ok: true,
+        status: "INCONCLUSIVE",
+        allowed: nextStatuses("INCONCLUSIVE"),
+        capped: true,
+        requested: to,
         message: dod.summary,
         dod,
-        allowed: nextStatuses(from),
       };
     }
   }

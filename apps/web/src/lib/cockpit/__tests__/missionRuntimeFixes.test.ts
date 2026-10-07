@@ -42,6 +42,9 @@ const mockMission = {
 describe("Mission Runtime Fixes End-to-End Tests", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(runtimeService, "writeCheckpoint").mockResolvedValue({
+      execution: mockExecution,
+    });
   });
 
   describe("Bug 1 — Read mission & model call error evidence", () => {
@@ -205,6 +208,9 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
         summary: "Criar repositório plutao-missao-smoke",
         payload: { name: "plutao-missao-smoke", private: false },
         contentPreview: null,
+        payloadHash: null,
+        consumedAt: null,
+        consumedBy: null,
         status: "pending",
         decision: null,
         decidedAt: null,
@@ -215,7 +221,8 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
         updatedAt: new Date(),
       });
 
-      vi.spyOn(gatesService, "markGateApproved").mockResolvedValue({
+      // H1 — a rota passou a usar approveGate (pending → approved) + consumo.
+      vi.spyOn(gatesService, "approveGate").mockResolvedValue({
         id: gateId,
         userId,
         missionId,
@@ -226,6 +233,9 @@ describe("Mission Runtime Fixes End-to-End Tests", () => {
         summary: "Criar repositório plutao-missao-smoke",
         payload: { name: "plutao-missao-smoke", private: false },
         contentPreview: null,
+        payloadHash: null,
+        consumedAt: null,
+        consumedBy: null,
         status: "approved",
         decision: "approve",
         decidedAt: new Date(),

@@ -14,6 +14,7 @@ import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { completeExecution, getOwnedExecution } from "./service";
 import { RECOVERABLE, type ExecutionStatus } from "./types";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 const STEP_NAME = "stub:complete_task";
 const SOURCE = "agent_loop_stub";
@@ -101,7 +102,7 @@ export async function runStubStep(executionId: string, userId: string) {
   const evidenceItem: EvidenceItem = {
     id: evidenceId,
     type: "agent_step",
-    content: `stub: completed step ${stepIndex} on task "${target.title}"`,
+    content: sanitizeText(`stub: completed step ${stepIndex} on task "${target.title}"`),
     source: SOURCE,
     taskId: target.id,
     missionId: execution.missionId,

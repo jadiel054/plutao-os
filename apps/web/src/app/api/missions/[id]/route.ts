@@ -57,7 +57,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   try {
     const body = await req.json();
     const action = String(body.action ?? "");
-    const forceComplete = body.force === true;
+    // H2 — `body.force` era aceito aqui e liberava COMPLETED sem evidência.
+    // O campo é ignorado de propósito: não existe mais caminho para COMPLETED sem DoD.
 
     const db = getDb();
     const existing = await db
@@ -144,8 +145,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       }
       to = target;
 
-      // Gate: VERIFYING → COMPLETED exige DoD (salvo force:true)
-      if (from === "VERIFYING" && to === "COMPLETED" && !forceComplete) {
+      // H2 — DoD: COMPLETED exige evidência. Sem evidência o teto é INCONCLUSIVE.
+      if (to === "COMPLETED") {
         const full = await getOwnedMission(id, user.id);
         if (!full) {
           return NextResponse.json({ error: "Missão não encontrada" }, { status: 404 });
@@ -157,14 +158,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           evidence,
         });
         if (!dod.passed) {
-          return NextResponse.json(
-            {
-              error: "DoD_FAILED",
-              message: dod.summary,
-              dod,
-            },
-            { status: 409 }
-          );
+          to = "INCONCLUSIVE";
         }
       }
     } else {
