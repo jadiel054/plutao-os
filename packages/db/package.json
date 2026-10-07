@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "generate": "drizzle-kit generate",
-    "migrate": "drizzle-kit migrate",
+    "migrate": "test -n \"$DATABASE_URL_UNPOOLED\" || (echo 'DATABASE_URL_UNPOOLED direta é obrigatória para migrations; nenhum SQL foi executado.' >&2; exit 1); drizzle-kit migrate",
     "studio": "drizzle-kit studio"
   },
   "dependencies": {

@@ -26,7 +26,8 @@ describe("H5(a) — validação de redirect_uri", () => {
 
   it("allowlist vazia mantém localhost (fluxo de desenvolvimento)", () => {
     expect(isRedirectUriAllowed("http://localhost:3000/callback")).toBe(true);
-    expect(isRedirectUriAllowed("http://127.0.0.1:8080/cb")).toBe(true);
+    expect(isRedirectUriAllowed("http://127.0.0.1:8080/cb")).toBe(false);
+    expect(isRedirectUriAllowed("http://localhost:43127/callback#fragmento")).toBe(false);
   });
 
   it("origin exato na allowlist é aceito", () => {
@@ -46,6 +47,14 @@ describe("H5(a) — validação de redirect_uri", () => {
     process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io/oauth/callback";
     expect(isRedirectUriAllowed("https://cliente.io/oauth/callback")).toBe(true);
     expect(isRedirectUriAllowed("https://cliente.io/outro/caminho")).toBe(false);
+  });
+
+  it("exige query e barra final exatas", () => {
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io/callback?tenant=a";
+    expect(isRedirectUriAllowed("https://cliente.io/callback?tenant=a")).toBe(true);
+    expect(isRedirectUriAllowed("https://cliente.io/callback?tenant=b")).toBe(false);
+    expect(isRedirectUriAllowed("https://cliente.io/callback")).toBe(false);
+    expect(isRedirectUriAllowed("https://cliente.io/callback/?tenant=a")).toBe(false);
   });
 
   it("protocolos e formatos perigosos são recusados", () => {

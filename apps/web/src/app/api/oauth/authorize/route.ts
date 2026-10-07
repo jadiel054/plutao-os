@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const state = url.searchParams.get("state") || "";
   const scope = normalizeScopes(url.searchParams.get("scope"));
   const codeChallenge = url.searchParams.get("code_challenge")?.trim() || "";
-  const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "S256";
+  const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "";
 
   if (responseType !== "code") {
     return NextResponse.json({ error: "unsupported_response_type" }, { status: 400 });
