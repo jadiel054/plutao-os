@@ -102,7 +102,7 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 - [x] Registro dinâmico OAuth de clientes MCP (RFC 7591); quota 10 registros/hora por IP (hash chaveado)
 - [x] Revogação de grants (API + UI Privacidade)
 - [x] Write tools (`mcp:write`) com gate no call time
-- [x] Rate limit por grant: 30 calls/min
+- [x] Rate limit por grant: 30 calls/min **em todas as tools** (guard `withMcpGuards`)
 - [x] Auditoria de todo call (audit_events `mcp.tool_call`)
 - [x] `system_status.model` mascarado (`plutao-primary`)
 - [x] Evidence de missão (`model_step.source`) mascarado (`model:plutao-primary`) — não grava `model:groq:…`
@@ -147,7 +147,8 @@ O endpoint de registro OAuth é limitado a 10 cadastros por hora por IP (janela 
 - `apps/web/src/lib/mcp/tokens.ts` — codes + access tokens HMAC; `MCP_SCOPES`
 - `apps/web/src/lib/mcp/auth.ts` — Bearer verify + ALS + `hasMcpScope`
 - `apps/web/src/lib/mcp/tools.ts` — tools + send_message
-- `apps/web/src/lib/mcp/audit.ts` — audit + rate limit
+- `apps/web/src/lib/mcp/audit.ts` — audit (erros passam pelo sanitizador central) + rate limit
+- `apps/web/src/lib/mcp/tools.ts#withMcpGuards` — rate limit + auditoria para todas as tools
 - `apps/web/src/lib/mcp/grants.ts` — grants DB
 - `apps/web/src/app/api/mcp/route.ts`
 - `apps/web/src/app/api/oauth/*`

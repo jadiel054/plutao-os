@@ -231,6 +231,8 @@ export function isRedirectUriAllowed(uri: string): boolean {
     );
   }
   if (parsed.protocol !== "https:") return false;
+  // Fragmento não participa da decisão e nunca deve existir em redirect_uri.
+  if (parsed.hash) return false;
   const allow = (process.env.MCP_OAUTH_REDIRECT_ALLOWLIST || "")
     .split(",")
     .map((s) => s.trim())

@@ -1,8 +1,8 @@
 # Plutão OS — Relatório final de hardening e operacionalidade
 
-**Data:** 2026-10-07  
-**Branch:** `main`  
-**Commits finais:** `1b5f939` (hardening) + `403cbc1` (dependências/parser)  
+**Data:** 2026-10-07
+**Branch:** `main`
+**Commits finais:** `1b5f939` (hardening) + `403cbc1` (dependências/parser)
 **Base:** `origin/main` (`daf4e64`) + hardening H1–H9/X1/X2 e correções desta revisão
 
 ## 1. Escopo executado

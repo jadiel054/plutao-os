@@ -16,6 +16,15 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Modo Convidado (Guest Mode) | **VERIFICADO** (2026-09-25) | Landing + `POST /api/auth/guest` + limits. Fix auto-create PR #56. Smoke AC3/AC4: pill sobrevive a refresh; LimitModal e cadastro OK. |
 | BUG-03. Persistência de conversas/mensagens no servidor | **VERIFICADO** (2026-09-27) | MCP `plutao_send_message` → `list_conversations` 1→2; mesma tabela `conversations` que o drawer da UI. Migration `0016` + API REST. |
 | Write gate (GitHub write) | **VERIFICADO** (2026-09-25) | Smoke: `GATE_PENDING` → aprovação humana → repo público `plutao-smoke-gate` criado com README. **Ressalva:** feedback de execução no chat ainda pendente. |
+| **H1 — Write gate validado no servidor** | **IMPLEMENTED** (2026-10-07) | Bypass por `_gateApproved` eliminado. Escrita exige `_gateId` do próprio usuário, status `approved`, `payload_hash` conferido e consumo atômico de uso único (`pending → approved → executing → executed`). Migration `0020` aplicada no Neon. Testes: cloudflare/render/supabase/github. |
+| **H3 — Sanitização central de segredos** | **IMPLEMENTED** (2026-10-07) | `lib/security/sanitize.ts` aplicado em trace do chat, evidência de missão, `audit_events`, erro para o cliente (com `ref` de correlação) e títulos de conversa. |
+| **H9 — Registro de capacidades** | **IMPLEMENTED** (2026-10-07) | `lib/capabilities/registry.ts` como fonte de verdade; `evaluateCapability`/`evaluateInternalTool` fail-closed; `assertRegistryCoverage()` contra manifestos; `docs/CAPABILITIES.md` gerado e verificado em teste de drift. |
+| **X1 — Anti-loop de agente (autorizado pelo fundador)** | **IMPLEMENTED** (2026-10-07) | `MAX_TOTAL_ITERATIONS=60` acumulado no checkpoint, teto de 240 s por request, detecção de tool repetida e de output idêntico. Fecha o risco de queima de tokens entre retomadas. |
+| **H8 — Isolamento de sandbox por usuário** | **IMPLEMENTED** (2026-10-07) | Namespace `userId__executionId` (fim do `default` compartilhado); resolução de caminho sem mutação de env global; proteção de escape por symlink. |
+| **H5 — Rate limit MCP em todas as tools** | **IMPLEMENTED** (2026-10-07) | `withMcpGuards` cobre as 5 tools; bloqueio auditado como `rate_limited`. |
+| **H6 — Export HTML sanitizado** | **IMPLEMENTED** (2026-10-07) | Allowlist de tags/atributos em `lib/security/htmlSanitize.ts`; `<script>`, `on*` e `javascript:` neutralizados. |
+| **X2 — Identidade do agente aplicada (autorizado pelo fundador)** | **IMPLEMENTED** (2026-10-07) | Perfil de Configurações > Agente (`name`/`identity`/`personality`) era carregado e descartado no chat; o MCP usava persona hardcoded diferente. Agora `lib/agente/identity.ts` alimenta chat e MCP com a mesma identidade e os mesmos princípios operacionais. Default permanece idêntico a `NIX_IDENTITY`. |
+| **H4 — Filtros Supabase validados** | **IMPLEMENTED** (2026-10-07) | `lib/connectors/supabaseFilters.ts`: operadores em allowlist, parâmetros reservados recusados, `select` e tabela validados. |
 | **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate em `gates.ts`, `tools/*.ts` e `connectorRuntime.ts` com log estruturado e aviso amigável `"Não consegui iniciar a operação <action>: <motivo>"`. **BUG 2:** Validação de nome do projeto Vercel (`/^[a-z0-9][a-z0-9-]{1,50}$/`, min 3 chars), rejeitando tokens inválidos (ex: `"na"`) com pedido de esclarecimento. **BUG 3:** Retorno do campo `label` amigável em `GET /api/model/status` e exibição no Cockpit via `d.label ?? `${d.provider}/${d.model}`. |
 | **Fix & Hardening Runtime de Missões (#109+#110+#111)** | **IMPLEMENTED** (2026-10-03) | **#109/#110:** Catch FASE 3 grava evidência `model_error`; `maxDuration = 300` no resume pós-gate; helper `recordModelError.ts` testado. **#111 (Causa raiz MODEL_CALL_FAILED):** Sanitização de payload (`sanitizeMessagesForProvider` no boundary de `client.ts`) descarta propriedades não-padrão como `source` de `toolResultToMessage` antes de serializar requisições aos provedores; correção de label de modelo duplicado com `formatModelLabel` em `/api/model/status` e cockpit, e alias em `resolveConfig.ts`. **Pendente:** smoke formal em produção de missão completa. |
 | **Preferência de modelo server-side + Resiliência a Rate Limit (#112)** | **IMPLEMENTED** (2026-10-03) | **1.** `PATCH /api/user/preferences` aceita e valida `preferredModel` contra `PRESET_MODELS` (rejeita inexistente com HTTP 400) e grava em `users.preferredModel`; `GET` retorna junto. **2.** `useModelManager.activateModel()` chama API com tratamento de erro visível na UI; `localStorage` vira cache. **3.** `client.ts` anexa `http_status` e `httpStatus` nos erros lançados. **4.** `callModelWithRetry` parseia dica de retry ("try again in Xms/s") e header `Retry-After`, aplicando backoff exponencial com jitter. **Pendente:** smoke em produção. |
@@ -29,7 +38,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | Mission Workspace + auto-plan + stop | **IMPLEMENTED / parcial VERIFICADO** | Plano, gate, CANCELLED. Evidence `source` mascarado `model:plutao-primary` (Frente F). |
 | Motion (sem confete) | **IMPLEMENTED** | DESIGN_SYSTEM. |
 | Tools note / filesystem | **IMPLEMENTED** | Dispatcher + evidência. |
-| Identidade do Agente (Nix) | **VERIFICADO** | System prompt configurado com `"Você é Nix, o operador do Plutão OS, assistente pessoal do usuário."`. UI exibe disclaimer discreto condicional "Nix é uma IA e pode cometer erros." quando há mensagens. |
+| Identidade do Agente (Nix) | **VERIFICADO** (2026-10-07) | Perfil configurável aplicado no chat e no MCP via `lib/agente/identity.ts`; default continua sendo `NIX_IDENTITY`. System prompt configurado com `"Você é Nix, o operador do Plutão OS, assistente pessoal do usuário."`. UI exibe disclaimer discreto condicional "Nix é uma IA e pode cometer erros." quando há mensagens. |
 | Chat Núcleo + system prompt | **VERIFICADO** | Respostas reais em produção. |
 | Chat — awareness de conectores | **VERIFICADO** | Status + capabilities no prompt. |
 | Chat — tools GitHub | **VERIFICADO** | Lista de repositórios com OAuth real (`@jadiel054`). |
@@ -60,7 +69,9 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | `/ajuda` + `/legal/*` | **IMPLEMENTED** | Conteúdo estático; bot de ajuda **pendente**. |
 | Auditor workflow | **IMPLEMENTED** | `.github/workflows/auditor.yml`. |
 | Migrations 0000–0012 + **0015** + **0016** no repo | **IMPLEMENTED** | 0012 stripe; **0015** preferences; **0016** conversations/messages. |
-| Migrations no Neon produção | **VERIFICADO** (até 0010; 0016 operacional via chat/MCP) | 0011 write_gates / 0012 / 0015: confirmar SQL manual se ainda pendente. |
+| H2 — DoD sem bypass `force` | **IMPLEMENTED** (2026-10-07) | `force` removido de `transition.ts` e ignorado na rota; novo status terminal `INCONCLUSIVE`; sem evidência o teto nunca é `COMPLETED`. Teste: `dodInconclusive.test.ts`. |
+| H7 — Capabilities fail-closed | **IMPLEMENTED** (2026-10-07) | Fallback permissivo do GitHub removido; capability ausente = negado em todos os conectores, via `capabilityBlockReason`. Testes por conector. |
+| Migrations no Neon produção | **IMPLEMENTED** (2026-10-07) | Tabelas de 0000–0019 presentes em produção; **0020_hardening_write_gates aplicada e verificada** (colunas `payload_hash`, `consumed_at`, `consumed_by` + índice). |
 | Smoke M5 formal (missão + tool + evidência) | **PARCIAL** | Tools no chat OK; trilha formal ainda a formalizar. |
 | Durable execution (Inngest etc.) | **DESIGNED** | Fora do fechamento V1. |
 | Identidade “Cockpit” | **PROVISÓRIA** | Revisar pós-estabilização. |
@@ -95,7 +106,8 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - `resolveCloudModelConfig(id)` mapeia catálogo → provider + apiModel + baseUrl + env keys
 - Evidence de model_step: `source: "model:plutao-primary"` (não vaza groq/openai ids)
 - Sanitização estrita de payload de mensagens no boundary do provedor (`client.ts`: `sanitizeMessagesForProvider`) descartando propriedades internas como `source` antes da serialização
-- MCP: OAuth 2.1+PKCE, scopes read/write, audit, rate limit, tools listadas em `docs/MCP_SERVER.md`
+- MCP: OAuth 2.1+PKCE, scopes read/write, audit, rate limit (todas as tools), tools listadas em `docs/MCP_SERVER.md`
+- Hardening de segurança (2026-10-07): write gate validado no servidor com hash de payload e uso único; sanitizador central de segredos; registro tipado de capacidades com doc gerado; anti-loop de agente com orçamento acumulado; isolamento de sandbox por usuário; export HTML com allowlist; filtros Supabase estruturados. Detalhes em `docs/HARDENING_2026-10.md`
 - Voz: Kokoro / Piper / Supertonic; sanitizeForSpeech; pack errors humanizados; playback tick
 - Billing TEST: checkout + webhook + idempotência; founder plans → `caronte` / `orbita_livre`
 
