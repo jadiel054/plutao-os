@@ -1,6 +1,6 @@
 # VERIFICATION.md — Plutão Verification Matrix & Criteria
 
-**Last Updated:** 2026-09-17
+**Last Updated:** 2026-10-07
 **Status:** Multi-Layer Verification Operational (`Foundation` → `Runtime` → `Autonomia V1.1` → `DoD Gate` → `Production`)
 
 This document tracks verified capabilities across all architectural layers of Project Plutão. Status transitions from **IMPLEMENTED** → **VERIFIED** only when real evidence (automated test green, production response, or documented mobile/e2e proof) exists.
@@ -46,8 +46,15 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 ## 5. Layer E — Agent Loop & Tool Dispatcher
 
 - [x] **Multi-Turn Agent Loop:** `runAgentLoop` executes iterative model inference, tool call extraction, tool dispatch, and output reinjection.
-- [x] **Iteration Guard:** Hard limit on maximum model turns (≤5) prevents infinite execution loops.
+- [x] **Iteration Guard:** Hard limit on maximum model turns per call (`MAX_ITERATIONS = 20`).
+- [x] **Accumulated Budget (H6):** `MAX_TOTAL_ITERATIONS = 60` por `execution`, persistido em
+      `CheckpointPayload.iterationsUsed` e somado entre retomadas — impede loop indefinido entre requests.
+- [x] **Wall-clock Budget (H6):** `MAX_LOOP_DURATION_MS = 240_000` verificado a cada iteração.
+- [x] **No-progress Detection (H6):** assinatura `tool::input` repetida → `REPEATED_TOOL_CALL`;
+      output idêntico consecutivo → `NO_PROGRESS`.
 - [x] **Tool Dispatcher:** Tool Dispatcher validates tool parameters, checks authorization, and routes to appropriate tool handlers.
+- [x] **Capability Registry (H9):** toda tool interna passa por `evaluateInternalTool` (fail-closed);
+      toda capability de conector passa por `capabilityBlockReason` antes do HTTP.
 
 ---
 
@@ -55,6 +62,10 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 
 - [x] **Filesystem Tool V1:** `apps/web/src/lib/runtime/tools/filesystem.ts` supports `list`, `read`, `write`, `mkdir`, and `stat` within isolated sandbox paths.
 - [x] **Path Traversal Protection:** Sanity checks block paths escaping designated target directory (`PATH_OUTSIDE_SANDBOX`).
+- [x] **Tenant Isolation (H8):** namespace de sandbox é sempre `userId__executionId`; não existe mais
+      namespace `default` compartilhado. Resolução de caminho não muta estado global.
+- [x] **Symlink Escape Protection (H8):** o ancestral existente mais próximo é resolvido por
+      `realpath` e validado contra a raiz, inclusive para arquivos ainda inexistentes.
 - [x] **Note Tool:** Note tool creates and updates structured notes within mission context.
 
 ---
@@ -107,6 +118,26 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 - [x] **Production URL:** Hosted live on Vercel (`https://plutao-os.vercel.app`).
 - [x] **Database Hosting:** Neon Serverless PostgreSQL (São Paulo).
 - [x] **Continuous Deployment:** Git push to `main` automatically triggers Vercel production build and deploy.
+
+---
+
+## 13. Layer M — Security Hardening (2026-10-07)
+
+- [x] **Write Gate Server-side (H1/H2):** escrita exige `_gateId` de gate do próprio usuário, com
+      status `approved`, `payload_hash` conferido e consumo atômico de uso único. `_gateApproved` foi removido.
+- [x] **Central Secret Sanitizer (H3):** trace, evidência, audit, erro de cliente e título de conversa
+      passam por `lib/security/sanitize.ts`.
+- [x] **Export HTML Sanitized (H4):** allowlist de tags/atributos; `<script>`, `on*` e `javascript:` neutralizados.
+- [x] **Supabase Filter Validation (H4):** filtros estruturados, operadores em allowlist, parâmetros
+      reservados (`select`, `limit`, `order`, `or`, `and`, …) recusados.
+- [x] **MCP Rate Limit Coverage (H5):** 30 calls/60s por grant em todas as tools.
+- [x] **Fail-closed Capabilities (H7/H9):** capability ausente, desabilitada ou sem controle
+      implementado é recusada; `assertRegistryCoverage()` protege registro × manifestos.
+- [x] **Agent Identity Applied (H10):** perfil de Configurações > Agente (`name`, `identity`,
+      `personality`) alimenta o system prompt do chat **e** do MCP; default idêntico a `NIX_IDENTITY`.
+- [x] **Documentation Drift Guard (H9):** `docs/CAPABILITIES.md` é gerado do registro e verificado em teste.
+- [x] **Evidence:** 329 testes verdes, `tsc --noEmit` limpo, migration `0020` aplicada em produção.
+      Detalhamento em [`docs/HARDENING_2026-10.md`](HARDENING_2026-10.md).
 
 ---
 
