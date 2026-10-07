@@ -156,13 +156,13 @@ $ git ls-remote origin hardening/capabilities-controls-v2
 1cd5e9db72a7f4e6ec8d7b266cd077b3e7c6b22drefs/heads/hardening/capabilities-controls-v2
 ```
 
-SHA da entrega de código + documentação: **`1cd5e9db72a7f4e6ec8d7b266cd077b3e7c6b22d`** (branch
-`hardening/capabilities-controls-v2`, 11 commits, base `origin/main` = `58f7246`).
+SHA da entrega (código + documentação) — commit que contém todo o hardening:
+**`1cd5e9db72a7f4e6ec8d7b266cd077b3e7c6b22d`** (11 commits, base `origin/main` = `58f7246`).
 
-Este documento é atualizado por um commit imediatamente posterior (só texto, sem código); o SHA
-final do branch é registrado na seção 7 e na descrição do PR.
-
----
+Os commits posteriores a esse são **somente de texto** (registro do SHA neste documento e ajuste
+desta seção), por isso o HEAD do branch avança sem alterar nenhum arquivo de código. O
+`git ls-remote` final do branch, executado após o último push, está registrado no **comentário
+fixado do PR** e na seção 7 abaixo.
 
 ## 4. PR
 
@@ -250,10 +250,15 @@ grep -rn "_gateApproved" apps/web/src | grep -v "__tests__"
 
 ## 7. Registro do SHA remoto
 
+Commit da entrega de código + documentação:
+
 ```
 $ git ls-remote origin hardening/capabilities-controls-v2
 1cd5e9db72a7f4e6ec8d7b266cd077b3e7c6b22drefs/heads/hardening/capabilities-controls-v2
 ```
 
-Base auditada: `58f7246` (`origin/main`). Nenhum commit em `main`; todo o trabalho está no branch
-`hardening/capabilities-controls-v2`, pronto para revisão.
+Base auditada: `58f7246` (`origin/main`). **Nenhum commit em `main`**; todo o trabalho está no branch
+`hardening/capabilities-controls-v2`, com CI verde (5/5 checks: `build` ×2, `structure`, `Vercel`,
+`Vercel Preview Comments`) e pronto para revisão.
+
+O HEAD final do branch é informado no comentário fixado do PR, após o último push.
