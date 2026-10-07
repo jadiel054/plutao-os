@@ -22,10 +22,12 @@ import {
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
-  name: text("name"),
-  passwordHash: text("password_hash"),
-  plan: text("plan").notNull().default("free"),
-  preferredModel: text("preferred_model"),
+    name: text("name"),
+    passwordHash: text("password_hash"),
+    plan: text("plan").notNull().default("free"),
+    /** Concessão administrativa: webhooks Stripe atualizam IDs, nunca substituem o plano. */
+    planLocked: boolean("plan_locked").notNull().default(false),
+    preferredModel: text("preferred_model"),
   isGuest: boolean("is_guest").notNull().default(false),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   /** Stripe Customer ID (cus_...) — preenchido no primeiro checkout */

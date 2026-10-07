@@ -109,7 +109,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - MCP: OAuth 2.1+PKCE, scopes read/write, audit, rate limit (todas as tools), tools listadas em `docs/MCP_SERVER.md`
 - Hardening de segurança (2026-10-07): write gate validado no servidor com hash de payload e uso único; sanitizador central de segredos; registro tipado de capacidades com doc gerado; anti-loop de agente com orçamento acumulado; isolamento de sandbox por usuário; export HTML com allowlist; filtros Supabase estruturados. Detalhes em `docs/HARDENING_2026-10.md`
 - Voz: Kokoro / Piper / Supertonic; sanitizeForSpeech; pack errors humanizados; playback tick
-- Billing TEST: checkout + webhook + idempotência; founder plans → `caronte` / `orbita_livre`
+- Billing TEST: checkout + webhook + idempotência; founder plans → `caronte` / `orbita_livre`; entitlement administrativo protegido via `users.plan_locked` e migration `0023_plan_entitlement_lock` impede que eventos Stripe rebaixem contas concedidas, mantendo customer/subscription IDs para auditoria
 
 ---
 

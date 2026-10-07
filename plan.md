@@ -27,3 +27,11 @@ Entregar uma nova PR sobre a `main` que transforme o aviso de atualização nati
 - `apps/web/src/app/download/page.tsx`: central de releases.
 - `apps/web/src/components/chat/*`: renderização e ações de mensagens.
 - `apps/web/src/app/globals.css`: tokens, focus ring e superfícies.
+
+## Entitlement protegido do proprietário
+
+O plano do proprietário é uma concessão de produto persistida no registro da conta, não um alias secreto no código. `users.plan_locked` impede que eventos Stripe de cancelamento ou expiração rebaixem essa conta, mas mantém os IDs de customer/subscription sincronizados para auditoria. A migration é aditiva e a ativação do lock é uma operação explícita, única e restrita ao registro confirmado em produção.
+
+## Scroll do chat no APK
+
+O histórico usa um único container com altura flexível e `min-h-0`; o auto-scroll só acompanha novas mensagens quando o usuário permanece próximo ao fim. Ao rolar manualmente, a posição é preservada, existe uma ação explícita para voltar ao início e um botão contextual para retornar à mensagem mais recente. A viewport do shell fica limitada a `100dvh` para impedir que o WebView crie uma página interna que capture o gesto de rolagem.
