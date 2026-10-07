@@ -4,9 +4,32 @@ import { users, billingEvents } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getStripe } from "@/lib/billing/stripe";
 import { planIdFromStripePriceId } from "@/lib/billing/plans";
+import { planFieldForBillingEvent } from "@/lib/billing/entitlement";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
+
+async function updateBillingIdentity(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  update: { plan: Parameters<typeof planFieldForBillingEvent>[0]; stripeCustomerId?: string | null; stripeSubscriptionId?: string | null },
+) {
+  const current = await db
+    .select({ planLocked: users.planLocked })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const planFields = planFieldForBillingEvent(update.plan, current[0]?.planLocked === true);
+  await db
+    .update(users)
+    .set({
+      ...planFields,
+      ...(update.stripeCustomerId !== undefined ? { stripeCustomerId: update.stripeCustomerId } : {}),
+      ...(update.stripeSubscriptionId !== undefined ? { stripeSubscriptionId: update.stripeSubscriptionId } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+}
 
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
@@ -87,15 +110,11 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        await db
-          .update(users)
-          .set({
-            plan: planId,
-            ...(customerId ? { stripeCustomerId: customerId } : {}),
-            ...(subscriptionId ? { stripeSubscriptionId: subscriptionId } : {}),
-            updatedAt: new Date(),
-          })
-          .where(eq(users.id, userId));
+        await updateBillingIdentity(db, userId, {
+          plan: planId as Parameters<typeof planFieldForBillingEvent>[0],
+          ...(customerId ? { stripeCustomerId: customerId } : {}),
+          ...(subscriptionId ? { stripeSubscriptionId: subscriptionId } : {}),
+        });
         break;
       }
 
@@ -124,14 +143,10 @@ export async function POST(req: NextRequest) {
         const planId =
           active && priceId ? planIdFromStripePriceId(priceId) : "orbita_livre";
 
-        await db
-          .update(users)
-          .set({
-            plan: planId,
-            stripeSubscriptionId: active ? sub.id : null,
-            updatedAt: new Date(),
-          })
-          .where(eq(users.id, targetUserId));
+        await updateBillingIdentity(db, targetUserId, {
+          plan: planId,
+          stripeSubscriptionId: active ? sub.id : null,
+        });
         break;
       }
 
@@ -152,14 +167,10 @@ export async function POST(req: NextRequest) {
         }
         if (!targetUserId) break;
 
-        await db
-          .update(users)
-          .set({
-            plan: "orbita_livre",
-            stripeSubscriptionId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(users.id, targetUserId));
+        await updateBillingIdentity(db, targetUserId, {
+          plan: "orbita_livre",
+          stripeSubscriptionId: null,
+        });
         break;
       }
 

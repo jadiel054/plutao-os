@@ -114,6 +114,9 @@ function ChatPageInner() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const userNearBottomRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
@@ -147,9 +150,27 @@ function ChatPageInner() {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
   };
   const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
-  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+    userNearBottomRef.current = true;
+    setShowJumpToLatest(false);
+  }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages, sending, suggestedPlan, suggestedConnectors, suggestedFollowUps, pendingGates]);
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 72;
+    userNearBottomRef.current = nearBottom;
+    setShowJumpToLatest(!nearBottom && container.scrollHeight > container.clientHeight);
+  }, []);
+
+  useEffect(() => {
+    if (!userNearBottomRef.current) return;
+    const frame = requestAnimationFrame(() => scrollToBottom("auto"));
+    return () => cancelAnimationFrame(frame);
+  }, [messages, sending, suggestedPlan, suggestedConnectors, suggestedFollowUps, pendingGates, scrollToBottom]);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -1137,7 +1158,7 @@ function ChatPageInner() {
   }
 
   return (
-    <div className="min-h-dvh flex flex-col bg-[var(--base)] text-[var(--text-primary)] pb-20 sm:pb-4">
+    <div className="h-[100dvh] min-h-0 flex flex-col overflow-hidden bg-[var(--base)] text-[var(--text-primary)] pb-20 sm:pb-4">
       <>
       <ChatHistoryDrawer
         open={isChatMenuOpen}
@@ -1184,7 +1205,7 @@ function ChatPageInner() {
         }}
       />
     </>
-      <main className="flex-1 mx-auto max-w-4xl w-full flex flex-col p-4 overflow-hidden">
+      <main className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden p-4">
         {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center py-12 text-center space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-sm font-bold text-[var(--selo)]">P</div>
@@ -1195,10 +1216,13 @@ function ChatPageInner() {
             </p>
           </div>
         ) : (
-          <div className="chat-scroll flex-1 min-h-0 overflow-y-auto space-y-5 pb-5">
+          <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="chat-scroll min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain pb-5">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)]/40 bg-[var(--bg)]/85 pb-2 text-[10px] text-[var(--text-muted)] backdrop-blur-md">
               <span className="font-mono uppercase tracking-[0.16em]">Conversa · {messages.length} mensagens</span>
-              <button type="button" onClick={() => setIsClearModalOpen(true)} className="rounded-lg px-2 py-1 transition hover:bg-[var(--surface)] hover:text-[var(--text-primary)]">Limpar</button>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => messagesScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" })} className="rounded-lg px-2 py-1 transition hover:bg-[var(--surface)] hover:text-[var(--text-primary)]">Início</button>
+                <button type="button" onClick={() => setIsClearModalOpen(true)} className="rounded-lg px-2 py-1 transition hover:bg-[var(--surface)] hover:text-[var(--text-primary)]">Limpar</button>
+              </div>
             </div>
             {messages.map((m) => (
               <div key={m.id} className={`group chat-bubble flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -1369,6 +1393,11 @@ function ChatPageInner() {
             ) : null}
 
             <div ref={messagesEndRef} />
+            {showJumpToLatest && (
+              <button type="button" onClick={() => scrollToBottom()} className="sticky bottom-2 left-1/2 z-10 mx-auto block rounded-full border border-[var(--selo)]/40 bg-[var(--surface-elevated)] px-3 py-1.5 text-[11px] font-medium text-[var(--selo)] shadow-lg backdrop-blur-md">
+                ↓ Ir para a mensagem mais recente
+              </button>
+            )}
           </div>
         )}
 
