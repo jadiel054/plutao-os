@@ -87,7 +87,7 @@ A consulta de schema real em `write_gates` confirmou a presença de:
 
 Por isso, **nenhum SQL foi aplicado nesta execução**: a migration aditiva já estava refletida no schema real e reaplicar SQL seria desnecessário. A migration versionada foi organizada como `packages/db/drizzle/0021_hardening_write_gates.sql`, com journal e README coerentes, para novos ambientes/deploys.
 
-A tentativa de consultar `drizzle.__drizzle_migrations` retornou `relation does not exist`; não foi tratada como falha do banco, pois a confirmação relevante foi feita diretamente pelo schema da tabela e dos índices. A migration 0022 adiciona `rate_limit_buckets`, TTL de gates e índices de reaper; ela deve ser aplicada pelo pipeline de migrations antes do deploy desta branch.
+A tentativa de consultar `drizzle.__drizzle_migrations` retornou `relation does not exist`; não foi tratada como falha do banco, pois a confirmação relevante foi feita diretamente pelo schema da tabela e dos índices. A migration 0022 (`0022_persistent_guards.sql`) foi aplicada em produção no projeto Neon `fragrant-boat-15398274` em 2026-10-07 e verificada diretamente: `rate_limit_buckets`, `write_gates.expires_at` e os índices de reaper estão presentes.
 
 ## 5. Vercel e configuração de produção
 
