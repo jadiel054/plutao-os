@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { missions, tasks } from "@plutao/db";
+import { conversations, missions, projects, tasks } from "@plutao/db";
 import { getDb } from "@/lib/db";
 
 /** Mission owned by user, or null. */
@@ -9,6 +9,37 @@ export async function getOwnedMission(missionId: string, userId: string) {
     .select()
     .from(missions)
     .where(and(eq(missions.id, missionId), eq(missions.userId, userId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getOwnedProject(projectId: string, userId: string) {
+  const db = getDb();
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getOwnedConversation(conversationId: string, userId: string) {
+  const db = getDb();
+  const rows = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getOwnedTaskInMission(taskId: string, missionId: string, userId: string) {
+  const db = getDb();
+  const rows = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(and(eq(tasks.id, taskId), eq(tasks.missionId, missionId), eq(missions.userId, userId)))
     .limit(1);
   return rows[0] ?? null;
 }

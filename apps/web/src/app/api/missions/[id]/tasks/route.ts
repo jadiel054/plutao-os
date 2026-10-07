@@ -4,7 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { tasks } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
-import { getOwnedMission } from "@/lib/missions/ownership";
+import { getOwnedMission, getOwnedTaskInMission } from "@/lib/missions/ownership";
 
 export const runtime = "nodejs";
 
@@ -53,6 +53,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     if (title.length < 2) {
       return NextResponse.json({ error: "Título obrigatório (mín. 2 caracteres)" }, { status: 400 });
+    }
+    if (parentTaskId && !(await getOwnedTaskInMission(parentTaskId, missionId, user.id))) {
+      return NextResponse.json({ error: "Task pai não encontrada nesta missão" }, { status: 404 });
     }
 
     const now = new Date();

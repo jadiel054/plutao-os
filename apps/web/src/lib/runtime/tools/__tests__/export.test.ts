@@ -166,9 +166,11 @@ describe("Export Tools Package", () => {
   });
 
   describe("Dispatcher & Chat Intent Runner Integration", () => {
+    const USER_ID = "11111111-1111-4111-8111-111111111111";
+
     it("should execute via runExportTool runner", async () => {
       const input = JSON.stringify({ filename: "doc.pdf", title: "Teste", content: "OK" });
-      const toolRes = await runExportTool("files.export_pdf", input, EXEC_ID);
+      const toolRes = await runExportTool("files.export_pdf", input, EXEC_ID, USER_ID);
 
       expect(toolRes.ok).toBe(true);
       expect(toolRes.tool).toBe("files.export_pdf");
@@ -191,7 +193,7 @@ describe("Export Tools Package", () => {
     it("should execute detectAndExecuteExportTool in chat context", async () => {
       const chatRes = await detectAndExecuteExportTool({
         text: "exporte isso em PDF com título Relatório Final",
-        userId: "user-123",
+        userId: "11111111-1111-4111-8111-111111111111",
         executionId: EXEC_ID,
       });
 

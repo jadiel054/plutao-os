@@ -30,15 +30,21 @@ export function sanitizeNamespaceSegment(value?: string | null): string {
 
 /**
  * Namespace estável e isolado por usuário + execução.
- * Sem usuário conhecido, cai em `anonymous` (isolado do namespace de usuários reais).
- * IDs malformados lançam SandboxSecurityError — nunca viram caminho.
+ * Sem usuário conhecido, a operação é recusada — nunca existe namespace
+ * anônimo persistente compartilhado entre requests.
  */
 export function sandboxNamespace(
   userId?: string | null,
   executionId?: string | null
 ): string {
-  const user = userId ? assertSandboxUserId(userId) : "anonymous";
-  if (userId && !executionId) {
+  if (!userId) {
+    throw new SandboxSecurityError(
+      "INVALID_INPUT",
+      "userId é obrigatório para operações de filesystem/export"
+    );
+  }
+  const user = assertSandboxUserId(userId);
+  if (!executionId) {
     throw new SandboxSecurityError(
       "INVALID_INPUT",
       "executionId é obrigatório para operações autenticadas"

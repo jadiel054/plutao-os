@@ -50,6 +50,19 @@ describe("H3 — sanitizador central", () => {
     expect(out).toContain("Usei");
   });
 
+  it("mascara Telegram, JWT, AWS AKIA e segredo Cloudflare nomeado", () => {
+    const telegram = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi";
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature-value";
+    const aws = "AKIAIOSFODNN7EXAMPLE";
+    const cloudflare = "cloudflareApiToken=cf-secret-value-01234567890123456789";
+    const out = sanitizeText(`${telegram} ${jwt} ${aws} ${cloudflare}`);
+
+    expect(out).not.toContain(telegram);
+    expect(out).not.toContain(jwt);
+    expect(out).not.toContain(aws);
+    expect(out).not.toContain("cf-secret-value-01234567890123456789");
+  });
+
   it("mascara credenciais embutidas em URL", () => {
     const out = sanitizeText(
       "postgresql://usuario:SenhaSuperSecreta123@ep-cool-db.sa-east-1.aws.neon.tech/plutao"

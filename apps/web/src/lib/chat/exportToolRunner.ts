@@ -148,7 +148,7 @@ export async function detectAndExecuteExportTool(opts: {
   const startedAt = new Date();
   const inputJson = JSON.stringify(payload);
 
-  const res = await runExportTool(capability, inputJson, opts.executionId || "chat");
+  const res = await runExportTool(capability, inputJson, opts.executionId || "chat", opts.userId);
   const durationMs = Date.now() - startedAt.getTime();
   const timestamp = startedAt.toISOString();
 

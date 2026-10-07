@@ -17,6 +17,7 @@ import {
   verifyAccessToken,
 } from "./tokens";
 import { isGrantActive, touchGrant } from "./grants";
+import { isSandboxUuid } from "@/lib/runtime/tools/sandbox";
 
 export type McpAuthContext = {
   userId: string;
@@ -83,6 +84,13 @@ export async function authenticateMcpRequest(req: Request): Promise<McpAuthResul
   const apiKey = process.env.PLUTAO_MCP_API_KEY?.trim();
   const userId = process.env.PLUTAO_MCP_USER_ID?.trim();
   if (apiKey && userId && timingSafeStringEqual(token, apiKey)) {
+    if (!isSandboxUuid(userId)) {
+      return {
+        ok: false,
+        status: 503,
+        error: "Configuração inválida: PLUTAO_MCP_USER_ID deve ser UUID.",
+      };
+    }
     return {
       ok: true,
       userId,

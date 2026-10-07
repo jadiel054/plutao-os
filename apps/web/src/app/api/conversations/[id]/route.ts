@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { randomBytes } from "node:crypto";
 import { sanitizeTitle } from "@/lib/security/sanitize";
+import { getOwnedProject } from "@/lib/missions/ownership";
 
 export const runtime = "nodejs";
 
@@ -72,6 +73,9 @@ export async function PATCH(
         typeof body.projectId === "string" && body.projectId.trim()
           ? body.projectId.trim()
           : null;
+      if (updateData.projectId && !(await getOwnedProject(updateData.projectId, user.id))) {
+        return NextResponse.json({ error: "Projeto não encontrado" }, { status: 404 });
+      }
     }
 
     if (typeof body.enableShare === "boolean") {

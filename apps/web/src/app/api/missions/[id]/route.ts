@@ -10,7 +10,7 @@ import {
   TERMINAL_STATUSES,
   type MissionStatus,
 } from "@/lib/missions/lifecycle";
-import { getOwnedMission, parseEvidence } from "@/lib/missions/ownership";
+import { getOwnedMission, getOwnedProject, parseEvidence } from "@/lib/missions/ownership";
 import { verifyDefinitionOfDone } from "@/lib/missions/dod";
 
 export const runtime = "nodejs";
@@ -96,6 +96,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
     if (action === "move_project") {
       const projectId = body.projectId ? String(body.projectId) : null;
+      if (projectId && !(await getOwnedProject(projectId, user.id))) {
+        return NextResponse.json({ error: "Projeto não encontrado" }, { status: 404 });
+      }
       const [updated] = await db
         .update(missions)
         .set({ projectId, updatedAt: new Date() })

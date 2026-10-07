@@ -22,13 +22,25 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
  * Converte planilhas Excel Open XML (.xlsx) em tabelas Markdown estruturadas para o LLM.
  */
 export async function extractTextFromExcel(buffer: Buffer): Promise<string> {
+  const MAX_PARSE_MS = 8_000;
   try {
     const excelJsModule = await import("exceljs");
     const ExcelJS = excelJsModule.default ?? excelJsModule;
     const workbook = new ExcelJS.Workbook();
     // ExcelJS e @types/node podem declarar Buffers com ArrayBuffer genérico
     // diferente; em runtime ambos recebem o mesmo Buffer Node.js.
-    await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("Excel parse timeout")), MAX_PARSE_MS);
+      });
+      await Promise.race([
+        workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]),
+        timeout,
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
     const sheetParts: string[] = [];
 
     for (const worksheet of workbook.worksheets) {
@@ -76,6 +88,13 @@ function cellToText(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "object") {
     if ("text" in value && typeof value.text === "string") return value.text.trim().replace(/\|/g, "\\|");
+    if ("richText" in value && Array.isArray(value.richText)) {
+      return value.richText
+        .map((part) => (part && typeof part === "object" && "text" in part ? String(part.text ?? "") : ""))
+        .join("")
+        .trim()
+        .replace(/\|/g, "\\|");
+    }
     if ("result" in value) return String(value.result ?? "").trim().replace(/\|/g, "\\|");
   }
   return String(value).trim().replace(/\|/g, "\\|");
