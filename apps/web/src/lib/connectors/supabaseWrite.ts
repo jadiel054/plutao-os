@@ -6,6 +6,11 @@
 
 import { getConnectorRow, getAccessToken } from "@/lib/connectors/service";
 import { decryptToken } from "@/lib/connectors/crypto";
+import {
+  parseTableFilters,
+  validateSelect,
+  validateTableName,
+} from "./supabaseFilters";
 
 export type SupabaseCredentials = {
   accessToken: string;
@@ -241,21 +246,12 @@ export async function supabaseTableRead(
     return { ok: false, error: "table é obrigatória." };
   }
 
-  const select = (opts.select || "*").trim();
-
-  // Validate SELECT statement restriction
-  if (
-    select.toLowerCase().includes("insert") ||
-    select.toLowerCase().includes("update") ||
-    select.toLowerCase().includes("delete") ||
-    select.toLowerCase().includes("drop") ||
-    select.toLowerCase().includes("alter")
-  ) {
-    return {
-      ok: false,
-      error: "Operação recusada: table_read permite apenas consultas SELECT.",
-    };
+  // H4 - validacao estrita de colunas em select.
+  const selectCheck = validateSelect(opts.select || "*");
+  if (!selectCheck.ok) {
+    return { ok: false, error: selectCheck.error };
   }
+  const select = selectCheck.value;
 
   // Cap limit at 100 max
   const rawLimit = typeof opts.limit === "number" ? opts.limit : 50;
@@ -263,6 +259,12 @@ export async function supabaseTableRead(
 
   const cleanRef = projectRef.trim();
   const cleanTable = table.trim();
+
+  // H4 - nome de tabela restrito a identificador.
+  const tableCheck = validateTableName(cleanTable);
+  if (!tableCheck.ok) {
+    return { ok: false, error: tableCheck.error };
+  }
 
   // Primary attempt via PostgREST endpoint
   const baseUrl = creds.projectUrl
@@ -273,15 +275,13 @@ export async function supabaseTableRead(
   url.searchParams.set("select", select);
   url.searchParams.set("limit", String(limit));
 
-  if (where && where.trim()) {
-    // Append where filters (e.g. id=eq.1 or name=ilike.*foo*)
-    const parts = where.trim().split("&");
-    for (const part of parts) {
-      const [k, v] = part.split("=", 2);
-      if (k && v !== undefined) {
-        url.searchParams.set(k.trim(), v.trim());
-      }
-    }
+  // H4 - filtros estruturados validados; parametros reservados sao recusados.
+  const filterParse = parseTableFilters(where);
+  if (!filterParse.ok) {
+    return { ok: false, error: filterParse.error };
+  }
+  for (const f of filterParse.filters) {
+    url.searchParams.set(f.column, `${f.operator}.${f.value}`);
   }
 
   const headers: Record<string, string> = { Accept: "application/json" };

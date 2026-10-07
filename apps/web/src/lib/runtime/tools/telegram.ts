@@ -1,5 +1,7 @@
 import { getConnectorRow, getAccessToken } from "@/lib/connectors/service";
 import { decryptToken } from "@/lib/connectors/crypto";
+import { guardWrite, type GateFinalize } from "@/lib/connectors/writeGateGuard";
+import { capabilityBlockReason } from "@/lib/capabilities/registry";
 import type { ToolResult } from "./types";
 
 export type TelegramCredentials = {
@@ -314,6 +316,19 @@ export async function runTelegram(
   }
 
   const action = String(parsed.action || parsed.capability || "send_message");
+  const capability = action === "send" ? "send_message" : action;
+
+  // H9 — registro de capacidades (fail-closed).
+  const blocked = capabilityBlockReason("telegram", capability);
+  if (blocked) {
+    return {
+      ok: false,
+      tool: "telegram",
+      input: inputJson,
+      error: blocked,
+      durationMs: Date.now() - t0,
+    };
+  }
 
   const creds = await getTelegramCredentials(userId);
   if (!creds) {
@@ -328,9 +343,54 @@ export async function runTelegram(
 
   if (action === "send_message" || action === "send") {
     const text = String(parsed.text || parsed.message || "");
-    const chatId = parsed.chat_id ? String(parsed.chat_id) : parsed.chatId ? String(parsed.chatId) : undefined;
+    const chatId = parsed.chat_id
+      ? String(parsed.chat_id)
+      : parsed.chatId
+        ? String(parsed.chatId)
+        : undefined;
+    const gateId = parsed._gateId ? String(parsed._gateId) : undefined;
+    const missionId = parsed.missionId ? String(parsed.missionId) : undefined;
+
+    // H1 — mensagem outbound é efeito colateral real: exige write gate validado.
+    const guard = await guardWrite({
+      userId,
+      provider: "telegram",
+      capability: "send_message",
+      target: chatId ? `chat:${chatId}` : `chat:${creds.chatId ?? "não-configurado"}`,
+      summary: `Enviar mensagem no Telegram (${text.length} caracteres)`,
+      payload: { text, chatId },
+      contentPreview: text.slice(0, 200),
+      missionId: missionId ?? null,
+      gateId,
+    });
+
+    if (guard.kind === "refused") {
+      return {
+        ok: false,
+        tool: "telegram",
+        input: inputJson,
+        error: guard.error,
+        durationMs: Date.now() - t0,
+      };
+    }
+    if (guard.kind === "gate_pending") {
+      return {
+        ok: true,
+        tool: "telegram",
+        input: inputJson,
+        output: guard.output,
+        durationMs: Date.now() - t0,
+      };
+    }
+
+    const finalize: GateFinalize = guard.finalize;
     const res = await telegramSendMessage(creds, { text, chatId });
     const durationMs = Date.now() - t0;
+    await finalize({
+      ok: res.ok,
+      output: res.ok ? res.output : null,
+      error: res.ok ? null : res.error,
+    });
     if (res.ok) {
       return {
         ok: true,

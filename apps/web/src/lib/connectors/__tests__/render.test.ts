@@ -19,6 +19,8 @@ vi.mock("../service", () => ({
 
 vi.mock("../gates", () => ({
   createWriteGate: vi.fn(),
+  consumeGateForWrite: vi.fn(),
+  finalizeGateExecution: vi.fn(),
 }));
 
 describe("Render Connector & Tools Suite", () => {
@@ -230,6 +232,9 @@ describe("Render Connector & Tools Suite", () => {
         summary: 'Disparar deploy para o serviço "srv-123"',
         payload: {},
         contentPreview: null,
+        payloadHash: null,
+        consumedAt: null,
+        consumedBy: null,
         status: "pending",
         decision: null,
         decidedAt: null,
@@ -290,6 +295,9 @@ describe("Render Connector & Tools Suite", () => {
           summary: input.summary,
           payload: input.payload,
           contentPreview: input.contentPreview ?? null,
+          payloadHash: null,
+          consumedAt: null,
+          consumedBy: null,
           status: "pending",
           decision: null,
           decidedAt: null,
@@ -314,14 +322,14 @@ describe("Render Connector & Tools Suite", () => {
       expect(gatePreview).not.toContain("super_secret_value_123");
     });
 
-    it("executes env_set when _gateApproved is true", async () => {
+    it("recusa env_set sem gate aprovado — `_gateApproved` é ignorado (fail-closed)", async () => {
       vi.spyOn(connectorsService, "getConnectorRow").mockResolvedValue({
         id: "conn-1",
         userId: "u1",
         provider: "render",
         status: "connected",
         serverUrl: null,
-        accountLogin: "Jadiel Alves",
+        accountLogin: "acc",
         accountLabel: null,
         scopes: [],
         capabilities: [],
@@ -333,13 +341,14 @@ describe("Render Connector & Tools Suite", () => {
         connectedAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      } as never);
       vi.spyOn(connectorsService, "getAccessToken").mockResolvedValue("rnd_tok123");
+      vi.spyOn(gatesService, "createWriteGate").mockResolvedValue({ id: "gate-rnd-pending" } as never);
 
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        text: async () => JSON.stringify([{ key: "SECRET_TOKEN", value: "super_secret_value_123" }]),
+        text: async () => JSON.stringify({ id: "env_1" }),
       } as Response);
 
       const input = JSON.stringify({
@@ -349,13 +358,64 @@ describe("Render Connector & Tools Suite", () => {
         value: "super_secret_value_123",
         _gateApproved: true,
       });
-
       const res = await runRender(input, "u1");
       expect(res.ok).toBe(true);
       if (res.ok) {
-        expect(res.output).toContain("Variável de ambiente definida com sucesso!");
-        expect(res.output).toContain("Valor: `su***23`");
+        expect(res.output).toContain("GATE_PENDING");
       }
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it("executa env_set quando o gate aprovado é consumido no servidor", async () => {
+      vi.spyOn(connectorsService, "getConnectorRow").mockResolvedValue({
+        id: "conn-1",
+        userId: "u1",
+        provider: "render",
+        status: "connected",
+        serverUrl: null,
+        accountLogin: "acc",
+        accountLabel: null,
+        scopes: [],
+        capabilities: [],
+        accessTokenEnc: "enc",
+        refreshTokenEnc: null,
+        tokenExpiresAt: null,
+        oauthState: null,
+        lastError: null,
+        connectedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as never);
+      vi.spyOn(connectorsService, "getAccessToken").mockResolvedValue("rnd_tok123");
+      vi.mocked(gatesService.consumeGateForWrite).mockResolvedValue({
+        ok: true,
+        gate: { id: "gate-rnd-9", status: "executing" },
+      } as never);
+      vi.mocked(gatesService.finalizeGateExecution).mockResolvedValue(null as never);
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: "env_1" }),
+      } as Response);
+
+      const input = JSON.stringify({
+        action: "env_set",
+        service_id: "srv-123",
+        key: "SECRET_TOKEN",
+        value: "super_secret_value_123",
+        _gateId: "gate-rnd-9",
+      });
+      const res = await runRender(input, "u1");
+      expect(res.ok).toBe(true);
+      expect(gatesService.consumeGateForWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gateId: "gate-rnd-9",
+          provider: "render",
+          capability: "env_set",
+          payloadHash: expect.any(String),
+        })
+      );
     });
   });
 });

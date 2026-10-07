@@ -19,6 +19,8 @@ vi.mock("../service", () => ({
 
 vi.mock("../gates", () => ({
   createWriteGate: vi.fn(),
+  consumeGateForWrite: vi.fn(),
+  finalizeGateExecution: vi.fn(),
 }));
 
 describe("Cloudflare Connector & Tools Suite", () => {
@@ -223,6 +225,9 @@ describe("Cloudflare Connector & Tools Suite", () => {
         summary: "Criar registro DNS A sub -> 1.1.1.1",
         payload: {},
         contentPreview: null,
+        payloadHash: null,
+        consumedAt: null,
+        consumedBy: null,
         status: "pending",
         decision: null,
         decidedAt: null,
@@ -249,14 +254,14 @@ describe("Cloudflare Connector & Tools Suite", () => {
       }
     });
 
-    it("executes write action (dns_record_create) when _gateApproved is true", async () => {
+    it("recusa escrita sem gate aprovado — `_gateApproved` é ignorado (fail-closed)", async () => {
       vi.spyOn(connectorsService, "getConnectorRow").mockResolvedValue({
         id: "conn-1",
         userId: "u1",
         provider: "cloudflare",
         status: "connected",
         serverUrl: null,
-        accountLogin: "cf-12345",
+        accountLogin: "acc",
         accountLabel: null,
         scopes: [],
         capabilities: [],
@@ -268,8 +273,9 @@ describe("Cloudflare Connector & Tools Suite", () => {
         connectedAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      } as never);
       vi.spyOn(connectorsService, "getAccessToken").mockResolvedValue("tok123");
+      vi.spyOn(gatesService, "createWriteGate").mockResolvedValue({ id: "gate-cf-pending" } as never);
 
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -289,13 +295,74 @@ describe("Cloudflare Connector & Tools Suite", () => {
         content: "1.1.1.1",
         _gateApproved: true,
       });
+      const res = await runCloudflare(input, "u1");
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.output).toContain("GATE_PENDING");
+      }
+      // Nada foi executado: a flag antiga não autoriza mais nada.
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
 
+    it("executa a escrita quando o gate aprovado é consumido no servidor", async () => {
+      vi.spyOn(connectorsService, "getConnectorRow").mockResolvedValue({
+        id: "conn-1",
+        userId: "u1",
+        provider: "cloudflare",
+        status: "connected",
+        serverUrl: null,
+        accountLogin: "acc",
+        accountLabel: null,
+        scopes: [],
+        capabilities: [],
+        accessTokenEnc: "enc",
+        refreshTokenEnc: null,
+        tokenExpiresAt: null,
+        oauthState: null,
+        lastError: null,
+        connectedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as never);
+      vi.spyOn(connectorsService, "getAccessToken").mockResolvedValue("tok123");
+      vi.mocked(gatesService.consumeGateForWrite).mockResolvedValue({
+        ok: true,
+        gate: { id: "gate-cf-1", status: "executing" },
+      } as never);
+      vi.mocked(gatesService.finalizeGateExecution).mockResolvedValue(null as never);
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            success: true,
+            result: { id: "dns_new_123", type: "A", name: "sub", content: "1.1.1.1" },
+          }),
+      } as Response);
+
+      const input = JSON.stringify({
+        action: "dns_record_create",
+        zone_id: "z1",
+        type: "A",
+        name: "sub",
+        content: "1.1.1.1",
+        _gateId: "gate-cf-1",
+      });
       const res = await runCloudflare(input, "u1");
       expect(res.ok).toBe(true);
       if (res.ok) {
         expect(res.output).toContain("Registro DNS criado com sucesso");
         expect(res.output).toContain("dns_new_123");
       }
+      expect(gatesService.consumeGateForWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gateId: "gate-cf-1",
+          provider: "cloudflare",
+          capability: "dns_record_create",
+          payloadHash: expect.any(String),
+        })
+      );
     });
   });
 });
