@@ -23,6 +23,7 @@
     { "idx": 18, "version": "7", "when": 1728100000000, "tag": "0020_mcp_oauth_clients", "breakpoints": true },
     { "idx": 19, "version": "7", "when": 1791374400000, "tag": "0021_hardening_write_gates", "breakpoints": true },
     { "idx": 20, "version": "7", "when": 1791374460000, "tag": "0022_persistent_guards", "breakpoints": true },
-    { "idx": 21, "version": "7", "when": 1791374520000, "tag": "0023_plan_entitlement_lock", "breakpoints": true }
+    { "idx": 21, "version": "7", "when": 1791374520000, "tag": "0023_plan_entitlement_lock", "breakpoints": true },
+    { "idx": 22, "version": "7", "when": 1791374580000, "tag": "0024_autonomous_platform_foundation", "breakpoints": true }
   ]
 }

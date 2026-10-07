@@ -1,0 +1,31 @@
+name: Authenticated Cockpit E2E
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "URL do ambiente de teste"
+        required: true
+        default: "https://plutao-os.vercel.app"
+        type: string
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - name: Run authenticated smoke
+        env:
+          E2E_BASE_URL: ${{ inputs.base_url }}
+          E2E_EMAIL: ${{ secrets.PLUTAO_E2E_EMAIL }}
+          E2E_PASSWORD: ${{ secrets.PLUTAO_E2E_PASSWORD }}
+        run: npx playwright test e2e/authenticated-cockpit.spec.ts

@@ -410,3 +410,40 @@ export const messages = pgTable(
     index("messages_conversation_created_idx").on(t.conversationId, t.createdAt),
   ]
 );
+
+
+/** Fila durável do runtime autônomo; um job por execution, retomável após lease expirar. */
+export const runtimeJobs = pgTable(
+  "runtime_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    missionId: uuid("mission_id")
+      .notNull()
+      .references(() => missions.id, { onDelete: "cascade" }),
+    executionId: uuid("execution_id")
+      .notNull()
+      .references(() => executions.id, { onDelete: "cascade" })
+      .unique(),
+    kind: text("kind").notNull().default("mission_execution"),
+    status: text("status").notNull().default("PENDING"),
+    payload: jsonb("payload").notNull().default({}),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockToken: text("lock_token"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("runtime_jobs_status_available_idx").on(t.status, t.availableAt),
+    index("runtime_jobs_mission_id_idx").on(t.missionId),
+    index("runtime_jobs_user_id_idx").on(t.userId),
+    index("runtime_jobs_locked_at_idx").on(t.lockedAt),
+  ]
+);

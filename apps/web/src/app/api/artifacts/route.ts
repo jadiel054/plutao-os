@@ -5,6 +5,7 @@ import { artifacts } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
 import { detectArtifactType, suggestArtifactName } from "@/lib/artifacts";
+import { evaluateArtifact } from "@/lib/runtime/tools/artifactEvaluator";
 import { extractTextFromPdf, extractTextFromExcel } from "@/lib/documentParser";
 import { getOwnedMission } from "@/lib/missions/ownership";
 
@@ -110,6 +111,7 @@ export async function POST(req: NextRequest) {
       };
       if (blobUrl) metadata.blobUrl = blobUrl;
       if (dataUrl) metadata.dataUrl = dataUrl;
+      metadata.evaluation = evaluateArtifact({ name: fileName, type: mimeType, content, size: file.size });
 
       const [inserted] = await db
         .insert(artifacts)
@@ -163,7 +165,9 @@ export async function POST(req: NextRequest) {
     if (missionId && !(await getOwnedMission(missionId, user.id))) {
       return NextResponse.json({ error: "Missão não encontrada" }, { status: 404 });
     }
-    const metadata = typeof body.metadata === "object" && body.metadata !== null ? body.metadata : {};
+    const metadata: Record<string, unknown> =
+      typeof body.metadata === "object" && body.metadata !== null ? body.metadata : {};
+    metadata.evaluation = evaluateArtifact({ name, type, content, size });
 
     const [inserted] = await db
       .insert(artifacts)
