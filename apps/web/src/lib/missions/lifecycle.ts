@@ -12,6 +12,11 @@ export const MISSION_STATUSES = [
   "CORRECTING",
   "BLOCKED",
   "COMPLETED",
+  /**
+   * H2 — estado máximo quando o DoD NÃO pode ser provado.
+   * Sem evidência a missão nunca vira COMPLETED: ela encerra como INCONCLUSIVE.
+   */
+  "INCONCLUSIVE",
   "CANCELLED",
   "FAILED",
 ] as const;
@@ -20,6 +25,7 @@ export type MissionStatus = (typeof MISSION_STATUSES)[number];
 
 export const TERMINAL_STATUSES: ReadonlySet<MissionStatus> = new Set([
   "COMPLETED",
+  "INCONCLUSIVE",
   "CANCELLED",
   "FAILED",
 ]);
@@ -30,10 +36,11 @@ export const MISSION_TRANSITIONS: Record<MissionStatus, readonly MissionStatus[]
   UNDERSTANDING: ["PLANNING", "BLOCKED", "CANCELLED", "FAILED"],
   PLANNING: ["EXECUTING", "BLOCKED", "CANCELLED", "FAILED"],
   EXECUTING: ["VERIFYING", "CORRECTING", "BLOCKED", "CANCELLED", "FAILED"],
-  VERIFYING: ["COMPLETED", "CORRECTING", "BLOCKED", "FAILED"],
-  CORRECTING: ["EXECUTING", "VERIFYING", "BLOCKED", "FAILED", "CANCELLED"],
+  VERIFYING: ["COMPLETED", "INCONCLUSIVE", "CORRECTING", "BLOCKED", "FAILED"],
+  CORRECTING: ["EXECUTING", "VERIFYING", "INCONCLUSIVE", "BLOCKED", "FAILED", "CANCELLED"],
   BLOCKED: ["UNDERSTANDING", "PLANNING", "EXECUTING", "CANCELLED", "FAILED"],
   COMPLETED: [],
+  INCONCLUSIVE: [],
   CANCELLED: [],
   FAILED: [],
 };
