@@ -8,8 +8,8 @@
 - Region: São Paulo
 - PostgreSQL 17
 - Database: `plutao`
-- Schema: baseline 8 tables applied and verified (`0000_baseline.sql`)
-- Additive: `executions` (via `0001` / runtime ensure), `missions.idempotency_key` + unique index (`0002`) e os campos/index de consumo único de `write_gates` (`0021_hardening_write_gates` — conferidos no branch `main`)
+- Schema: objetos do baseline e adições foram relatados pelo operador; a presença física de cada tag ainda precisa de inventário read-only versionado.
+- Additive: os objetos de `executions`, `missions.idempotency_key` e hardening de `write_gates` foram observados/documentados, mas o journal Drizzle não é prova de aplicação.
 
 ## Connection strategy (obrigatório)
 
@@ -32,8 +32,11 @@ curl -s http://localhost:3000/api/health
 
 ## Migrations policy
 
-- Baseline is already on Neon — **do not re-run** `0000_baseline.sql` on production.
-- Apply additive migrations (`0001`, `0002`, `0021`) with **direct** URL only when approved:
+- **Não executar `drizzle-kit migrate`, SQL ou qualquer migration em produção sem aprovação explícita.** O script agora falha se `DATABASE_URL_UNPOOLED` não estiver definida e nunca cai para a URL pooled.
+- Antes de qualquer baseline, executar somente inventário read-only na branch de produção: `to_regclass('drizzle.__drizzle_migrations')`, tabelas/colunas/índices de cada migration e hashes/`folderMillis` do journal versionado. Guardar a saída bruta em artefato revisável.
+- Se os objetos comprovarem uma sequência contígua, propor separadamente um baseline do ledger Drizzle: criar a tabela de controle compatível e registrar somente hashes/`created_at` das migrations já comprovadamente refletidas, sem reexecutar os SQL. Nunca registrar apenas `0021` se tags anteriores estiverem sem prova.
+- Se houver lacunas, parar e reconciliar em branch Neon/staging; não habilitar migrate automático.
+- Somente após revisão e confirmação explícita, aplicar migrations aditivas (`0001`, `0002`, `0021`) com **direct** URL:
 
 ```bash
 export DATABASE_URL_UNPOOLED="postgresql://...@...neon.tech/plutao?sslmode=require"
@@ -41,7 +44,7 @@ npm run migrate -w @plutao/db
 ```
 
 - `0002_missions_idempotency_key` is required for production atomic idempotency of Pending Intents.
-- `0021_hardening_write_gates` is idempotent; it adds `payload_hash`, `consumed_at`, `consumed_by` and `write_gates_status_consumed_idx`. These objects already existed in the operator-verified Neon branch during the 2026-10-07 audit, so no duplicate/manual SQL was necessary in this run.
+- `0021_hardening_write_gates` is idempotent; it adds `payload_hash`, `consumed_at`, `consumed_by` and `write_gates_status_consumed_idx`. A auditoria anterior observou esses objetos, mas a aplicação e o ledger devem ser confirmados pelo inventário acima.
 - Future schema changes go through reviewed SQL + direct URL only.
 
 ## Vercel

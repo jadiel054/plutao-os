@@ -42,11 +42,16 @@ MCP_TOKEN_SECRET=   # openssl rand -hex 32
 PLUTAO_MCP_API_KEY=
 PLUTAO_MCP_USER_ID=
 
-# Obrigatório em produção: URIs HTTPS completas e exatas, separados por vírgula.
-# O caminho também precisa ser idêntico; entrada somente com origin não é
-# wildcard. Vazio recusa todo HTTPS (localhost em HTTP continua permitido só
-# para desenvolvimento).
-MCP_OAUTH_REDIRECT_ALLOWLIST=https://claude.ai/api/mcp/callback,https://cursor.sh/oauth/callback
+# Obrigatório para callbacks HTTPS próprios: URIs completas e exatas,
+# incluindo query string, separadas por vírgula. Vazio recusa todo HTTPS.
+#
+# Claude documenta callback loopback para clientes hospedados/Desktop:
+# http://localhost/callback e http://127.0.0.1/callback. O servidor aceita
+# esses callbacks em qualquer porta, mas exige o caminho /callback e rejeita
+# fragmentos. Não invente https://claude.ai/api/mcp/callback nem
+# /api/mcp/auth_callback: não são rotas do Plutão nem callbacks normativos
+# da documentação atual do Claude.
+MCP_OAUTH_REDIRECT_ALLOWLIST=https://cliente.example/oauth/callback?client=plutao
 ```
 
 Redeploy após salvar. **Não** use token na query string.
@@ -59,7 +64,7 @@ Redeploy após salvar. **Não** use token na query string.
    `WWW-Authenticate: Bearer resource_metadata="https://…/.well-known/oauth-protected-resource"`
 2. Cliente lê PRM → `authorization_servers: [APP_URL]`
 3. Cliente lê AS metadata → authorize + token endpoints; `scopes_supported: mcp:read mcp:write`
-4. Browser: `/api/oauth/authorize?…&scope=mcp:read%20mcp:write&code_challenge=…`
+4. Browser: `/api/oauth/authorize?…&scope=mcp:read%20mcp:write&code_challenge=…&code_challenge_method=S256`
 5. Usuário loga no Plutão → **Autorizar** no consent (scopes listados)
 6. Redirect com `?code=` → cliente troca em `/api/oauth/token` com `code_verifier`
 7. Cliente usa `Authorization: Bearer <access_token>` nas tools
@@ -88,7 +93,7 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 - [x] Bearer only no resource server
 - [x] PKCE S256
 - [x] Consentimento explícito (conta, client_id, redirect_uri, scopes)
-- [x] Redirect HTTPS fail-closed: URI completa (origin + caminho) exata e allowlist obrigatória em produção
+- [x] Redirect fail-closed: URI HTTPS completa (origin + caminho + query) exata; loopback HTTP restrito a `/callback`
 - [x] Token curto + audience fixa no MCP
 - [x] Sem tokens de conectores nas respostas
 - [x] 401 com `resource_metadata` (RFC 9728)

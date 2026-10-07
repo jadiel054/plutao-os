@@ -13,7 +13,7 @@ afterEach(() => {
 describe("parseOAuthClientRegistration", () => {
   it("uses public-client defaults and returns the requested callback", () => {
     const result = parseOAuthClientRegistration({
-      redirect_uris: ["http://127.0.0.1:43127/oauth/callback"],
+      redirect_uris: ["http://127.0.0.1:43127/callback"],
       client_name: "Manus",
     });
 
@@ -21,7 +21,7 @@ describe("parseOAuthClientRegistration", () => {
       ok: true,
       metadata: {
         clientName: "Manus",
-        redirectUris: ["http://127.0.0.1:43127/oauth/callback"],
+        redirectUris: ["http://127.0.0.1:43127/callback"],
         grantTypes: ["authorization_code", "refresh_token"],
         responseTypes: ["code"],
         tokenEndpointAuthMethod: "none",
