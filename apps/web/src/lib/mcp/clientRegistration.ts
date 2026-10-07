@@ -8,6 +8,9 @@ export type OAuthClientRegistration = {
   tokenEndpointAuthMethod: "none";
 };
 
+export type OAuthClientPolicy = Pick<OAuthClientRegistration, "redirectUris" | "grantTypes">;
+export const DYNAMIC_OAUTH_CLIENT_ID_PREFIX = "prt_client_";
+
 type RegistrationResult =
   | { ok: true; metadata: OAuthClientRegistration }
   | { ok: false; error: string };
@@ -15,6 +18,18 @@ type RegistrationResult =
 const MAX_REDIRECT_URIS = 32;
 const MAX_URI_LENGTH = 2048;
 const SUPPORTED_GRANTS = new Set(["authorization_code", "refresh_token"]);
+
+export function isOAuthRedirectRegistered(
+  client: OAuthClientPolicy | null,
+  redirectUri: string,
+  clientId: string
+): boolean {
+  return client ? client.redirectUris.includes(redirectUri) : !clientId.startsWith(DYNAMIC_OAUTH_CLIENT_ID_PREFIX);
+}
+
+export function isOAuthGrantRegistered(client: OAuthClientPolicy | null, grantType: string, clientId: string): boolean {
+  return client ? client.grantTypes.includes(grantType) : !clientId.startsWith(DYNAMIC_OAUTH_CLIENT_ID_PREFIX);
+}
 
 function isValidRedirectUri(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_URI_LENGTH) return false;

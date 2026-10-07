@@ -5,6 +5,7 @@ import {
   normalizeScopes,
 } from "@/lib/mcp/tokens";
 import { findOAuthClient } from "@/lib/mcp/grants";
+import { isOAuthRedirectRegistered } from "@/lib/mcp/clientRegistration";
 
 export const runtime = "nodejs";
 
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "invalid_request", error_description: "redirect_uri não permitido" }, { status: 400 });
   }
   const registeredClient = await findOAuthClient(clientId);
-  if (registeredClient && !registeredClient.redirectUris.includes(redirectUri)) {
+  if (!isOAuthRedirectRegistered(registeredClient, redirectUri, clientId)) {
     return NextResponse.json({ error: "invalid_request", error_description: "redirect_uri não registrado para este client_id" }, { status: 400 });
   }
   if (!codeChallenge || codeChallengeMethod !== "S256") {

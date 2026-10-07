@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { parseOAuthClientRegistration } from "@/lib/mcp/clientRegistration";
+import {
+  DYNAMIC_OAUTH_CLIENT_ID_PREFIX,
+  isOAuthGrantRegistered,
+  isOAuthRedirectRegistered,
+  parseOAuthClientRegistration,
+} from "@/lib/mcp/clientRegistration";
 
 afterEach(() => {
   delete process.env.MCP_OAUTH_REDIRECT_ALLOWLIST;
@@ -60,5 +65,31 @@ describe("parseOAuthClientRegistration", () => {
       redirect_uris: ["http://localhost:43127/callback"],
       grant_types: ["refresh_token"],
     })).toMatchObject({ ok: false });
+  });
+});
+
+describe("OAuth client policy", () => {
+  const registeredClient = {
+    redirectUris: ["https://trusted.example/callback"],
+    grantTypes: ["authorization_code"],
+  };
+
+  it("rejects redirect URIs not registered for the client", () => {
+    expect(isOAuthRedirectRegistered(registeredClient, "https://attacker.example/callback", "registered-client")).toBe(false);
+  });
+
+  it("rejects grants not registered for the client", () => {
+    expect(isOAuthGrantRegistered(registeredClient, "refresh_token", "registered-client")).toBe(false);
+  });
+
+  it("preserves the previous behavior for clients absent from the registry", () => {
+    expect(isOAuthRedirectRegistered(null, "https://legacy.example/callback", "legacy-client")).toBe(true);
+    expect(isOAuthGrantRegistered(null, "refresh_token", "legacy-client")).toBe(true);
+  });
+
+  it("fails closed if a dynamically generated client id cannot be found", () => {
+    const missingDynamicId = `${DYNAMIC_OAUTH_CLIENT_ID_PREFIX}unknown`;
+    expect(isOAuthRedirectRegistered(null, "https://attacker.example/callback", missingDynamicId)).toBe(false);
+    expect(isOAuthGrantRegistered(null, "refresh_token", missingDynamicId)).toBe(false);
   });
 });

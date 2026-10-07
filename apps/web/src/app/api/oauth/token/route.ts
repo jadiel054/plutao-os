@@ -15,6 +15,7 @@ import {
   newRefreshTokenPlain,
   touchGrant,
 } from "@/lib/mcp/grants";
+import { isOAuthGrantRegistered } from "@/lib/mcp/clientRegistration";
 
 export const runtime = "nodejs";
 
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
       return tokenError("invalid_request", "refresh_token e client_id obrigatórios");
     }
     const registeredClient = await findOAuthClient(clientId);
-    if (registeredClient && !registeredClient.grantTypes.includes("refresh_token")) {
+    if (!isOAuthGrantRegistered(registeredClient, "refresh_token", clientId)) {
       return tokenError("unsupported_grant_type", "refresh_token não registrado para este cliente");
     }
     const grant = await findGrantByRefreshToken(refreshToken);
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
     return tokenError("invalid_request", "code, redirect_uri, client_id e code_verifier obrigatórios");
   }
   const registeredClient = await findOAuthClient(clientId);
-  if (registeredClient && !registeredClient.grantTypes.includes("authorization_code")) {
+  if (!isOAuthGrantRegistered(registeredClient, "authorization_code", clientId)) {
     return tokenError("unsupported_grant_type", "authorization_code não registrado para este cliente");
   }
 
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest) {
     scope: consumed.scope,
     grantId: consumed.grantId,
   });
-  const supportsRefresh = !registeredClient || registeredClient.grantTypes.includes("refresh_token");
+  const supportsRefresh = isOAuthGrantRegistered(registeredClient, "refresh_token", clientId);
   const refreshPlain = supportsRefresh ? newRefreshTokenPlain() : undefined;
   if (refreshPlain) await attachRefreshToken(consumed.grantId, refreshPlain, refreshExpiresAt());
 

@@ -11,3 +11,13 @@ CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
 );
 CREATE INDEX IF NOT EXISTS mcp_oauth_clients_created_at_idx
   ON mcp_oauth_clients (created_at);
+
+-- Fixed UTC-hour buckets use only a keyed IP hash and never store the raw address.
+CREATE TABLE IF NOT EXISTS mcp_oauth_registration_limits (
+  ip_hash text NOT NULL,
+  window_start timestamptz NOT NULL,
+  attempts integer NOT NULL DEFAULT 1 CHECK (attempts > 0),
+  PRIMARY KEY (ip_hash, window_start)
+);
+CREATE INDEX IF NOT EXISTS mcp_oauth_registration_limits_window_start_idx
+  ON mcp_oauth_registration_limits (window_start);

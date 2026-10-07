@@ -16,10 +16,9 @@ Reflects the Neon database **plutao** as of 2026-09-09:
 | `0002_missions_idempotency_key` | Column `missions.idempotency_key` + UNIQUE `(user_id, idempotency_key)` | Required for atomic Pending Intent idempotency. Safe (`IF NOT EXISTS`). **Apply on production Neon with direct URL.** |
 | `0003_artifacts` | Artifacts table | Mission/workspace files metadata |
 | `0004_connectors` | MCP/OAuth `connectors` table | Tokens encrypted at app layer. **Required before GitHub OAuth works.** See `docs/CONECTORES_M5.md`. |
+| `0020_mcp_oauth_clients` | MCP OAuth dynamic clients + persistent IP-hash rate limit | Apply before deploying `/api/oauth/register`; old manual client IDs remain supported. |
 
 Journal: `meta/_journal.json` lists all applied and pending migration tags.
-
-| `0020_mcp_oauth_clients` | OAuth 2.0 Dynamic Client Registration for MCP (RFC 7591) | Apply before deploying the dynamic registration endpoint. Existing manually configured client IDs remain supported. |
 
 ## Operator procedure (existing Neon)
 

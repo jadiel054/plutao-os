@@ -6,6 +6,7 @@ import {
   normalizeScopes,
 } from "@/lib/mcp/tokens";
 import { createGrant, findOAuthClient, storeAuthCode } from "@/lib/mcp/grants";
+import { isOAuthRedirectRegistered } from "@/lib/mcp/clientRegistration";
 
 export const runtime = "nodejs";
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_redirect_uri" }, { status: 400 });
   }
   const registeredClient = await findOAuthClient(clientId);
-  if (registeredClient && !registeredClient.redirectUris.includes(redirectUri)) {
+  if (!isOAuthRedirectRegistered(registeredClient, redirectUri, clientId)) {
     return NextResponse.json({ error: "invalid_redirect_uri" }, { status: 400 });
   }
 
