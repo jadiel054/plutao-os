@@ -11,14 +11,14 @@ vi.mock("@/lib/auth/session", () => ({ getSessionUser: mocks.getSessionUser }));
 
 import { GET } from "../route";
 
-function authorizeRequest(redirectUri: string, clientId = "test-client") {
+function authorizeRequest(redirectUri: string, clientId = "test-client", includeMethod = true) {
   const query = new URLSearchParams({
     response_type: "code",
     client_id: clientId,
     redirect_uri: redirectUri,
     code_challenge: "s256-challenge",
-    code_challenge_method: "S256",
   });
+  if (includeMethod) query.set("code_challenge_method", "S256");
   return new NextRequest(`https://plutao.test/api/oauth/authorize?${query.toString()}`);
 }
 
@@ -53,5 +53,14 @@ describe("GET /api/oauth/authorize client registration checks", () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toContain("/oauth/consent?");
+  });
+
+  it("rejects PKCE when code_challenge_method is omitted", async () => {
+    mocks.findOAuthClient.mockResolvedValue(null);
+
+    const response = await GET(authorizeRequest("https://legacy.example/callback", "legacy-client-id", false));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_request" });
   });
 });
