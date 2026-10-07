@@ -310,9 +310,17 @@ export async function supabaseTableRead(
   }
 
   // Fallback: Management API query
+  // H4 — não existe bind de parâmetros no endpoint de Management API usado aqui.
+  // Nunca reutilizar o `where` bruto como SQL depois de uma falha do PostgREST;
+  // falhar fechado preserva a garantia de que filtros só chegam pela DSL validada.
+  if (filterParse.filters.length > 0) {
+    return {
+      ok: false,
+      error: "Leitura com filtros não pôde usar PostgREST; fallback SQL desabilitado por segurança.",
+    };
+  }
   try {
-    const sqlWhere = where ? ` WHERE ${where}` : "";
-    const query = `SELECT ${select} FROM public.${cleanTable}${sqlWhere} LIMIT ${limit};`;
+    const query = `SELECT ${select} FROM public.${cleanTable} LIMIT ${limit};`;
 
     const res = await fetchWithTimeout(`https://api.supabase.com/v1/projects/${encodeURIComponent(cleanRef)}/database/query`, {
       method: "POST",

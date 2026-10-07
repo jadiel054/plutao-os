@@ -14,7 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
-import { agents, executions, missions, tasks, users } from "@plutao/db";
+import { executions, missions, tasks, users } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { getOwnedExecution } from "@/lib/runtime/service";
@@ -26,6 +26,8 @@ import { resolveCloudModelConfig } from "./resolveConfig";
 import { buildSystemPrompt } from "./missionPrompt";
 import { callModelWithRetry, LocalModelCallError, type ModelProviderLike } from "./modelCall";
 import { loadConnectorRuntime } from "@/lib/chat/connectorRuntime";
+import { sanitizeText } from "@/lib/security/sanitize";
+import { loadAgentIdentity } from "@/lib/agente/identity";
 import type { ModelConfig, ModelMessage, ModelStepResult } from "./types";
 import type { ModelMode } from "@plutao/domain";
 
@@ -123,16 +125,8 @@ export async function runModelStep(
   const mission = missionRows[0];
   if (!mission) return { error: "NOT_FOUND" as const };
 
-  const agentRows = await db
-    .select({
-      name: agents.name,
-      identity: agents.identity,
-      personality: agents.personality,
-    })
-    .from(agents)
-    .where(eq(agents.userId, userId))
-    .limit(1);
-  const agent = agentRows[0] ?? null;
+  // Identidade canônica compartilhada com chat/MCP; falha de DB cai em Nix default.
+  const agent = await loadAgentIdentity(userId);
 
   // Resolve users.preferredModel → rota de catálogo (resolveCloudModelConfig)
   let cloudConfig: ModelConfig | undefined;
@@ -222,7 +216,7 @@ export async function runModelStep(
       const errItem: EvidenceItem = {
         id: errEvidenceId,
         type: "model_error",
-        content: ("MODEL_CALL_FAILED: " + summary).slice(0, 600),
+        content: sanitizeText("MODEL_CALL_FAILED: " + summary).slice(0, 600),
         source: EVIDENCE_MODEL_SOURCE,
         taskId: execution.currentTaskId,
         missionId: execution.missionId,
@@ -258,7 +252,7 @@ export async function runModelStep(
   const evidenceItem: EvidenceItem = {
     id: evidenceId,
     type: "model_step",
-    content: modelResult.content || "(empty model response)",
+    content: sanitizeText(modelResult.content || "(empty model response)"),
     source: EVIDENCE_MODEL_SOURCE,
     taskId: execution.currentTaskId,
     missionId: execution.missionId,

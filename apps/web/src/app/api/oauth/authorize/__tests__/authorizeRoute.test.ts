@@ -25,7 +25,7 @@ function authorizeRequest(redirectUri: string, clientId = "test-client") {
 describe("GET /api/oauth/authorize client registration checks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete process.env.MCP_OAUTH_REDIRECT_ALLOWLIST;
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://legacy.example/callback";
   });
 
   afterEach(() => {

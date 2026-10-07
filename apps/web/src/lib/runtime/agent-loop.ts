@@ -23,7 +23,7 @@
  * - Não faz retry automático em erros
  */
 
-import { getOwnedExecution, writeCheckpoint } from "./service";
+import { completeExecution, getOwnedExecution, writeCheckpoint } from "./service";
 import { RECOVERABLE, type ExecutionStatus } from "./types";
 import { runModelStep } from "./model/step";
 import { getModelConfig } from "./model/config";
@@ -33,6 +33,8 @@ import type { ModelMessage, ModelStepResult } from "./model/types";
 export const MAX_ITERATIONS = 20;
 /** H6 — teto acumulado por execution (somando retomadas). */
 export const MAX_TOTAL_ITERATIONS = 60;
+/** H6 — teto acumulado de tokens reportados pelo provedor por execution. */
+export const MAX_TOTAL_TOKENS = 120_000;
 /** H6 — teto de tempo de parede do loop dentro de um único request. */
 export const MAX_LOOP_DURATION_MS = 240_000;
 /** H6 — quantas vezes o mesmo output pode se repetir antes de parar. */
@@ -154,6 +156,22 @@ function readIterationsUsed(checkpoint: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+/** Soma apenas contadores numéricos confiáveis; provedores locais podem omitir usage. */
+export function modelUsageTokens(modelResult: ModelStepResult): number {
+  const prompt = modelResult.usage?.promptTokens;
+  const completion = modelResult.usage?.completionTokens;
+  const total =
+    (typeof prompt === "number" && Number.isFinite(prompt) && prompt > 0 ? prompt : 0) +
+    (typeof completion === "number" && Number.isFinite(completion) && completion > 0 ? completion : 0);
+  return Math.floor(total);
+}
+
+function readTokensUsed(checkpoint: unknown): number {
+  if (!checkpoint || typeof checkpoint !== "object") return 0;
+  const value = (checkpoint as { tokensUsed?: unknown }).tokensUsed;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
 export async function runAgentLoop(
   executionId: string,
   userId: string,
@@ -220,6 +238,21 @@ export async function runAgentLoop(
     };
   }
 
+  const tokensUsedBefore = readTokensUsed(execution.checkpoint);
+  let totalTokens = tokensUsedBefore;
+  if (tokensUsedBefore >= MAX_TOTAL_TOKENS) {
+    return {
+      ok: false,
+      executionId,
+      iterations: 0,
+      evidenceIds: [],
+      finalStatus: initialStatus,
+      stopReason: "TOKEN_BUDGET_EXCEEDED",
+      error: `Orçamento acumulado de tokens esgotado (${tokensUsedBefore}/${MAX_TOTAL_TOKENS}).`,
+      details,
+    };
+  }
+
   const effectiveMax = Math.min(
     Math.max(1, maxIterations),
     MAX_TOTAL_ITERATIONS - usedBefore
@@ -238,6 +271,10 @@ export async function runAgentLoop(
     // H6 — teto de tempo de parede.
     if (Date.now() - startedAt > MAX_LOOP_DURATION_MS) {
       stopReason = "TIME_BUDGET_EXCEEDED";
+      break;
+    }
+    if (totalTokens >= MAX_TOTAL_TOKENS) {
+      stopReason = "TOKEN_BUDGET_EXCEEDED";
       break;
     }
 
@@ -277,6 +314,22 @@ export async function runAgentLoop(
     }
 
     const hasProposal = hasToolProposal(stepResult.model);
+
+    // A chamada que excede o teto é registrada como evidência, mas não dispara
+    // a próxima tool. Isso impede que um modelo caro continue gastando tokens.
+    totalTokens += modelUsageTokens(stepResult.model);
+    if (totalTokens > MAX_TOTAL_TOKENS) {
+      stopReason = "TOKEN_BUDGET_EXCEEDED";
+      details.push({
+        iteration,
+        modelResult: stepResult.model,
+        toolDispatch: null,
+        evidenceId: stepResult.evidence?.id || null,
+        stopped: true,
+        stopReason,
+      });
+      break;
+    }
 
     if (!hasProposal) {
       stopReason = "NO_TOOL_PROPOSAL";
@@ -390,25 +443,46 @@ export async function runAgentLoop(
   totalUsed += iteration;
 
   // H6 — persiste o consumo acumulado (sobrevive a retomadas).
+  let checkpointPersisted = true;
   try {
-    await writeCheckpoint(executionId, userId, { iterationsUsed: totalUsed });
+    const checkpointResult = await writeCheckpoint(executionId, userId, {
+      iterationsUsed: totalUsed,
+      tokensUsed: totalTokens,
+    });
+    if ("error" in checkpointResult) {
+      throw new Error(`CHECKPOINT_${checkpointResult.error}`);
+    }
   } catch (e) {
+    checkpointPersisted = false;
     console.error(
-      "[agent-loop] falha ao persistir iterationsUsed",
+      "[agent-loop] falha ao persistir orçamento acumulado",
       e instanceof Error ? e.message : String(e)
     );
+    try {
+      await completeExecution(
+        executionId,
+        userId,
+        "FAILED",
+        "BUDGET_PERSISTENCE_FAILED: orçamento do agent loop não pôde ser persistido"
+      );
+    } catch (markFailedError) {
+      console.error(
+        "[agent-loop] não foi possível marcar execução como FAILED",
+        markFailedError instanceof Error ? markFailedError.message : String(markFailedError)
+      );
+    }
   }
 
   const finalExec = await getOwnedExecution(executionId, userId);
   const finalStatus = finalExec?.status as ExecutionStatus;
 
   return {
-    ok: !stopReason || SOFT_STOP_REASONS.some((r) => stopReason!.startsWith(r)),
+    ok: checkpointPersisted && (!stopReason || SOFT_STOP_REASONS.some((r) => stopReason!.startsWith(r))),
     executionId,
     iterations: iteration,
     evidenceIds,
     finalStatus,
-    stopReason: stopReason || "MAX_ITERATIONS_REACHED",
+    stopReason: checkpointPersisted ? (stopReason || "MAX_ITERATIONS_REACHED") : "BUDGET_PERSISTENCE_FAILED",
     details,
   };
 }

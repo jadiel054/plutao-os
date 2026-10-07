@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { missions } from "@plutao/db";
 import { eq, and } from "drizzle-orm";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
+import { sanitizeText } from "@/lib/security/sanitize";
 import type { ConnectorProviderId } from "@plutao/domain";
 
 export type GenericToolTrace = {
@@ -203,7 +204,7 @@ Pergunte objetivamente qual recurso o usuário deseja consultar, apresentando as
         const evidenceItem: EvidenceItem = {
           id: trace.id,
           type: res.ok ? "tool_result" : "tool_error",
-          content: `tool:${manifest.provider} capability:${capability.name} → ${trace.output}`,
+          content: sanitizeText(`tool:${manifest.provider} capability:${capability.name} → ${trace.output}`),
           source: "tool_dispatcher",
           taskId: null,
           missionId: opts.missionId,

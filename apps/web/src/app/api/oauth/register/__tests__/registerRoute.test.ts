@@ -31,6 +31,7 @@ describe("POST /api/oauth/register", () => {
     vi.clearAllMocks();
     mocks.hashOAuthRegistrationIp.mockReturnValue("ip-hash");
     mocks.consumeOAuthRegistrationQuota.mockResolvedValue(true);
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://client.example/callback";
   });
 
   afterEach(() => {

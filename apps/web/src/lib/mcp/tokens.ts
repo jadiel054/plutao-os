@@ -211,8 +211,8 @@ export function normalizeScopes(requested: string | null | undefined): string {
  * comparação era por `startsWith`, então `https://app.exemplo.com.evil.io`
  * passava por começar com `https://app.exemplo.com`. Agora:
  *  - allowlist vazia FALHA FECHADO (só localhost em http é mantido);
- *  - a comparação é por ORIGIN exato (e caminho exato quando a entrada
- *    da allowlist declara um caminho).
+ *  - a comparação é por origin E caminho exatos; uma entrada somente com
+ *    origin não autoriza callbacks arbitrários.
  */
 export function isRedirectUriAllowed(uri: string): boolean {
   let parsed: URL;
@@ -241,10 +241,10 @@ export function isRedirectUriAllowed(uri: string): boolean {
       return false;
     }
     if (allowed.origin !== parsed.origin) return false;
-    // Entrada com caminho próprio exige caminho idêntico.
-    const allowedPath = allowed.pathname === "/" ? "" : allowed.pathname.replace(/\/$/, "");
-    if (!allowedPath) return true;
-    const targetPath = parsed.pathname.replace(/\/$/, "");
+    // Toda entrada HTTPS precisa declarar o callback completo; `/` não é
+    // wildcard e só autoriza o path raiz explicitamente.
+    const allowedPath = allowed.pathname.replace(/\/$/, "") || "/";
+    const targetPath = parsed.pathname.replace(/\/$/, "") || "/";
     return targetPath === allowedPath;
   });
 }

@@ -3,6 +3,7 @@ import { missions } from "@plutao/db";
 import { eq, and } from "drizzle-orm";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { runExportTool, type ExportResult } from "@/lib/runtime/tools/export";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 export type ExportToolTrace = {
   id: string;
@@ -176,7 +177,7 @@ export async function detectAndExecuteExportTool(opts: {
         const evidenceItem: EvidenceItem = {
           id: trace.id,
           type: res.ok ? "tool_result" : "tool_error",
-          content: `tool:${capability} → ${trace.output}`,
+          content: sanitizeText(`tool:${capability} → ${trace.output}`),
           source: "tool_dispatcher",
           taskId: null,
           missionId: opts.missionId,

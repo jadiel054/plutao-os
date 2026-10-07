@@ -47,4 +47,21 @@ describe("persistMessagePair events (G2 wiring)", () => {
     await persistMessagePair({} as never, null, "a", "b");
     expect(emitUserMessage).not.toHaveBeenCalled();
   });
+
+  it("sanitiza credenciais antes de persistir mensagens", async () => {
+    const db = {
+      insert: () => ({ values: insertValues }),
+      update: () => ({ set: updateSet }),
+    };
+    const secret = "sk_live_TESTSECRET123456";
+
+    await persistMessagePair(db as never, "conv-1", `chave ${secret}`, `retorno ${secret}`);
+    await new Promise((r) => setTimeout(r, 30));
+
+    const insertedCalls = insertValues.mock.calls as unknown as Array<[Array<{ content: string }>]>;
+    const inserted = insertedCalls.at(-1)?.[0];
+    expect(JSON.stringify(inserted)).not.toContain(secret);
+    expect(emitUserMessage).toHaveBeenCalledWith("conv-1", expect.not.stringContaining(secret));
+    expect(emitAssistantMessage).toHaveBeenCalledWith("conv-1", expect.not.stringContaining(secret));
+  });
 });

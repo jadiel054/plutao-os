@@ -42,8 +42,11 @@ MCP_TOKEN_SECRET=   # openssl rand -hex 32
 PLUTAO_MCP_API_KEY=
 PLUTAO_MCP_USER_ID=
 
-# Opcional: restringir redirect_uri (prefixos separados por vírgula)
-MCP_OAUTH_REDIRECT_ALLOWLIST=
+# Obrigatório em produção: URIs HTTPS completas e exatas, separados por vírgula.
+# O caminho também precisa ser idêntico; entrada somente com origin não é
+# wildcard. Vazio recusa todo HTTPS (localhost em HTTP continua permitido só
+# para desenvolvimento).
+MCP_OAUTH_REDIRECT_ALLOWLIST=https://claude.ai/api/mcp/callback,https://cursor.sh/oauth/callback
 ```
 
 Redeploy após salvar. **Não** use token na query string.
@@ -63,7 +66,7 @@ Redeploy após salvar. **Não** use token na query string.
 
 **PKCE S256 é obrigatório.** Access token: ~1h, `aud` = URL do MCP.
 
-Clientes MCP compatíveis com registro dinâmico chamam `POST /api/oauth/register` com `redirect_uris`; não precisam de `client_id` pré-criado. O servidor devolve um `client_id` e restringe cada cliente às URIs registradas. Clientes legados configurados manualmente continuam aceitos pelo fluxo OAuth anterior.
+Clientes MCP compatíveis com registro dinâmico chamam `POST /api/oauth/register` com `redirect_uris`; não precisam de `client_id` pré-criado. O servidor devolve um `client_id` e restringe cada cliente às URIs registradas. Clientes legados configurados manualmente continuam aceitos pelo fluxo OAuth anterior **somente quando a URI também passa pela allowlist exata**; não existe fallback HTTPS aberto.
 
 ---
 
@@ -85,6 +88,7 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 - [x] Bearer only no resource server
 - [x] PKCE S256
 - [x] Consentimento explícito (conta, client_id, redirect_uri, scopes)
+- [x] Redirect HTTPS fail-closed: URI completa (origin + caminho) exata e allowlist obrigatória em produção
 - [x] Token curto + audience fixa no MCP
 - [x] Sem tokens de conectores nas respostas
 - [x] 401 com `resource_metadata` (RFC 9728)

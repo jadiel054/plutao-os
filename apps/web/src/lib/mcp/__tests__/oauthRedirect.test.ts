@@ -34,11 +34,11 @@ describe("H5(a) — validação de redirect_uri", () => {
     expect(isRedirectUriAllowed("https://claude.ai/api/mcp/callback")).toBe(true);
   });
 
-  it("prefixo parecido NÃO é aceito (comparação por origin exato)", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://app.exemplo.com";
+  it("prefixo parecido e caminho diferente NÃO são aceitos", () => {
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://app.exemplo.com/callback";
     expect(isRedirectUriAllowed("https://app.exemplo.com.evil.io/callback")).toBe(false);
     expect(isRedirectUriAllowed("https://app.exemplo.com.br/callback")).toBe(false);
-    // o próprio origin continua válido
+    expect(isRedirectUriAllowed("https://app.exemplo.com/outro")).toBe(false);
     expect(isRedirectUriAllowed("https://app.exemplo.com/callback")).toBe(true);
   });
 
@@ -49,7 +49,7 @@ describe("H5(a) — validação de redirect_uri", () => {
   });
 
   it("protocolos e formatos perigosos são recusados", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io";
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io/cb";
     expect(isRedirectUriAllowed("javascript:alert(1)")).toBe(false);
     expect(isRedirectUriAllowed("data:text/html,<script>1</script>")).toBe(false);
     expect(isRedirectUriAllowed("ftp://cliente.io/cb")).toBe(false);

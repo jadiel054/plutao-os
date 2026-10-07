@@ -11,6 +11,8 @@
  * UUID ou um rótulo interno seguro (`[A-Za-z0-9_-]{1,64}`). Qualquer valor que
  * possa carregar separador de caminho, `..` ou byte estranho é REJEITADO com
  * `SandboxSecurityError("INVALID_INPUT")` em vez de ser silenciosamente "limpo".
+ * Operações autenticadas também não podem omitir executionId: não existe fallback
+ * `userId__default` para requests de usuário.
  */
 
 import {
@@ -36,6 +38,12 @@ export function sandboxNamespace(
   executionId?: string | null
 ): string {
   const user = userId ? assertSandboxUserId(userId) : "anonymous";
+  if (userId && !executionId) {
+    throw new SandboxSecurityError(
+      "INVALID_INPUT",
+      "executionId é obrigatório para operações autenticadas"
+    );
+  }
   const exec = executionId ? assertSandboxExecutionId(executionId) : "default";
   return `${user}__${exec}`;
 }

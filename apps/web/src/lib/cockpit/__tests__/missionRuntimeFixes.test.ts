@@ -42,6 +42,9 @@ const mockMission = {
 describe("Mission Runtime Fixes End-to-End Tests", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(runtimeService, "writeCheckpoint").mockResolvedValue({
+      execution: mockExecution,
+    });
   });
 
   describe("Bug 1 — Read mission & model call error evidence", () => {
