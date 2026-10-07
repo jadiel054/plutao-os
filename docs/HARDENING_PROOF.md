@@ -152,12 +152,15 @@ Linha de base em `origin/main` antes das mudanças: **315 testes, 7 falhando**. 
 ## 3. SHA remoto
 
 ```
-$ git ls-remote origin hardening/capabilities-controls
-<preenchido na seção 7 após o push final>
+$ git ls-remote origin hardening/capabilities-controls-v2
+1cd5e9db72a7f4e6ec8d7b266cd077b3e7c6b22drefs/heads/hardening/capabilities-controls-v2
 ```
 
-O SHA é registrado na seção 7 deste documento (e no comentário final do PR) imediatamente após o
-`git push`, para que a prova corresponda exatamente ao que está no remoto.
+SHA da entrega de código + documentação: **`1cd5e9db72a7f4e6ec8d7b266cd077b3e7c6b22d`** (branch
+`hardening/capabilities-controls-v2`, 11 commits, base `origin/main` = `58f7246`).
+
+Este documento é atualizado por um commit imediatamente posterior (só texto, sem código); o SHA
+final do branch é registrado na seção 7 e na descrição do PR.
 
 ---
 
@@ -248,8 +251,9 @@ grep -rn "_gateApproved" apps/web/src | grep -v "__tests__"
 ## 7. Registro do SHA remoto
 
 ```
-$ git ls-remote origin hardening/capabilities-controls
-<SHA>  refs/heads/hardening/capabilities-controls
+$ git ls-remote origin hardening/capabilities-controls-v2
+1cd5e9db72a7f4e6ec8d7b266cd077b3e7c6b22drefs/heads/hardening/capabilities-controls-v2
 ```
 
-Preenchido abaixo após o push final desta entrega.
+Base auditada: `58f7246` (`origin/main`). Nenhum commit em `main`; todo o trabalho está no branch
+`hardening/capabilities-controls-v2`, pronto para revisão.
