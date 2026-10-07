@@ -30,6 +30,11 @@ export type CheckpointPayload = {
   data?: Record<string, unknown>;
   /** G3: conversa do chat ligada a esta execution (event stream do Computador). */
   conversationId?: string | null;
+  /**
+   * H6 — orçamento acumulado de iterações do agent loop para esta execution,
+   * somando todas as retomadas. Impede loop indefinido entre requests.
+   */
+  iterationsUsed?: number;
 };
 
 export function activeIdempotencyKey(missionId: string): string {
