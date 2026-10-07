@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { conversations, projects } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { sanitizeTitle } from "@/lib/security/sanitize";
+import { getOwnedProject } from "@/lib/missions/ownership";
 
 export const runtime = "nodejs";
 
@@ -28,7 +29,7 @@ export async function GET() {
         updatedAt: conversations.updatedAt,
       })
       .from(conversations)
-      .leftJoin(projects, eq(conversations.projectId, projects.id))
+      .leftJoin(projects, and(eq(conversations.projectId, projects.id), eq(projects.userId, user.id)))
       .where(eq(conversations.userId, user.id))
       .orderBy(desc(conversations.updatedAt));
 
@@ -53,6 +54,10 @@ export async function POST(req: NextRequest) {
         ? sanitizeTitle(body.title.trim().slice(0, 200)) || "Nova conversa"
         : "Nova conversa";
     const projectId = typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
+
+    if (projectId && !(await getOwnedProject(projectId, user.id))) {
+      return NextResponse.json({ error: "Projeto não encontrado" }, { status: 404 });
+    }
 
     const db = getDb();
     const now = new Date();

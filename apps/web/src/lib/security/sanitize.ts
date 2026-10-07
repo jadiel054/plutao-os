@@ -32,6 +32,14 @@ const EXTRA_PATTERNS: Array<{ re: RegExp; replace: string }> = [
   { re: /\bprt_[A-Za-z0-9_\-]+/g, replace: "[redacted]" },
   { re: /\bvcp_[A-Za-z0-9]{12,}/g, replace: "[redacted]" },
   { re: /\bAIza[0-9A-Za-z\-_]{20,}/g, replace: "[redacted]" },
+  // Telegram bot token: <bot-id>:<secret>.
+  { re: /\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g, replace: "[redacted]" },
+  // JWT compacto (inclusive tokens que não são Bearer).
+  { re: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, replace: "[redacted-jwt]" },
+  // AWS access key IDs.
+  { re: /\bAKIA[0-9A-Z]{16}\b/g, replace: "[redacted]" },
+  // Cloudflare tokens frequently appear only as a value of a named field.
+  { re: /((?:cloudflare|cf)[A-Za-z0-9_-]*(?:token|secret|key)\s*[:=]\s*)[A-Za-z0-9._-]{24,}/gi, replace: "$1[redacted]" },
   // DSN Postgres/Neon com senha embutida
   { re: /\b(?:postgres|postgresql):\/\/[^\s"'`]+/gi, replace: "[redacted-dsn]" },
   // Authorization header em texto

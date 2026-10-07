@@ -3,7 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { executions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
-import { getOwnedMission } from "@/lib/missions/ownership";
+import { getOwnedMission, getOwnedTaskInMission } from "@/lib/missions/ownership";
 import { ensureExecutionsTable } from "@/lib/runtime/ensure";
 import {
   findRecoverableExecution,
@@ -55,6 +55,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   try {
     const body = await req.json().catch(() => ({}));
     const currentTaskId = body.currentTaskId ? String(body.currentTaskId) : null;
+    if (currentTaskId && !(await getOwnedTaskInMission(currentTaskId, missionId, user.id))) {
+      return NextResponse.json({ error: "Task não encontrada nesta missão" }, { status: 404 });
+    }
 
     const result = await startExecution({
       missionId,

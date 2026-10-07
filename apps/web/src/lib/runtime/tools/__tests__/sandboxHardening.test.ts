@@ -77,8 +77,8 @@ describe("H8 — validação de IDs antes de montar caminho", () => {
     expect(() => sandboxNamespace(USER, "../../etc")).toThrow(SandboxSecurityError);
   });
 
-  it("sem usuário autenticado cai em anonymous (isolado dos usuários reais)", () => {
-    expect(sandboxNamespace(undefined, undefined)).toBe("anonymous__default");
+  it("sem usuário autenticado é recusado antes de montar um namespace", () => {
+    expect(() => sandboxNamespace(undefined, undefined)).toThrow(SandboxSecurityError);
   });
 });
 
