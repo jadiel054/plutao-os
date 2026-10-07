@@ -26,7 +26,7 @@ Prefer Root Directory = monorepo root.
 | `DATABASE_URL` | for health DB check | Neon **pooled**; server-only |
 | `DATABASE_URL_UNPOOLED` | no (runtime) | only if running migrations from CI later |
 | `AUTH_SECRET` | no until Auth | placeholder |
-| `CRON_SECRET` | yes for durable worker | secret used by `/api/cron/runtime-worker`; Vercel Cron sends it as Bearer authorization |
+| `CRON_SECRET` | yes for durable worker | Same secret in Vercel environment and GitHub Actions secrets; the worker workflow sends it as Bearer authorization |
 
 Do not expose database URLs to the client.
 
@@ -37,15 +37,15 @@ Do not expose database URLs to the client.
 - `/api/health` does not require DB at build time
 - PWA `public/sw.js` + register component
 - CI workflow mirrors install + build
-- `apps/web/vercel.json` schedules `/api/cron/runtime-worker` every minute and the write-gate cleanup daily
+- `apps/web/vercel.json` schedules write-gate cleanup daily. The durable worker is invoked every five minutes by `.github/workflows/runtime_worker.yml`; no sub-daily worker cron is declared in Vercel because the connected plan permits cron jobs only once per day.
 
 ## Durable runtime worker (mission execution)
 
-O endpoint `POST /api/missions/:id/autonomous-run` **somente enfileira** uma execution `PENDING` e retorna `202`. O processamento acontece em `POST /api/cron/runtime-worker`, protegido por `Authorization: Bearer $CRON_SECRET`.
+O endpoint `POST /api/missions/:id/autonomous-run` **somente enfileira** uma execution `PENDING` e retorna `202`. O processamento acontece em `POST /api/cron/runtime-worker`, protegido por `Authorization: Bearer $CRON_SECRET`. O workflow `.github/workflows/runtime_worker.yml` chama essa rota a cada cinco minutos na branch padrão.
 
 Em produção:
 
-1. Defina `CRON_SECRET` no ambiente da Vercel.
+1. Defina `CRON_SECRET` no ambiente da Vercel e como secret do repositório no GitHub Actions, com o mesmo valor.
 2. Migrations 0024–0026 já foram aplicadas no Neon `main` em 2026-10-07; confira o schema antes do rollout. O smoke autenticado multi-nó continua pendente.
 3. Execute uma missão de teste com pelo menos dois nós dependentes e confirme que o mesmo job passa por continuations serializadas até `runtime_jobs.SUCCEEDED` e `executions.COMPLETED`.
 4. Confirme que uma falha terminal de nó não vira sucesso do job e que o DoD usa evidence da execution/nó correspondente.
@@ -59,7 +59,7 @@ Se o worker ou a migration estiverem indisponíveis, o endpoint público respond
 1. Successful `npm install` + `npm run build` (local or CI green)
 2. Prefer committing `package-lock.json` for deterministic installs
 3. Set `DATABASE_URL` in Vercel for real health checks
-4. Set `CRON_SECRET` and verify the durable worker cron
+4. Set `CRON_SECRET` in Vercel and GitHub Actions; verify the scheduled worker workflow returns HTTP 200
 5. Confirm Neon allows connections from Vercel IPs (Neon default allows)
 6. Antes de novas migrations, reconcilie o histórico/baseline do Drizzle: nesta inspeção não foi localizada tabela de histórico nos schemas `drizzle`/`drizzle_meta`; evite reaplicar migrations antigas.
 
