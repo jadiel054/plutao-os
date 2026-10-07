@@ -223,7 +223,19 @@ export class LocalFilesystemStorage implements StorageBackend {
   }
   
   private getExecutionPath(executionId: string): string {
-    return resolve(this.basePath, this.executionPrefix, executionId);
+    // H8 — defense in depth: nenhum segmento do namespace pode escapar da base.
+    const safeSegment = (v: string) =>
+      (v || "").replace(/[^A-Za-z0-9_\-]/g, "").slice(0, 128) || "default";
+    const candidate = resolve(
+      this.basePath,
+      safeSegment(this.executionPrefix),
+      safeSegment(executionId)
+    );
+    const base = resolve(this.basePath);
+    if (candidate !== base && !candidate.startsWith(base + sep)) {
+      throw new Error("PATH_TRAVERSAL");
+    }
+    return candidate;
   }
   
   private async ensureExecutionPath(executionId: string): Promise<string> {

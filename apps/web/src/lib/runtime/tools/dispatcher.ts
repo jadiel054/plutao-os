@@ -16,6 +16,7 @@ import { runCloudflare } from "./cloudflare";
 import { runRender } from "./render";
 import { runExportTool } from "./export";
 import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
+import { evaluateInternalTool, isInternalTool } from "@/lib/capabilities/registry";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
 
 function inputHash(name: string, input: string): string {
@@ -31,7 +32,7 @@ async function dispatchLocal(
     case "note":
       return runNote(input);
     case "filesystem":
-      return await runFilesystem(input, opts.executionId);
+      return await runFilesystem(input, opts.executionId, opts.userId);
     case "github":
       return await runGithub(input, opts.userId);
     case "vercel":
@@ -48,7 +49,7 @@ async function dispatchLocal(
     case "files.export_xlsx":
     case "files.export_markdown":
     case "files.export_html":
-      return await runExportTool(name, input, opts.executionId);
+      return await runExportTool(name, input, opts.executionId, opts.userId);
     default: {
       const _exhaustive: never = name;
       return {
@@ -124,6 +125,15 @@ export async function dispatchTool(opts: {
       message: "tool call already recorded",
       evidenceId: cp.lastTool.evidenceId,
     };
+  }
+
+  // H9 — registro de capacidades para tools INTERNAS (fail-closed).
+  // Tools de conector validam a própria capability no executor/registry.
+  if (isInternalTool(opts.name)) {
+    const toolDecision = evaluateInternalTool(opts.name);
+    if (!toolDecision.allowed) {
+      return { error: "CAPABILITY_BLOCKED" as const, message: toolDecision.message };
+    }
   }
 
   const result = await dispatchLocal(opts.name, String(opts.input ?? ""), {

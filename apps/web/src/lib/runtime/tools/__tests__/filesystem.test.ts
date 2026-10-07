@@ -23,6 +23,7 @@ import {
   setStorageBackend,
   resetStorage,
 } from "../storage";
+import { sandboxNamespace } from "../namespace";
 
 // Test setup
 const TEST_EXECUTION_ID = "test-execution-001";
@@ -512,7 +513,12 @@ describe("Filesystem Tool - Size Limit Tests", () => {
       // Manually write a large file to storage
       const storage = setupFreshStorage();
       const largeContent = "a".repeat(MAX_FILE_SIZE + 1);
-      await (storage as InMemoryStorage).writeFile(TEST_EXECUTION_ID, "large.txt", largeContent);
+      // H8 — o namespace real é `userId__executionId` (antes: executionId cru).
+      await (storage as InMemoryStorage).writeFile(
+        sandboxNamespace(undefined, TEST_EXECUTION_ID),
+        "large.txt",
+        largeContent
+      );
 
       const result = await runFilesystem(
         JSON.stringify({ action: "read", payload: { path: "large.txt" } }),
