@@ -12,7 +12,7 @@
  * - Model Step (apps/web/src/lib/runtime/model/step.ts)
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { executions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getOwnedExecution } from "./service";
@@ -106,26 +106,34 @@ export async function saveCheckpoint(
     const db = getDb();
 
     const existingCheckpoint = execution.checkpoint as CheckpointData | null;
-    const mergedCheckpoint: CheckpointData = {
+    const checkpointPatch: CheckpointData = {
       ...(existingCheckpoint || {}),
       ...data,
       stepIndex: data.stepIndex ?? existingCheckpoint?.stepIndex ?? 0,
     };
 
-    await db
+    const updated = await db
       .update(executions)
       .set({
-        checkpoint: mergedCheckpoint,
+        checkpoint: sql`${executions.checkpoint} || ${JSON.stringify(checkpointPatch)}::jsonb`,
         checkpointAt: now,
         currentTaskId: data.taskId !== undefined ? data.taskId : execution.currentTaskId,
         updatedAt: now,
       })
-      .where(eq(executions.id, executionId))
+      .where(and(
+        eq(executions.id, executionId),
+        eq(executions.userId, userId),
+        eq(executions.checkpoint, execution.checkpoint)
+      ))
       .returning();
+
+    if (!updated[0]) {
+      return { ok: false, error: "CHECKPOINT_CONFLICT" };
+    }
 
     return {
       ok: true,
-      checkpoint: mergedCheckpoint,
+      checkpoint: { ...(existingCheckpoint || {}), ...checkpointPatch },
       checkpointAt: now.toISOString(),
     };
   } catch (error) {

@@ -4,7 +4,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { auditEvents } from "@plutao/db";
+import { sql } from "drizzle-orm";
+import { auditEvents, rateLimitBuckets } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { sanitizeError } from "@/lib/security/sanitize";
 
@@ -47,28 +48,33 @@ export async function writeMcpAudit(input: McpAuditInput): Promise<void> {
   }
 }
 
-/** Rate limit por grant: 30 calls / 60s (janela deslizante em memória de processo). */
+/** Rate limit por grant: 30 calls / 60s, persistido e atômico no Neon. */
 const RATE_LIMIT = 30;
 const WINDOW_MS = 60_000;
-const buckets = new Map<string, number[]>();
 
-export function checkMcpRateLimit(grantKey: string): { ok: true } | { ok: false; retryAfterSec: number } {
-  const now = Date.now();
+export async function checkMcpRateLimit(
+  grantKey: string
+): Promise<{ ok: true } | { ok: false; retryAfterSec: number }> {
+  const now = new Date();
   const key = grantKey || "anon";
-  const prev = buckets.get(key) ?? [];
-  const recent = prev.filter((t) => now - t < WINDOW_MS);
-  if (recent.length >= RATE_LIMIT) {
-    const oldest = recent[0] ?? now;
-    const retryAfterSec = Math.max(1, Math.ceil((WINDOW_MS - (now - oldest)) / 1000));
-    buckets.set(key, recent);
-    return { ok: false, retryAfterSec };
-  }
-  recent.push(now);
-  buckets.set(key, recent);
-  return { ok: true };
+  const db = getDb();
+  const rows = await db
+    .insert(rateLimitBuckets)
+    .values({ key, windowStartedAt: now, hits: 1, updatedAt: now })
+    .onConflictDoUpdate({
+      target: rateLimitBuckets.key,
+      set: {
+        windowStartedAt: sql`CASE WHEN ${rateLimitBuckets.windowStartedAt} <= now() - interval '60 seconds' THEN now() ELSE ${rateLimitBuckets.windowStartedAt} END`,
+        hits: sql`CASE WHEN ${rateLimitBuckets.windowStartedAt} <= now() - interval '60 seconds' THEN 1 ELSE ${rateLimitBuckets.hits} + 1 END`,
+        updatedAt: now,
+      },
+    })
+    .returning({ windowStartedAt: rateLimitBuckets.windowStartedAt, hits: rateLimitBuckets.hits });
+  const bucket = rows[0];
+  if (!bucket || bucket.hits <= RATE_LIMIT) return { ok: true };
+  const retryAfterSec = Math.max(1, Math.ceil((WINDOW_MS - (Date.now() - bucket.windowStartedAt.getTime())) / 1000));
+  return { ok: false, retryAfterSec };
 }
 
-/** Test-only: limpa buckets. */
-export function __resetMcpRateLimitForTests() {
-  buckets.clear();
-}
+/** Mantida para compatibilidade dos testes; buckets reais vivem no Neon. */
+export function __resetMcpRateLimitForTests() {}

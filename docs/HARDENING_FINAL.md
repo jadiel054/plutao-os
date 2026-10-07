@@ -81,11 +81,13 @@ A consulta de schema real em `write_gates` confirmou a presença de:
 - `payload_hash text`;
 - `consumed_at timestamp with time zone`;
 - `consumed_by text`;
+- `expires_at timestamp with time zone`;
 - índice `write_gates_status_consumed_idx (status, consumed_at)`.
+- índice `write_gates_status_expires_idx (status, expires_at)`.
 
 Por isso, **nenhum SQL foi aplicado nesta execução**: a migration aditiva já estava refletida no schema real e reaplicar SQL seria desnecessário. A migration versionada foi organizada como `packages/db/drizzle/0021_hardening_write_gates.sql`, com journal e README coerentes, para novos ambientes/deploys.
 
-A tentativa de consultar `drizzle.__drizzle_migrations` retornou `relation does not exist`; não foi tratada como falha do banco, pois a confirmação relevante foi feita diretamente pelo schema da tabela e dos índices. O relatório não afirma que o histórico interno de migrations existe no Neon.
+A tentativa de consultar `drizzle.__drizzle_migrations` retornou `relation does not exist`; não foi tratada como falha do banco, pois a confirmação relevante foi feita diretamente pelo schema da tabela e dos índices. A migration 0022 adiciona `rate_limit_buckets`, TTL de gates e índices de reaper; ela deve ser aplicada pelo pipeline de migrations antes do deploy desta branch.
 
 ## 5. Vercel e configuração de produção
 
@@ -135,7 +137,13 @@ Os warnings e os `stderr` de testes que simulam ausência de `DATABASE_URL` não
 
 1. **Dependência upstream de voz/modelo:** os 3 alertas altos de `sharp` não têm correção publicada compatível com a cadeia `kokoro-js@1.2.1`/Transformers 3.x. Migrar para Transformers 4.x ou trocar Kokoro é uma mudança funcional major e deve ser validada com áudio real; não foi feita cegamente.
 2. **Smoke autenticado no Vercel:** os checks locais e a inspeção do projeto/deployment não substituem um smoke com sessão real, connectors reais e OAuth real. Esse passo depende das credenciais/allowlist configuradas no Vercel.
-3. **Rate limit de calls MCP:** o bucket de 30 calls/60 s por grant em `apps/web/src/lib/mcp/audit.ts` é por processo. A auditoria é persistida no Neon e o rate limit de registro OAuth é persistido; em múltiplas instâncias, o bucket de calls é uma defesa por instância, não uma quota global. Isso não concede autenticação, scope ou capability e não é bypass de write gate.
-4. **TOCTOU de filesystem local:** a sandbox revalida `realpath` e contém symlink no fluxo normal. Um processo local hostil que troque symlinks simultaneamente ainda representa a janela clássica de filesystem; não é uma superfície exposta pelo request normal do Plutão.
+3. **TOCTOU de filesystem local:** a sandbox revalida `realpath` e contém symlink no fluxo normal. Um processo local hostil que troque symlinks simultaneamente ainda representa a janela clássica de filesystem; não é uma superfície exposta pelo request normal do Plutão.
+
+## 9. Guards distribuídos adicionados após a revisão secundária
+
+- `checkMcpRateLimit()` agora incrementa um bucket atômico em `rate_limit_buckets`; não existe fallback de quota em `Map` local entre instâncias Vercel.
+- `write_gates.expires_at` é obrigatório, criado com TTL de 15 minutos e validado tanto antes quanto durante o claim atômico.
+- `reapExpiredWriteGates()` marca aprovações expiradas e execuções `executing` abandonadas como `failed`; `/api/cron/cleanup-write-gates` aceita somente `CRON_SECRET` e é declarado no `apps/web/vercel.json` a cada cinco minutos.
+- `writeCheckpoint()` e `saveCheckpoint()` usam merge JSONB no SQL e compare-and-swap por `user_id` + checkpoint observado; concorrência perde com `CHECKPOINT_CONFLICT`, nunca sobrescreve silenciosamente o estado mais novo.
 
 Fora esses itens operacionais explícitos, os bloqueios de segurança, identidade, loop, token budget, replay, fallback SQL e documentação identificados na auditoria foram tratados no código e cobertos por testes.

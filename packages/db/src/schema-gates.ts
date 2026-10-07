@@ -44,6 +44,8 @@ export const writeGates = pgTable(
     /** Capability que consumiu o gate (rastreabilidade). */
     consumedBy: text("consumed_by"),
     executedAt: timestamp("executed_at", { withTimezone: true }),
+    /** Gate validity deadline; expired gates can never be consumed. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -53,6 +55,7 @@ export const writeGates = pgTable(
     index("write_gates_status_idx").on(t.status),
     index("write_gates_user_status_idx").on(t.userId, t.status),
     index("write_gates_status_consumed_idx").on(t.status, t.consumedAt),
+    index("write_gates_status_expires_idx").on(t.status, t.expiresAt),
   ]
 );
 

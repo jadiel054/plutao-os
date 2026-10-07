@@ -17,7 +17,7 @@
  *     nenhum chamador possa esquecer de informá-lo.
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { createDb, writeGates, type WriteGateRow } from "@plutao/db";
 import { computeGatePayloadHash } from "./gatePayload";
 import { sanitizeError } from "@/lib/security/sanitize";
@@ -29,6 +29,8 @@ export type WriteGateStatus =
   | "executed"
   | "failed"
   | "rejected";
+
+const WRITE_GATE_TTL_MS = 15 * 60 * 1000;
 
 export type CreateGateInput = {
   userId: string;
@@ -60,6 +62,7 @@ export async function createWriteGate(input: CreateGateInput): Promise<WriteGate
         payloadHash,
         contentPreview: input.contentPreview ?? null,
         status: "pending",
+        expiresAt: new Date(Date.now() + WRITE_GATE_TTL_MS),
       })
       .returning();
     if (!row) throw new Error("failed to create write_gate");
@@ -209,6 +212,13 @@ export async function consumeGateForWrite(opts: {
       error: `Escrita recusada: gate em status '${gate.status}'. Apenas gates aprovados por humano podem executar.`,
     };
   }
+  if (gate.expiresAt <= new Date()) {
+    return {
+      ok: false,
+      code: "GATE_EXPIRED",
+      error: "Escrita recusada: a aprovação deste gate expirou e não pode ser reutilizada.",
+    };
+  }
   if (!gate.payloadHash || gate.payloadHash !== opts.payloadHash) {
     return {
       ok: false,
@@ -233,7 +243,8 @@ export async function consumeGateForWrite(opts: {
         eq(writeGates.id, opts.gateId),
         eq(writeGates.userId, opts.userId),
         eq(writeGates.status, "approved"),
-        eq(writeGates.payloadHash, opts.payloadHash)
+        eq(writeGates.payloadHash, opts.payloadHash),
+        gt(writeGates.expiresAt, now)
       )
     )
     .returning();
@@ -293,6 +304,32 @@ export async function failUnconsumedGate(gateId: string, userId: string, reason:
     )
     .returning();
   return row ?? null;
+}
+
+/** Reaper idempotente chamado por cron; nenhum gate recuperado volta a ser aprovado. */
+export async function reapExpiredWriteGates(staleExecutingMs = WRITE_GATE_TTL_MS) {
+  const db = createDb();
+  const now = new Date();
+  const staleExecutingBefore = new Date(Date.now() - staleExecutingMs);
+  const expired = await db
+    .update(writeGates)
+    .set({
+      status: "failed",
+      error: "Gate expirado antes da finalização.",
+      updatedAt: now,
+    })
+    .where(and(lt(writeGates.expiresAt, now), inArray(writeGates.status, ["pending", "approved"])))
+    .returning({ id: writeGates.id });
+  const stale = await db
+    .update(writeGates)
+    .set({
+      status: "failed",
+      error: "Gate preso em execução e recuperado pelo reaper.",
+      updatedAt: now,
+    })
+    .where(and(eq(writeGates.status, "executing"), lt(writeGates.updatedAt, staleExecutingBefore)))
+    .returning({ id: writeGates.id });
+  return { expired: expired.length, staleExecuting: stale.length };
 }
 
 /**
