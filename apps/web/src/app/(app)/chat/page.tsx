@@ -22,6 +22,7 @@ import { redactSecrets } from "@/lib/security/credentials";
 import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
 import { BrandMark } from "@/components/BrandMark";
+import { SendMessageButton } from "@/components/SendMessageButton";
 
 type PendingWriteGate = {
   id: string;
@@ -550,6 +551,24 @@ function ChatPageInner() {
     }
   }
 
+  async function stopAgentExecution() {
+    isManualCancelRef.current = true;
+    activeControllerRef.current?.abort();
+    abortController?.abort();
+    if (!activeMissionId) return;
+    try {
+      const res = await fetch(`/api/missions/${encodeURIComponent(activeMissionId)}/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Parado pelo usuário no botão do chat" }),
+      });
+      if (!res.ok) {
+        addToast("O stream foi interrompido, mas a missão não confirmou o cancelamento.", "warning");
+      }
+    } catch {
+      addToast("O stream foi interrompido, mas não foi possível confirmar o cancelamento da missão.", "warning");
+    }
+  }
   async function executeSend(
     text: string,
     activeArtifacts: ArtifactRef[],
@@ -1295,10 +1314,7 @@ function ChatPageInner() {
                 {abortController && (
                   <button
                     type="button"
-                    onClick={() => {
-                      isManualCancelRef.current = true;
-                      abortController.abort();
-                    }}
+                    onClick={() => void stopAgentExecution()}
                     className="ml-2 px-2 py-0.5 rounded border border-rose-500/40 text-rose-400 text-[10px] hover:bg-rose-500/10 cursor-pointer font-mono"
                   >
                     Cancelar
@@ -1610,13 +1626,11 @@ function ChatPageInner() {
               disabled={guestLimitReached || queue.length >= 3}
               className="min-h-[38px] max-h-[320px] flex-1 resize-none bg-transparent px-2 py-1.5 text-base leading-6 placeholder:text-[var(--text-muted)] focus:outline-none disabled:opacity-50"
             />
-            <button
-              type="submit"
+            <SendMessageButton
+              isProcessing={sending}
+              onStop={() => void stopAgentExecution()}
               disabled={guestLimitReached || queue.length >= 3 || (!inputMessage.trim() && pendingArtifacts.length === 0)}
-              className="min-h-10 shrink-0 rounded-xl bg-[var(--selo)] px-3.5 py-2 text-xs font-semibold text-[var(--base)] transition hover:bg-[var(--nucleo)] disabled:cursor-not-allowed disabled:opacity-40 font-mono"
-            >
-              {editingMessageId ? "Salvar e Regenerar" : "Enviar"}
-            </button>
+            />
           </div>
           {showLongInputHint && (
             <div className="flex items-center justify-between gap-2 p-2 rounded-xl border border-[var(--selo)]/30 bg-[var(--selo)]/10 text-xs">
