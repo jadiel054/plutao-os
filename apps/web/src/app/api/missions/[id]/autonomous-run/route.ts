@@ -4,6 +4,13 @@ import { getOwnedMission } from "@/lib/missions/ownership";
 import { getOwnedConversation, getOwnedTaskInMission } from "@/lib/missions/ownership";
 import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
 import { ensureExecutionsTable } from "@/lib/runtime/ensure";
+import {
+  completeRuntimeJob,
+  enqueueMissionExecutionJob,
+  leaseRuntimeJob,
+  retryRuntimeJob,
+} from "@/lib/runtime/durableJobs";
+import { createRequestId, recordRuntimeTelemetry } from "@/lib/observability/runtimeTelemetry";
 
 export const runtime = "nodejs";
 /** Allow long autonomous cycles on Vercel Pro (Hobby caps lower). */
@@ -30,6 +37,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   try {
     await ensureExecutionsTable();
+    const requestId = createRequestId(req.headers.get("x-request-id"));
     const body = await req.json().catch(() => ({}));
     const currentTaskId = body.currentTaskId ? String(body.currentTaskId) : null;
     const maxIterations = body.maxIterations ? Number(body.maxIterations) : undefined;
@@ -44,12 +52,60 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
     }
 
+    let jobId: string | null = null;
+    let jobLockToken: string | null = null;
+    try {
+      const queued = await enqueueMissionExecutionJob({
+        missionId,
+        userId: user.id,
+        currentTaskId,
+        conversationId,
+        maxIterations,
+      });
+      jobId = queued.job.id;
+      const leased = await leaseRuntimeJob(jobId);
+      jobLockToken = leased?.lockToken ?? null;
+    } catch (error) {
+      // Compatibilidade durante rollout: a execução direta continua funcionando antes da 0024.
+      console.warn("[missions/:id/autonomous-run] durable queue unavailable", error);
+    }
+    const runStartedAt = Date.now();
+    await recordRuntimeTelemetry({
+      userId: user.id,
+      requestId,
+      missionId,
+      jobId,
+      status: "started",
+      metadata: { source: "autonomous-run", durableQueue: Boolean(jobId) },
+    });
+
     const result = await runAutonomousMissionServer({
       missionId,
       userId: user.id,
       currentTaskId,
       maxIterations,
       conversationId,
+    });
+
+    if (jobId) {
+      const successful = result.ok || result.error === "ALREADY_TERMINAL";
+      if (successful) {
+        await completeRuntimeJob(jobId, jobLockToken ?? "", true);
+      } else {
+        await retryRuntimeJob(jobId, jobLockToken ?? "", result.error ?? "AUTONOMOUS_RUN_FAILED");
+      }
+    }
+
+    await recordRuntimeTelemetry({
+      userId: user.id,
+      requestId,
+      missionId,
+      jobId,
+      status: result.ok || result.error === "ALREADY_TERMINAL" ? "succeeded" : "failed",
+      durationMs: Date.now() - runStartedAt,
+      errorType: result.error ?? null,
+      error: result.message,
+      metadata: { source: "autonomous-run", durableQueue: Boolean(jobId) },
     });
 
     const status =

@@ -6,8 +6,10 @@ Playwright/Stagehand) mais uma auditoria contra o estado real do repositório em
 17/09. Ele substitui a leitura original onde ela tratava arquitetura planejada
 como capacidade já implementada.
 
-**Status geral:** DESIGNED — nada da Browser Capability em si está implementado
-ainda. Este documento é o contrato antes do código.
+**Status geral:** POLICY IMPLEMENTED / BACKEND MISSING — a fronteira de
+validação determinística está em `lib/runtime/tools/browser.ts`, mas nenhum
+backend de browser, live view ou human takeover é habilitado por esta PR. Este
+documento continua sendo o contrato antes da execução remota.
 
 ---
 
@@ -141,9 +143,9 @@ Browser Capability estarem prontos primeiro.
 
 ## 7. Matriz de status (auditada em 17/09 contra o repositório)
 
-Nenhum destes é ainda parte da Browser Capability — é o estado dos mecanismos
-que ela vai depender/reusar, para não confundir arquitetura especificada com
-código real:
+A política segura já está no código, mas os mecanismos abaixo continuam sendo
+dependências auditadas; isso evita confundir contrato de arquitetura com
+execução remota real:
 
 | Mecanismo | Status | Observação |
 |---|---|---|
@@ -156,9 +158,10 @@ código real:
 | Evidence Engine | MISSING | Existe registro de eventos de missão (`plan.events`), mas não uma engine de evidência por classe como a seção 4 propõe |
 | DoD Gate / failure gate | IMPLEMENTED | Mission Workspace V1: `FAILED → INSPECTING → FIXING → TESTING → PASSED` (PR #11, #25) |
 | Conectores (OAuth GitHub) | IMPLEMENTED | M1–M3 (PR #24); M4 (bridge tools → dispatcher) e M5 (smoke mission) PENDENTES |
-| Browser Backend (qualquer) | MISSING | Zero código ainda; este doc é o contrato antes da implementação |
+| Browser Policy Controller | IMPLEMENTED | Validação de URL, selector, espera e limite de passos; sem execução remota |
+| Browser Backend (qualquer) | MISSING | Nenhum backend remoto/local é habilitado por esta PR |
 
-**Próxima ação de engenharia recomendada:** não implementar Browser ainda.
+**Próxima ação de engenharia recomendada:** não habilitar Browser remoto ainda.
 Primeiro, Tool Broker + Permission/Approval Engine mínimos — sem eles, dar ao
 Plutão poder de navegar sites de verdade repete o problema que a rejeição do
 Skyvern (seção 1) tentou evitar, só que por outra porta.

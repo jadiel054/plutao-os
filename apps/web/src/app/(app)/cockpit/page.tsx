@@ -12,6 +12,7 @@ import {
 } from "@/components/MissionTimeline";
 import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
 import { MissionDoDPanel } from "@/components/MissionDoDPanel";
+import { CockpitAgentFab } from "@/components/CockpitAgentFab";
 import { runAutonomousMission } from "@/lib/cockpit/runAutonomousMission";
 import { usePendingIntents } from "@/hooks/usePendingIntents";
 import { formatModelLabel } from "@/lib/runtime/model/label";
@@ -1170,6 +1171,11 @@ export default function CockpitPage() {
           )}
         </div>
       </main>
+
+      <CockpitAgentFab
+        missionId={openId}
+        missionObjective={openMissionMeta?.objective ?? missions.find((mission) => mission.id === openId)?.objective}
+      />
 
       <MobileNav />
 
