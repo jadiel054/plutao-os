@@ -1,4 +1,7 @@
 import { storageWrite } from "./storage";
+import { sanitizeHtmlFragment } from "@/lib/security/htmlSanitize";
+import { sandboxNamespace } from "./namespace";
+import { SandboxSecurityError } from "./sandbox";
 import type { ToolName, ToolResult } from "./types";
 
 export const MAX_EXPORT_SIZE = 5 * 1024 * 1024; // 5MB limit
@@ -292,13 +295,17 @@ export async function exportMarkdown(
 
   const titleStr = input.title || sanitized.replace(/\.md$/i, "");
   const originStr = input.origin || "chat";
+
+  // H4 - impede quebra/injecao de frontmatter YAML via titulo/origem.
+  const yamlScalar = (v: string) =>
+    v.replace(/[\r\n]+/g, " ").replace(/"/g, '\\"').slice(0, 200);
   const dateStr = new Date().toISOString();
   const bodyText = input.content || "";
 
   const mdContent = `---
-title: "${titleStr.replace(/"/g, '\\"')}"
-date: "${dateStr}"
-origin: "${originStr}"
+title: "${yamlScalar(titleStr)}"
+date: "${yamlScalar(dateStr)}"
+origin: "${yamlScalar(originStr)}"
 ---
 
 ${bodyText}`;
@@ -390,7 +397,7 @@ export async function exportHtml(
   <div class="container">
     <h1>${escapeHtml(titleStr)}</h1>
     <main>
-      ${bodyContent}
+      ${sanitizeHtmlFragment(bodyContent)}
     </main>
     <footer>
       <p>Gerado pelo Plutão OS em ${dateStr}</p>
@@ -423,7 +430,8 @@ export async function exportHtml(
 export async function runExportTool(
   name: string,
   input: string,
-  executionId: string = "default"
+  executionId?: string,
+  userId?: string
 ): Promise<ToolResult> {
   const start = Date.now();
   let parsedInput: Record<string, unknown> = {};
@@ -443,19 +451,23 @@ export async function runExportTool(
   }
 
   try {
+    // H8 — exports no namespace do usuario (nunca em "default" compartilhado).
+    // Fica dentro do try: userId/executionId malformado vira erro tratado
+    // (SandboxSecurityError → código), nunca exceção crua nem caminho inválido.
+    const namespace = sandboxNamespace(userId, executionId);
     let result: ExportResult;
     switch (name) {
       case "files.export_pdf":
-        result = await exportPdf(parsedInput as ExportPdfInput, executionId);
+        result = await exportPdf(parsedInput as ExportPdfInput, namespace);
         break;
       case "files.export_xlsx":
-        result = await exportXlsx(parsedInput as ExportXlsxInput, executionId);
+        result = await exportXlsx(parsedInput as ExportXlsxInput, namespace);
         break;
       case "files.export_markdown":
-        result = await exportMarkdown(parsedInput as ExportMarkdownInput, executionId);
+        result = await exportMarkdown(parsedInput as ExportMarkdownInput, namespace);
         break;
       case "files.export_html":
-        result = await exportHtml(parsedInput as ExportHtmlInput, executionId);
+        result = await exportHtml(parsedInput as ExportHtmlInput, namespace);
         break;
       default:
         return {
@@ -475,7 +487,14 @@ export async function runExportTool(
       durationMs: Date.now() - start,
     };
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    // H3/H8 — não devolver mensagem crua: SandboxSecurityError vira seu código e
+    // qualquer outro erro vira um código estável (sem vazar caminho interno).
+    const errorMsg =
+      err instanceof SandboxSecurityError
+        ? err.code
+        : err instanceof Error && err.message.startsWith("Limite de 5MB")
+          ? err.message
+          : "EXPORT_FAILED";
     return {
       ok: false,
       tool: name,
