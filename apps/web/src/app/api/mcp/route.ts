@@ -22,7 +22,7 @@ import {
   toolListConversations,
   toolSendMessage,
   toolSystemStatus,
-  withMcpAudit,
+  withMcpGuards,
 } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
@@ -38,7 +38,7 @@ const mcpHandler = createMcpHandler((server) => {
       inputSchema: z.object({}),
     },
     async () =>
-      withMcpAudit("plutao_system_status", {}, async () => {
+      withMcpGuards("plutao_system_status", {}, async () => {
         const { userId, method } = getMcpAuth();
         return toolSystemStatus(userId, method);
       })
@@ -53,7 +53,7 @@ const mcpHandler = createMcpHandler((server) => {
       inputSchema: z.object({}),
     },
     async () =>
-      withMcpAudit("plutao_list_connectors", {}, async () => {
+      withMcpGuards("plutao_list_connectors", {}, async () => {
         const { userId } = getMcpAuth();
         return toolListConnectors(userId);
       })
@@ -69,7 +69,7 @@ const mcpHandler = createMcpHandler((server) => {
       }),
     },
     async ({ limit }) =>
-      withMcpAudit("plutao_list_conversations", { limit }, async () => {
+      withMcpGuards("plutao_list_conversations", { limit }, async () => {
         const { userId } = getMcpAuth();
         return toolListConversations(userId, limit ?? 20);
       })
@@ -85,7 +85,7 @@ const mcpHandler = createMcpHandler((server) => {
       }),
     },
     async ({ missionId }) =>
-      withMcpAudit("plutao_get_mission", { missionId }, async () => {
+      withMcpGuards("plutao_get_mission", { missionId }, async () => {
         const { userId } = getMcpAuth();
         return toolGetMission(userId, missionId);
       })
@@ -111,7 +111,7 @@ const mcpHandler = createMcpHandler((server) => {
       }),
     },
     async ({ content, conversationId }) =>
-      withMcpAudit("plutao_send_message", { contentLength: content?.length, conversationId }, async () => {
+      withMcpGuards("plutao_send_message", { contentLength: content?.length, conversationId }, async () => {
         const { userId } = getMcpAuth();
         return toolSendMessage(userId, { content, conversationId });
       })
