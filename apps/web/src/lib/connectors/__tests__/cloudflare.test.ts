@@ -229,6 +229,7 @@ describe("Cloudflare Connector & Tools Suite", () => {
         consumedAt: null,
         consumedBy: null,
         status: "pending",
+    expiresAt: new Date(Date.now() + 900_000),
         decision: null,
         decidedAt: null,
         executedAt: null,

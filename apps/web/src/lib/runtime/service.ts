@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { executions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { ensureExecutionsTable } from "./ensure";
@@ -95,7 +95,7 @@ export async function writeCheckpoint(
   }
 
   const now = new Date();
-  const nextCheckpoint = {
+  const checkpointPatch = {
     ...(typeof row.checkpoint === "object" && row.checkpoint ? row.checkpoint : {}),
     ...payload,
   };
@@ -103,15 +103,19 @@ export async function writeCheckpoint(
   const updated = await db
     .update(executions)
     .set({
-      checkpoint: nextCheckpoint,
+      checkpoint: sql`${executions.checkpoint} || ${JSON.stringify(checkpointPatch)}::jsonb`,
       checkpointAt: now,
       currentTaskId: payload.taskId !== undefined ? payload.taskId : row.currentTaskId,
       status: row.status === "PENDING" ? "RUNNING" : row.status,
       updatedAt: now,
     })
-    .where(eq(executions.id, executionId))
+    .where(and(
+      eq(executions.id, executionId),
+      eq(executions.userId, userId),
+      eq(executions.checkpoint, row.checkpoint)
+    ))
     .returning();
-  return { execution: updated[0] };
+  return updated[0] ? { execution: updated[0] } : { error: "CHECKPOINT_CONFLICT" as const };
 }
 
 export async function pauseExecution(executionId: string, userId: string) {

@@ -18,6 +18,7 @@ Reflects the Neon database **plutao** as of 2026-09-09:
 | `0004_connectors` | MCP/OAuth `connectors` table | Tokens encrypted at app layer. **Required before GitHub OAuth works.** See `docs/CONECTORES_M5.md`. |
 | `0020_mcp_oauth_clients` | MCP OAuth dynamic clients + persistent IP-hash rate limit | Apply before deploying `/api/oauth/register`; old manual client IDs remain supported. |
 | `0021_hardening_write_gates` | `write_gates.payload_hash`, single-use consumption fields and status index | Additive/idempotent hardening for server-side write-gate ownership, payload binding and replay prevention. Apply with the direct Neon URL before deploying the final hardening branch. |
+| `0022_persistent_guards` | Persistent MCP rate-limit buckets, mandatory write-gate TTL and reaper indexes | Additive/idempotent. Apply with the direct Neon URL before deploying `security/persistent-guards`; it backfills gate expiry to 15 minutes. |
 
 Journal: `meta/_journal.json` lists all applied and pending migration tags.
 

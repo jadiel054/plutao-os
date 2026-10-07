@@ -136,7 +136,7 @@ Todo call (read e write) grava em `audit_events`:
 
 ### Rate limit
 
-30 calls / 60s por grant (janela em memória de processo). Acima: `rate_limited` + `retryAfterSec`.
+30 calls / 60s por grant, com bucket persistido e incremento atômico no Neon (`rate_limit_buckets`). Acima: `rate_limited` + `retryAfterSec`, inclusive entre instâncias Vercel.
 
 O endpoint de registro OAuth é limitado a 10 cadastros por hora por IP (janela UTC, hash HMAC armazenado no Neon). Para revisar e limpar manualmente clientes dinâmicos sem grants com mais de 30 dias, use `docs/sql/cleanup_mcp_oauth_clients.sql`.
 

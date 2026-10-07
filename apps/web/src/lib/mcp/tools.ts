@@ -365,7 +365,7 @@ export async function withMcpGuards<T extends { content: unknown[]; isError?: bo
 ): Promise<T> {
   const auth = getMcpAuth();
   const grantKey = auth.grantId || auth.clientId || auth.userId;
-  const rl = checkMcpRateLimit(grantKey);
+  const rl = await checkMcpRateLimit(grantKey);
   if (!rl.ok) {
     await writeMcpAudit({
       userId: auth.userId,
