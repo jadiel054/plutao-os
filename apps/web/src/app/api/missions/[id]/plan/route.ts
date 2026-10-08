@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { missions } from "@plutao/db";
 import {
   applyStepTransition,
   createPlanFromTitles,
+  missionPlanV1ToGraphV2,
   parseMissionPlan,
+  validateMissionGraphV2,
   type MissionPlanV1,
   type MissionStepStatus,
   type ProjectBrief,
 } from "@plutao/domain";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
+import {
+  listMissionSpecialistProfileOptions,
+  resolveSpecialistPolicy,
+} from "@/lib/missions/specialistProfiles";
 
 export const runtime = "nodejs";
 
@@ -23,6 +29,8 @@ async function loadOwnedPlan(missionId: string, userId: string) {
       id: missions.id,
       objective: missions.objective,
       plan: missions.plan,
+      missionGraph: missions.missionGraph,
+      graphVersion: missions.graphVersion,
       status: missions.status,
     })
     .from(missions)
@@ -35,7 +43,9 @@ async function savePlan(
   missionId: string,
   userId: string,
   plan: MissionPlanV1,
-  missionStatus?: string
+  missionStatus?: string,
+  graph?: ReturnType<typeof missionPlanV1ToGraphV2>,
+  options: { requireUnaligned?: boolean; expectedGraph?: unknown } = {}
 ) {
   const db = getDb();
   const completedSteps = plan.steps
@@ -55,15 +65,36 @@ async function savePlan(
     patch.status = missionStatus;
     patch.currentState = missionStatus;
   }
+  if (graph) {
+    patch.graphVersion = graph.version;
+    patch.missionGraph = graph;
+  }
+
+  const conditions = [eq(missions.id, missionId), eq(missions.userId, userId)];
+  if (options.requireUnaligned) {
+    conditions.push(
+      inArray(missions.status, ["CREATED", "UNDERSTANDING", "PLANNING"]),
+      sql`COALESCE(${missions.plan}->>'aligned', 'false') <> 'true'`
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(options, "expectedGraph")) {
+    conditions.push(
+      options.expectedGraph === null
+        ? isNull(missions.missionGraph)
+        : sql`${missions.missionGraph} = ${JSON.stringify(options.expectedGraph)}::jsonb`
+    );
+  }
 
   const updated = await db
     .update(missions)
     .set(patch)
-    .where(and(eq(missions.id, missionId), eq(missions.userId, userId)))
+    .where(and(...conditions))
     .returning({
       id: missions.id,
       objective: missions.objective,
       plan: missions.plan,
+      missionGraph: missions.missionGraph,
+      graphVersion: missions.graphVersion,
       status: missions.status,
       completedSteps: missions.completedSteps,
       pendingSteps: missions.pendingSteps,
@@ -89,6 +120,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       objective: row.objective,
       status: row.status,
       plan,
+      graphVersion: row.graphVersion,
+      graph: row.missionGraph,
+      specialistProfiles: listMissionSpecialistProfileOptions(),
     });
   } catch (e) {
     console.error("[missions/:id/plan GET]", e);
@@ -99,6 +133,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 /**
  * Actions:
  * - create_plan: { stepTitles: string[], brief?: ProjectBrief }
+ * - assign_specialist: { nodeId, specialistProfileId, requiredCapabilities? } — somente antes do alinhamento
  * - align: {}
  * - transition: { stepId, toStatus, failureCause?, eventLabel?, eventDetail? }
  * - append_event: { kind, label, detail?, stepId? }
@@ -119,6 +154,21 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     }
 
     if (action === "create_plan") {
+      const currentPlan = parseMissionPlan(row.plan);
+      if (
+        currentPlan?.aligned ||
+        ["EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "CANCELLED"].includes(
+          String(row.status).toUpperCase()
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error: "MISSION_GRAPH_IMMUTABLE",
+            message: "O grafo não pode ser alterado após o alinhamento ou início da execução.",
+          },
+          { status: 409 }
+        );
+      }
       const titles = Array.isArray(body.stepTitles)
         ? body.stepTitles
             .map((t: unknown) => String(t ?? "").trim())
@@ -137,8 +187,108 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
               objective: String(row.objective ?? ""),
             };
       const plan = createPlanFromTitles(titles, brief);
-      const saved = await savePlan(id, user.id, plan, "PLANNING");
-      return NextResponse.json({ mission: saved, plan });
+      const graph = missionPlanV1ToGraphV2(plan);
+      const validation = validateMissionGraphV2(graph);
+      if (!validation.ok) {
+        return NextResponse.json(
+          { error: "MISSION_GRAPH_INVALID", issues: validation.issues },
+          { status: 422 }
+        );
+      }
+      const saved = await savePlan(id, user.id, plan, "PLANNING", graph, {
+        requireUnaligned: true,
+        expectedGraph: row.missionGraph ?? null,
+      });
+      if (!saved) {
+        return NextResponse.json({ error: "MISSION_GRAPH_CHANGED_RETRY" }, { status: 409 });
+      }
+      return NextResponse.json({ mission: saved, plan, graph });
+    }
+
+    if (action === "assign_specialist") {
+      const currentPlan = parseMissionPlan(row.plan);
+      if (
+        !currentPlan ||
+        currentPlan.aligned ||
+        ["EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "CANCELLED"].includes(
+          String(row.status).toUpperCase()
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error: "MISSION_GRAPH_IMMUTABLE",
+            message: "A atribuição de perfil só pode mudar antes do alinhamento da missão.",
+          },
+          { status: 409 }
+        );
+      }
+
+      const nodeId = typeof body.nodeId === "string" ? body.nodeId.trim() : "";
+      const rawProfileId = body.specialistProfileId;
+      const specialistProfileId =
+        rawProfileId === null || (typeof rawProfileId === "string" && rawProfileId.trim() === "")
+          ? null
+          : typeof rawProfileId === "string"
+            ? rawProfileId.trim()
+            : undefined;
+      if (!nodeId || specialistProfileId === undefined) {
+        return NextResponse.json(
+          { error: "SPECIALIST_ASSIGNMENT_INVALID" },
+          { status: 400 }
+        );
+      }
+
+      const currentGraph = row.missionGraph ?? missionPlanV1ToGraphV2(currentPlan);
+      const currentValidation = validateMissionGraphV2(currentGraph);
+      if (!currentValidation.ok) {
+        return NextResponse.json({ error: "MISSION_GRAPH_INVALID" }, { status: 409 });
+      }
+      const targetNode = currentValidation.graph.nodes.find((node) => node.id === nodeId);
+      if (!targetNode) {
+        return NextResponse.json({ error: "MISSION_GRAPH_NODE_NOT_FOUND" }, { status: 404 });
+      }
+
+      const requiredCapabilities =
+        body.requiredCapabilities === undefined
+          ? targetNode.requiredCapabilities
+          : body.requiredCapabilities;
+      if (
+        !Array.isArray(requiredCapabilities) ||
+        !requiredCapabilities.every((capability: unknown) => typeof capability === "string")
+      ) {
+        return NextResponse.json({ error: "SPECIALIST_CAPABILITIES_INVALID" }, { status: 400 });
+      }
+      const policy = resolveSpecialistPolicy(specialistProfileId, requiredCapabilities as string[]);
+      if (!policy.ok) {
+        return NextResponse.json(
+          { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID", reason: policy.reason },
+          { status: 422 }
+        );
+      }
+
+      const graph = {
+        ...currentValidation.graph,
+        nodes: currentValidation.graph.nodes.map((node) =>
+          node.id === nodeId
+            ? { ...node, specialistProfileId, requiredCapabilities: requiredCapabilities as string[] }
+            : node
+        ),
+      };
+      const graphValidation = validateMissionGraphV2(graph);
+      if (!graphValidation.ok) {
+        return NextResponse.json(
+          { error: "MISSION_GRAPH_INVALID", issues: graphValidation.issues },
+          { status: 422 }
+        );
+      }
+      const saved = await savePlan(id, user.id, currentPlan, undefined, graphValidation.graph, {
+        requireUnaligned: true,
+        expectedGraph: row.missionGraph ?? null,
+      });
+      if (!saved) {
+        return NextResponse.json({ error: "MISSION_GRAPH_CHANGED_RETRY" }, { status: 409 });
+      }
+      return NextResponse.json({ mission: saved, plan: currentPlan, graph: graphValidation.graph });
     }
 
     let plan = parseMissionPlan(row.plan);
@@ -157,6 +307,26 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         );
       }
       const now = new Date().toISOString();
+      const graphCandidate = row.missionGraph ?? missionPlanV1ToGraphV2(plan);
+      const graphValidation = validateMissionGraphV2(graphCandidate);
+      if (!graphValidation.ok) {
+        return NextResponse.json(
+          { error: "MISSION_GRAPH_INVALID", issues: graphValidation.issues },
+          { status: 409 }
+        );
+      }
+      const invalidSpecialistNode = graphValidation.graph.nodes.find(
+        (node) => !resolveSpecialistPolicy(node.specialistProfileId, node.requiredCapabilities).ok
+      );
+      if (invalidSpecialistNode) {
+        return NextResponse.json(
+          {
+            error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID",
+            nodeId: invalidSpecialistNode.id,
+          },
+          { status: 409 }
+        );
+      }
       plan = {
         ...plan,
         aligned: true,
@@ -172,8 +342,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           },
         ],
       };
-      const saved = await savePlan(id, user.id, plan, "EXECUTING");
-      return NextResponse.json({ mission: saved, plan });
+      const saved = await savePlan(id, user.id, plan, "EXECUTING", graphValidation.graph, {
+        requireUnaligned: true,
+        expectedGraph: row.missionGraph ?? null,
+      });
+      if (!saved) {
+        return NextResponse.json({ error: "MISSION_GRAPH_CHANGED_RETRY" }, { status: 409 });
+      }
+      return NextResponse.json({ mission: saved, plan, graph: graphValidation.graph });
     }
 
     if (action === "transition") {

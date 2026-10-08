@@ -5,7 +5,7 @@ export type ArtifactEvaluation = {
 };
 
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  [/sk-[A-Za-z0-9_-]{16,}/, "Possível chave OpenAI/Stripe exposta"],
+  [/sk-[A-Za-z0-9_-]{16,}/, "Possível segredo de API exposto"],
   [/gh[pousr]_[A-Za-z0-9_]{20,}/, "Possível token GitHub exposto"],
   [/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/, "Chave privada exposta"],
   [/DATABASE_URL\s*=\s*['\"]?postgres(?:ql)?:\/\/[^\s'\"]+/i, "DATABASE_URL exposta"],

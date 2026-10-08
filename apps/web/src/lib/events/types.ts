@@ -40,7 +40,7 @@ export type ConversationEventDTO = {
   createdAt: string;
 };
 
-/** Limite Manus-style: acima disso → event_artifacts + head/tail no preview. */
+/** Limite de apresentação: acima disso → event_artifacts + head/tail no preview. */
 export const ARTIFACT_CHAR_THRESHOLD = 8_192;
 export const PREVIEW_HEAD = 400;
 export const PREVIEW_TAIL = 200;

@@ -34,7 +34,10 @@ export function usePendingIntents(userId: string | null) {
   }, [userId, syncing, reloadIntents]);
 
   const createOfflineMissionIntent = useCallback(
-    async (payload: CreateMissionPayload): Promise<PendingIntent<CreateMissionPayload>> => {
+    async (
+      payload: CreateMissionPayload,
+      idempotencyKey = crypto.randomUUID()
+    ): Promise<PendingIntent<CreateMissionPayload>> => {
       if (!userId) {
         throw new Error("Usuário não autenticado");
       }
@@ -44,7 +47,7 @@ export function usePendingIntents(userId: string | null) {
       const newIntent: PendingIntent<CreateMissionPayload> = {
         intentId,
         userId,
-        idempotencyKey: intentId,
+        idempotencyKey,
         type: "CREATE_MISSION",
         payload,
         status: "PENDING",

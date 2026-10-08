@@ -4,7 +4,14 @@ import { getDb } from "@/lib/db";
 import { scrubValue } from "@/lib/events/scrub";
 import { sanitizeText } from "@/lib/security/sanitize";
 
-export type RuntimeTelemetryStatus = "started" | "succeeded" | "failed" | "requeued" | "cancelled";
+export type RuntimeTelemetryStatus =
+  | "queued"
+  | "started"
+  | "succeeded"
+  | "failed"
+  | "requeued"
+  | "cancelled"
+  | "reconciled";
 export type RuntimeTelemetryInput = {
   type?: string;
   userId?: string | null;

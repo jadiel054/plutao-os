@@ -7,6 +7,7 @@
  */
 
 import { Fragment, memo } from "react";
+import { parseMarkdownTableBlock } from "@/lib/chat/answerFormatting";
 
 // Regex patterns para parsing incremental
 const patterns = {
@@ -316,6 +317,46 @@ export function MarkdownRenderer({ text }: MarkdownRendererProps) {
                 ) : null;
               })}
             </ol>
+          );
+        }
+
+        const table = parseMarkdownTableBlock(block);
+        if (table) {
+          return (
+            <div
+              key={index}
+              role="region"
+              aria-label="Tabela de dados"
+              tabIndex={0}
+              className="my-3 max-w-full overflow-x-auto rounded-xl border border-[var(--border)]/70 bg-[var(--surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--selo)]"
+            >
+              <table className="w-full min-w-max border-collapse text-left text-[12px] sm:text-[13px]">
+                <thead className="bg-[var(--base)]/70 text-[var(--text-primary)]">
+                  <tr>
+                    {table.headers.map((header, headerIndex) => (
+                      <th
+                        key={headerIndex}
+                        scope="col"
+                        className="border-b border-[var(--border)]/70 px-3 py-2.5 font-semibold"
+                      >
+                        {parseInlineMarkdown(header)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]/50 text-[var(--text-secondary)]">
+                  {table.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex} className="hover:bg-[var(--base)]/35">
+                      {row.map((cell, cellIndex) => (
+                        <td key={cellIndex} className="px-3 py-2 align-top">
+                          {parseInlineMarkdown(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           );
         }
         

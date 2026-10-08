@@ -31,8 +31,8 @@ describe("H5(a) — validação de redirect_uri", () => {
   });
 
   it("origin exato na allowlist é aceito", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://claude.ai/api/mcp/callback";
-    expect(isRedirectUriAllowed("https://claude.ai/api/mcp/callback")).toBe(true);
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://oauth-client.example/api/mcp/callback";
+    expect(isRedirectUriAllowed("https://oauth-client.example/api/mcp/callback")).toBe(true);
   });
 
   it("prefixo parecido e caminho diferente NÃO são aceitos", () => {

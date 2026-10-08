@@ -11,7 +11,7 @@ export type CloudRoute = {
   provider: ModelProviderId;
   /** Nome do modelo aceito pela API do provedor */
   apiModel: string;
-  /** Base URL OpenAI-compatible (ou Gemini OpenAI-compat) */
+  /** URL-base para API de conversação compatível. */
   baseUrl: string;
   /** Variável de ambiente preferida para a chave */
   envKeys: string[];
@@ -26,7 +26,7 @@ export type ResolveCloudResult =
  * Modelos locais (Xenova/…) não entram aqui.
  */
 const CLOUD_ROUTES: Record<string, CloudRoute> = {
-  // Groq
+  // Rotas do provedor remoto principal.
   "groq/llama-3.3-70b-versatile": {
     provider: "openai",
     apiModel: "llama-3.3-70b-versatile",
@@ -52,7 +52,7 @@ const CLOUD_ROUTES: Record<string, CloudRoute> = {
     envKeys: ["GROQ_API_KEY", "MODEL_API_KEY"],
   },
 
-  // OpenAI
+  // Rotas remotas adicionais.
   "openai/gpt-4o-mini": {
     provider: "openai",
     apiModel: "gpt-4o-mini",
@@ -66,7 +66,7 @@ const CLOUD_ROUTES: Record<string, CloudRoute> = {
     envKeys: ["OPENAI_API_KEY", "MODEL_API_KEY"],
   },
 
-  // Google Gemini (endpoint OpenAI-compatible)
+  // Endpoint remoto compatível adicional.
   "gemini/gemini-3.1-flash-lite": {
     provider: "gemini",
     apiModel: "gemini-3.1-flash-lite",
@@ -80,7 +80,7 @@ const CLOUD_ROUTES: Record<string, CloudRoute> = {
     envKeys: ["GEMINI_API_KEY"],
   },
 
-  // Anthropic via OpenRouter (API OpenAI-compatible)
+  // Rota de modelo compatível adicional.
   "anthropic/claude-sonnet-4.5": {
     provider: "openai",
     apiModel: "anthropic/claude-sonnet-4.5",
@@ -88,7 +88,7 @@ const CLOUD_ROUTES: Record<string, CloudRoute> = {
     envKeys: ["OPENROUTER_API_KEY", "MODEL_API_KEY"],
   },
 
-  // xAI Grok (aliases úteis se entrarem no catálogo)
+  // Aliases opcionais de modelo remoto.
   "xai/grok-4.6": {
     provider: "xai",
     apiModel: "grok-4.6",

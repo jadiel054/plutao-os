@@ -82,17 +82,17 @@ detecção → flag na conta + aviso in-app persistente
 - Manifesto de modelo assinado pelo servidor; runtime do motor local sem rede (CSP garante).
 - LGPD: retenção explícita, k-anonymity na classe (< N usuários não persiste), consentimento antes do primeiro envio, sem identificador único de aparelho.
 
-## 7. UI (prompts prontos para o Manus, executar em ordem, um PR por vez)
+## 7. UI (tarefas de interface, executar em ordem, um PR por vez)
 
 1. **`feat/ui-loading-identity`** — indicador "agente trabalhando" com o símbolo de `src/app/icon.svg` como **anel orbital** (estilo planeta) ao lado/avatar do agente durante a geração (inspiração comportamental: Perplexity gira o avatar; visual 100% identidade Plutão); `loading.tsx` com skeleton no tema escuro; transições de página discretas. Restrições: só transform/opacity, `prefers-reduced-motion`, zero layout shift, 360px e aparelho fraco, sem dependência pesada. **Reimplementar padrões, nunca copiar assets/CSS de terceiros.**
 2. **`feat/chat-mobile-layout`** — primeiro auditar o ChatShell atual e documentar problemas no PR; depois corrigir: input ancorado (safe-area-inset-bottom, 100dvh), comportamento com teclado aberto, sem cobrir mensagens. Zero regressão desktop.
-3. **`feat/computer-benchmark`** — benchmark primeiro (`docs/UI_BENCHMARK.md`): estudar produto público da Manus (frontend inspecionável, blog oficial) + 1-2 referências de streaming de desktop; documentar padrões de UX e proposta para elevar o "computador" do Plutão **sem copiar nada**. Só depois decidir escopo de implementação.
+3. **`feat/computer-benchmark`** — benchmark primeiro (`docs/UI_BENCHMARK.md`): avaliar fluxos de streaming de desktop e documentar padrões de UX e proposta para elevar o "computador" do Plutão. Só depois decidir escopo de implementação.
 - Disciplina: agente propõe PR → revisão (Kimi) → Jadiel mergeia pelo celular. Nada de push direto em main.
 - Excluir do produto: upsell fixo em sidebar (promo entra por canal consentido ou contexto, não banner fixo).
 
 ## 8. Fluxo de trabalho estabelecido (vale daqui em diante)
 
-- Agentes (Manus etc.) são **autores de código via PR**, nunca build machine, nunca cofre de segredo, nunca push em main.
+- Automação assistida é **autora de código via PR**, nunca build machine, nunca cofre de segredo, nunca push em main.
 - Builds rodam no GitHub Actions; APK sai como artifact; teste real no Poco C65.
 - Revisão de diff por Kimi antes de cada merge. Um PR por vez.
 - Status só é VERIFICADO com evidência em produção/build verde.

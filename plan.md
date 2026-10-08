@@ -4,7 +4,7 @@
 Entregar uma nova PR sobre a `main` que transforme o aviso de atualização nativo em um card de atualização claro, seguro e acionável, e eleve a interface do Plutão sem abandonar sua identidade verde-platinada.
 
 ## Design
-- **Movimento:** workspace conversacional premium, inspirado na clareza do Manus, sem copiar marca ou cores.
+- **Movimento:** workspace conversacional premium, com foco em clareza, sem depender de referências externas.
 - **Princípios:** hierarquia silenciosa; estados sempre visíveis; conteúdo legível em telas estreitas; ações reversíveis e confirmadas.
 - **Cores:** manter grafite esverdeado, selo verde e platina; reservar âmbar/vermelho para atenção/erro.
 - **Layout:** superfícies empilhadas, balões com largura adaptativa e painel de atualização com resumo + ação primária.

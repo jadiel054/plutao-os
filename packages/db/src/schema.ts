@@ -208,6 +208,8 @@ export const missions = pgTable(
     context: text("context"),
     constraints: text("constraints"),
     plan: jsonb("plan"),
+    graphVersion: integer("graph_version"),
+    missionGraph: jsonb("mission_graph"),
     definitionOfDone: text("definition_of_done"),
     currentState: text("current_state").notNull().default("CREATED"),
     completedSteps: jsonb("completed_steps").notNull().default([]),
@@ -216,6 +218,10 @@ export const missions = pgTable(
     errors: jsonb("errors").notNull().default([]),
     decisions: jsonb("decisions").notNull().default([]),
     idempotencyKey: text("idempotency_key"),
+    creationSource: text("creation_source").notNull().default("cockpit"),
+    conversationId: uuid("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
     isPinned: boolean("is_pinned").notNull().default(false),
     shareToken: text("share_token"),
     status: text("status").notNull().default("CREATED"),
@@ -226,6 +232,7 @@ export const missions = pgTable(
     index("missions_user_id_idx").on(t.userId),
     index("missions_status_idx").on(t.status),
     uniqueIndex("missions_user_idempotency_uidx").on(t.userId, t.idempotencyKey),
+    index("missions_conversation_id_idx").on(t.conversationId),
     uniqueIndex("missions_share_token_uidx").on(t.shareToken),
   ]
 );

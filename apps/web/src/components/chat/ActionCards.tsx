@@ -197,15 +197,15 @@ export function ActionCards({ toolCalls }: ActionCardsProps) {
               )}
 
               <Section
-                title="Request"
+                title="Entrada enviada"
                 content={requestText}
                 defaultOpen={false}
               />
 
               <Section
-                title="Response"
+                title="Retorno da ferramenta"
                 content={responseText}
-                defaultOpen={isOk || isError}
+                defaultOpen={false}
               />
             </div>
           </div>

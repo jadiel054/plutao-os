@@ -45,8 +45,9 @@ npm run migrate -w @plutao/db
 
 - `0002_missions_idempotency_key` is required for production atomic idempotency of Pending Intents.
 - `0021_hardening_write_gates` is idempotent; it adds `payload_hash`, `consumed_at`, `consumed_by` and `write_gates_status_consumed_idx`. A auditoria anterior observou esses objetos, mas a aplicação e o ledger devem ser confirmados pelo inventário acima.
+- `0024_autonomous_platform_foundation.sql` cria `runtime_jobs`, necessário para o enqueue durável. Não foi aplicado por esta tarefa: executar somente após inventário read-only e aprovação explícita, usando `DATABASE_URL_UNPOOLED` direta.
 - Future schema changes go through reviewed SQL + direct URL only.
 
 ## Vercel
 
-Add the same env vars in the Vercel project settings (Production + Preview as needed). Prefer pooled URL for `DATABASE_URL`.
+Add the same env vars in the Vercel project settings (Production + Preview as needed). Prefer pooled URL for `DATABASE_URL`. O worker também exige `CRON_SECRET`; a ausência dele faz o endpoint de cron responder `401`.

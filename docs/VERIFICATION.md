@@ -40,6 +40,10 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 - [x] **Checkpoint Persistence:** `saveCheckpoint` and `restoreCheckpoint` persist state snapshots into Neon DB.
 - [x] **Step Memoization:** Completed `AgentStep`s are memoized so retries or page reloads resume from the last valid step without repeating side effects.
 - [x] **Execution Recovery:** Interrupted executions can be retrieved and resumed via `GET /api/missions/:id/executions`.
+- [x] **Durable Enqueue Boundary:** `POST /api/missions/:id/autonomous-run` only creates `execution/job` in `PENDING` and returns `202`; it never runs the agent loop synchronously.
+- [x] **Worker Authority:** `/api/cron/runtime-worker` claims leases atomically, resumes the claimed execution, and derives job terminal state from persisted execution state.
+- [x] **Failure Consistency:** `execution.FAILED` cannot produce `runtime_jobs.SUCCEEDED`; retry exhaustion produces `FAILED`, and user stop produces explicit `CANCELLED`.
+- [x] **Divergence Reconciliation:** stale terminal job/execution mismatches are repaired and emitted as `JOB_EXECUTION_STATE_DIVERGENCE` telemetry.
 
 ---
 
@@ -72,7 +76,7 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 
 ## 7. Layer G — Model Layer (Hybrid Cloud + Local)
 
-- [x] **Cloud Groq Provider:** Integrates `openai/gpt-oss-120b` via Groq API. Verified in production.
+- [x] **Provedor de modelo na nuvem:** Integra um modelo remoto pela API configurada. Verificado em produção.
 - [x] **Local Transformers.js Provider:** `@huggingface/transformers` dynamic import running client-side local models (`LocalProvider`).
 - [x] **WebGPU Acceleration:** `checkWebGPUSupport()` detects WebGPU availability with automatic fallback to CPU.
 - [x] **Model Mode Selection:** `useModelMode` hook persists `auto` | `online` | `offline` in `localStorage` (`plutao_model_mode`).
@@ -136,6 +140,7 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 - [x] **Agent Identity Applied (H10):** perfil de Configurações > Agente (`name`, `identity`,
       `personality`) alimenta o system prompt do chat **e** do MCP; default idêntico a `NIX_IDENTITY`.
 - [x] **Documentation Drift Guard (H9):** `docs/CAPABILITIES.md` é gerado do registro e verificado em teste.
+- [x] **Durable Runtime Error Taxonomy:** provider failures are stored as safe codes (`MODEL_RATE_LIMITED`, `MODEL_UNAUTHORIZED`, `MODEL_PROVIDER_UNAVAILABLE`, etc.) with controlled provider/model/retryable metadata; raw provider bodies are not persisted in mission evidence.
 - [x] **Evidence:** 329 testes verdes, `tsc --noEmit` limpo, migration `0020` aplicada em produção.
       Detalhamento em [`docs/HARDENING_2026-10.md`](HARDENING_2026-10.md).
 
@@ -145,3 +150,16 @@ The latest user-flow production smoke test is documented in [`docs/testes/2026-0
 
 - [ ] **Pending Intents / Sync Queue:** Implemented in the current code path, but not reverified in the 17/09/2026 production smoke test. A new network-loss test is required before marking the end-to-end behavior as VERIFIED.
 - [ ] **Service Worker Background Execution:** Long-running mission execution when PWA tab is completely closed (`NOT IMPLEMENTED`).
+
+## 14. Mission Graph V2 — implementação local
+
+- [x] **Intake comum:** Chat, Cockpit e reconciliação offline usam `/api/missions`, com autenticação, ownership de conversa, origem e idempotency key; testes de rota cobrem replay e conflito.
+- [x] **Grafo persistido:** missions novas recebem grafo V2 unitário; planos são validados e adaptados a topologia serial antes de enqueue.
+- [x] **Scheduler serial:** uma invocation processa no máximo um nó, valida dependências/checkpoint e retoma a mesma execution/job por continuation.
+- [x] **Evidence por nó:** DoD lê apenas evidence da mesma execution/nó; solicitações `GATE_PENDING` são excluídas como prova de efeito.
+- [x] **Espera humana:** Write Gate persiste executionId, pausa o job em `WAITING_APPROVAL` e o libera após a decisão, preservando o gate server-side.
+- [x] **Schema de produção:** migrations 0025/0026 aplicadas em `main`; consulta read-only confirmou campos, tipos, nullable/default, FK de conversa e índice.
+- [ ] **Smoke de produção:** executar após deploy do código: missão multi-nó autenticada, refresh/retomada no PWA/APK e gate pendente/aprovação/rejeição.
+- [x] **Computador (local):** Computador e MissionExecutionView exibem topologia, dependências, status de nó, tentativas e espera de aprovação. Validação visual com dados reais após as migrations permanece pendente; eventos do chat continuam sendo uma projeção separada.
+- [x] **Perfis especialistas (local):** `software_engineer` e `teaching_assistant`, seleção pré-alinhamento, prompt por papel e allowlist aplicada no dispatcher; typecheck e testes de política/rota/prompt.
+- [ ] **Paralelismo:** execução concorrente, isolamento entre nós e testes de corrida seguem desativados/futuros.

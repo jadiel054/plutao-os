@@ -1,6 +1,6 @@
 # CONTINUITY_AND_MISSION_DELIVERY.md — Arquitetura de Continuidade de Missão e Mission Delivery
 
-**Status:** DESIGNED
+**Status:** IMPLEMENTED (worker local) / DESIGNED (adapter gerenciado)
 **Alinhado com:** `docs/PROJECT_SPECIFICATION.md` (e Partes 2 e 3), `docs/ARCHITECTURE.md`, `docs/CURRENT_STATE.md`, `docs/DECISIONS.md`, `docs/VERIFICATION.md`
 
 > **Frase fundamental:**
@@ -16,7 +16,7 @@
 Uma mesma missão **NÃO** se divide em missões diferentes quando:
 - O PWA/navegador é fechado, recarregado ou o dispositivo do usuário reinicia.
 - A conectividade de rede cai, varia de latência ou é restabelecida (transição Online $\leftrightarrow$ Offline).
-- O modelo ou provedor de inteligência muda dinamicamente (ex.: Groq `gpt-oss-120b` $\rightarrow$ WebGPU Local $\rightarrow$ Groq).
+- O modelo ou runtime de inteligência muda dinamicamente entre serviço remoto e execução local via WebGPU.
 - O runtime de execução muda ou um agente/subagente especialista diferente assume a execução de um passo.
 
 A missão é a unidade primária e imutável de trabalho do Plutão. O Chat PWA é um **cockpit de observabilidade e intervenção**, não a fonte de verdade do estado de execução.
@@ -57,7 +57,7 @@ A missão é a unidade primária e imutável de trabalho do Plutão. O Chat PWA 
                  ▼                                           ▼
 ┌─────────────────────────────────┐         ┌─────────────────────────────────┐
 │       ONLINE MODEL ROUTER       │         │      OFFLINE LOCAL ROUTER       │
-│  (Groq / Cloud OpenAI-compat)   │         │    (WebGPU / Transformers.js)   │
+│     (Serviço remoto via API)   │         │    (WebGPU / runtime local)     │
 └────────────────┬────────────────┘         └────────────────┬────────────────┘
                  │                                           │
                  └─────────────────────┬─────────────────────┘
@@ -104,13 +104,13 @@ O Plutão abstrai provedores de modelo via `ModelSelector` e `ModelRouter` (`pac
 
 | Modo | Provedor Principal | Runtime / Engine | Requisitos de Hardware | Fallback Local |
 | :--- | :--- | :--- | :--- | :--- |
-| **ONLINE** | Groq (`openai/gpt-oss-120b`) | HTTP OpenAI-Compatible API | Conexão com internet + API Key | Handoff automático para Local se falhar |
-| **OFFLINE** | WebGPU Local (`huggingface/local`) | `@huggingface/transformers` | Navegador com suporte a WebGPU + Cache IndexedDB | Notificação de limitação de capacidade se sem modelo |
+| **ONLINE** | Modelo remoto configurado | API de conversação compatível | Conexão com internet + credencial | Handoff automático para Local se falhar |
+| **OFFLINE** | Runtime local via WebGPU | Transformers.js | Navegador com suporte a WebGPU + Cache IndexedDB | Notificação de limitação de capacidade se sem modelo |
 
 ### 4.2 Protocolo de Handoff Sem Costura (Seamless Handover)
 Quando ocorre oscilação de conectividade ou degradação de provedor:
 1. **Detecção de Offline/Degradação:**
-   - O `ModelSelector` detecta perda de ping para o endpoint da nuvem (`checkOnlineStatus()`) ou erro de rede do provedor Groq.
+   - O `ModelSelector` detecta perda de ping para o endpoint remoto (`checkOnlineStatus()`) ou erro de rede do provedor configurado.
 2. **Preservação de Contexto (Context Preservation):**
    - O runtime empacota o estado atual da missão, o plano e os últimos passos concluídos sem alterar o `MissionId`.
 3. **Seleção de Provedor de Incongruência Zero:**
@@ -171,10 +171,10 @@ Cada ação gera um objeto estruturado de evidência (`Evidence`):
   "toolName": "filesystem",
   "input": {
     "action": "write",
-    "payload": { "path": "notes/teste-groq.txt" }
+    "payload": { "path": "notes/teste-missao.txt" }
   },
   "output": {
-    "path": "notes/teste-groq.txt",
+    "path": "notes/teste-missao.txt",
     "size": 7
   },
   "timestamp": "2026-09-14T10:15:30.000Z",
@@ -238,12 +238,13 @@ A tabela abaixo mapeia a situação atual das capacidades de continuidade e entr
 | Módulo / Capacidade | Status no Repositório | Localização no Código / Evidência | Observações |
 | :--- | :--- | :--- | :--- |
 | **Identidade de Missão (`MissionId`)** | **VERIFIED** | `packages/domain/src/index.ts`, `packages/db/src/schema.ts` | Tabela `missions` e tipos de domínio integrados. |
-| **Agent Loop V1 (Model $\rightarrow$ Tool $\rightarrow$ Result)** | **VERIFIED** | `packages/domain/src/runtime/agentLoop.ts`, `apps/web/src/lib/runtime/` | Reinjeção automática e limite configurável de iterações. Prova em prod com Groq. |
-| **Provedor Real Groq (`gpt-oss-120b`)** | **VERIFIED** | `apps/web/src/app/api/` | Integrado e verificado com chave real em produção (missão `163d1a28...`). |
+| **Agent Loop V1 (Model $\rightarrow$ Tool $\rightarrow$ Result)** | **VERIFIED** | `packages/domain/src/runtime/agentLoop.ts`, `apps/web/src/lib/runtime/` | Reinjeção automática e limite configurável de iterações. Prova em produção com o provedor configurado. |
+| **Provedor remoto** | **VERIFIED** | `apps/web/src/app/api/` | Integrado e verificado em produção (missão `163d1a28...`). |
 | **Sandbox Filesystem Tool V1** | **VERIFIED** | `apps/web/src/lib/runtime/tools/filesystem.ts` | Suporta `list`, `read`, `write`, `mkdir`, `stat` com isolamento e segurança. |
 | **Evidência de Execução (`GET /api/missions/:id/evidence`)** | **VERIFIED** | `apps/web/src/app/api/missions/[id]/evidence/route.ts` | Rota ativa registrando outputs de ferramentas e checkpoints. |
-| **Roteador Híbrido Online/Offline (`ModelSelector`)** | **IMPLEMENTED** | `packages/domain/src/runtime/modelSelector.ts` | Suporta alternância entre Groq e Local WebGPU (`transformers.js`). |
-| **Durable Execution Adapter (Inngest / Replay)** | **DESIGNED** | `docs/ARCHITECTURE.md`, `docs/PROJECT_SPECIFICATION.md` §8 | Especificado conceitualmente atrás de interface genérica; a ser ativado em fase futura. |
+| **Roteador Híbrido Online/Offline (`ModelSelector`)** | **IMPLEMENTED** | `packages/domain/src/runtime/modelSelector.ts` | Suporta alternância entre serviço remoto e runtime local via WebGPU. |
+| **Durable Execution Adapter gerenciado (Inngest / Replay)** | **DESIGNED** | `docs/ARCHITECTURE.md`, `docs/PROJECT_SPECIFICATION.md` §8 | Adapter vendor-neutral permanece futuro; o contrato de continuidade atual é atendido pelo worker local abaixo. |
+| **Worker durável local (`runtime_jobs`)** | **IMPLEMENTED** | `apps/web/src/app/api/cron/runtime-worker/route.ts`, `apps/web/src/lib/runtime/durableJobs.ts`, migration `0024` | Enqueue `PENDING`, claim com lease, retry/backoff, cancelamento e reconciliação; produção ainda requer `CRON_SECRET` + smoke. |
 | **Verificação Adversarial Automática** | **DESIGNED** | `docs/PROJECT_SPECIFICATION.md` §53 | Especificado na arquitetura de verificação; a ser expandido nas próximas fases. |
 
 ---
@@ -257,3 +258,21 @@ Para obter detalhes complementares sem duplicação de especificações, consult
 - **Decisões Registradas:** `docs/DECISIONS.md`
 - **Critérios de Verificação e Testes:** `docs/VERIFICATION.md`
 - **Guias de Execução e Deploy:** `docs/DEVELOPMENT.md` e `docs/DEPLOYMENT.md`
+
+---
+
+## 10. CONTRATO OPERACIONAL DO WORKER DURÁVEL
+
+O caminho suportado para execução autônoma é:
+
+```text
+POST autonomous-run
+  → execution PENDING + runtime_job PENDING
+  → cron worker claim (job RUNNING)
+  → execution RUNNING
+  → agent loop/checkpoints/evidence
+  → execution COMPLETED | FAILED | CANCELLED
+  → job SUCCEEDED | PENDING/FAILED | CANCELLED
+```
+
+O retorno do modelo não é autoridade para concluir o job. Se a execution persistida estiver `FAILED`, `RUNNING`, `PENDING` ou `CANCELLED`, o worker não grava `SUCCEEDED`. O Cockpit exibe `Job durável` separado de `Status do Runtime`.

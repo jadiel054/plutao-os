@@ -23,6 +23,7 @@ import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
 import { BrandMark } from "@/components/BrandMark";
 import { SendMessageButton } from "@/components/SendMessageButton";
+import { createMissionIntake } from "@/lib/missions/intakeClient";
 
 type PendingWriteGate = {
   id: string;
@@ -133,6 +134,7 @@ function ChatPageInner() {
   const [suggestedFollowUps, setSuggestedFollowUps] = useState<FollowUpChip[]>([]);
   const [pendingGates, setPendingGates] = useState<PendingWriteGate[]>([]);
   const [applyingPlan, setApplyingPlan] = useState(false);
+  const planIntakeKeyRef = useRef<{ fingerprint: string; key: string } | null>(null);
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [isConnectorsSheetOpen, setIsConnectorsSheetOpen] = useState(false);
   const [annotatorArtifact, setAnnotatorArtifact] = useState<ArtifactRef | null>(null);
@@ -486,6 +488,14 @@ function ChatPageInner() {
 
   async function applySuggestedPlan() {
     if (!suggestedPlan || suggestedPlan.stepTitles.length === 0 || applyingPlan) return;
+    const fingerprint = JSON.stringify({
+      conversationId: activeConversationId,
+      stepTitles: suggestedPlan.stepTitles,
+    });
+    if (planIntakeKeyRef.current?.fingerprint !== fingerprint) {
+      planIntakeKeyRef.current = { fingerprint, key: crypto.randomUUID() };
+    }
+    const idempotencyKey = planIntakeKeyRef.current.key;
     setApplyingPlan(true);
     try {
       let missionId = activeMissionId;
@@ -494,13 +504,12 @@ function ChatPageInner() {
         const objective =
           suggestedPlan.stepTitles[0]?.slice(0, 120) ||
           "Missão a partir do chat";
-        const createRes = await fetch("/api/missions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            objective,
-            context: "Plano sugerido pelo Núcleo no chat",
-          }),
+        const createRes = await createMissionIntake({
+          objective,
+          context: "Plano sugerido pelo Núcleo no chat",
+          source: "chat",
+          conversationId: activeConversationId,
+          idempotencyKey,
         });
         const createData = await createRes.json().catch(() => ({}));
         if (!createRes.ok || !createData.mission?.id) {
@@ -542,6 +551,7 @@ function ChatPageInner() {
       }
 
       setSuggestedPlan(null);
+      planIntakeKeyRef.current = null;
       setWorkspaceKey((k) => k + 1);
       addToast("Plano gravado na missão. Revise e alinhe antes de executar.", "success");
     } catch {
@@ -1470,6 +1480,7 @@ function ChatPageInner() {
           />
           <AgentComputerPanel
             conversationId={activeConversationId}
+            missionId={activeMissionId}
             preferOpen={sending || queue.length > 0}
           />
         </div>

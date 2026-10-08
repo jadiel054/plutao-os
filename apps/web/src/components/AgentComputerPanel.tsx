@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { filterWorkEvents } from "@/lib/events/workEvents";
+import { MissionGraphView } from "@/components/MissionGraphView";
 
 export type AgentEvent = {
   id: string;
@@ -18,8 +19,15 @@ export type AgentEvent = {
 
 type Props = {
   conversationId: string | null;
+  missionId?: string | null;
   preferOpen?: boolean;
 };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
 
 function toolLabel(ev: AgentEvent): string {
   const tool = typeof ev.payload?.tool === "string" ? ev.payload.tool : null;
@@ -68,9 +76,13 @@ function focusEvent(events: AgentEvent[]): AgentEvent | null {
  * G3 — Computador do agente: só trabalho (action/observation/plan/state_update).
  * Chat messages ficam fora. SSE retoma via ?cursor= / Last-Event-ID no server.
  */
-export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
+export function AgentComputerPanel({ conversationId, missionId, preferOpen }: Props) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  const [missionGraph, setMissionGraph] = useState<unknown>(null);
+  const [missionGraphRuntime, setMissionGraphRuntime] = useState<unknown>(null);
+  const [specialistProfiles, setSpecialistProfiles] = useState<Array<{ id: string; label: string }>>([]);
+  const [missionJobStatus, setMissionJobStatus] = useState<string | null>(null);
   const [cursorIndex, setCursorIndex] = useState<number | null>(null);
   const [streamStatus, setStreamStatus] = useState<
     "idle" | "live" | "replay" | "error"
@@ -82,6 +94,66 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
   useEffect(() => {
     if (preferOpen) setOpen(true);
   }, [preferOpen]);
+
+  useEffect(() => {
+    if (!missionId) {
+      setMissionGraph(null);
+      setMissionGraphRuntime(null);
+      setSpecialistProfiles([]);
+      setMissionJobStatus(null);
+      return;
+    }
+    if (!open) return;
+
+    let cancelled = false;
+    const refreshMissionGraph = async () => {
+      try {
+        const [planResponse, executionsResponse] = await Promise.all([
+          fetch(`/api/missions/${missionId}/plan`, { cache: "no-store" }),
+          fetch(`/api/missions/${missionId}/executions`, { cache: "no-store" }),
+        ]);
+        const planData = planResponse.ok ? asRecord(await planResponse.json()) : null;
+        const executionsData = executionsResponse.ok
+          ? asRecord(await executionsResponse.json())
+          : null;
+        const executionRows = Array.isArray(executionsData?.executions)
+          ? executionsData.executions
+          : [];
+        const currentExecution =
+          asRecord(executionsData?.recoverable) ?? asRecord(executionRows[0]);
+        const checkpoint = asRecord(currentExecution?.checkpoint);
+        const runtimeJob = asRecord(executionsData?.runtimeJob);
+        if (cancelled) return;
+        setMissionGraph(planData?.graph ?? null);
+        setMissionGraphRuntime(checkpoint?.missionGraphRuntime ?? null);
+        setSpecialistProfiles(
+          Array.isArray(planData?.specialistProfiles)
+            ? planData.specialistProfiles.filter(
+                (profile: unknown): profile is { id: string; label: string } =>
+                  typeof profile === "object" &&
+                  profile !== null &&
+                  typeof (profile as { id?: unknown }).id === "string" &&
+                  typeof (profile as { label?: unknown }).label === "string"
+              )
+            : []
+        );
+        setMissionJobStatus(typeof runtimeJob?.status === "string" ? runtimeJob.status : null);
+      } catch {
+        if (cancelled) return;
+        setMissionGraph(null);
+        setMissionGraphRuntime(null);
+        setSpecialistProfiles([]);
+        setMissionJobStatus(null);
+      }
+    };
+
+    void refreshMissionGraph();
+    const interval = window.setInterval(() => void refreshMissionGraph(), 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [missionId, open]);
 
   const mergeEvents = useCallback((incoming: AgentEvent[]) => {
     const work = filterWorkEvents(incoming);
@@ -243,6 +315,15 @@ export function AgentComputerPanel({ conversationId, preferOpen }: Props) {
 
       {open ? (
         <div className="border-t border-[var(--border)]/60 px-3 pb-3 pt-2 space-y-3">
+          {missionGraph ? (
+            <MissionGraphView
+              graph={missionGraph}
+              runtime={missionGraphRuntime}
+              jobStatus={missionJobStatus}
+              compact
+              specialistProfiles={specialistProfiles}
+            />
+          ) : null}
           <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--base)]/40 p-2.5 min-h-[72px]">
             <p className="text-[10px] font-mono uppercase text-[var(--text-muted)] mb-1">
               Tela

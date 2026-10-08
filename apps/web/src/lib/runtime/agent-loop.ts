@@ -149,6 +149,12 @@ function dispatchOutputSignature(toolDispatch: unknown): string | null {
   return `${r.ok ? "ok" : "err"}::${body.slice(0, 400)}`;
 }
 
+function isGatePendingDispatch(toolDispatch: unknown): boolean {
+  if (!toolDispatch || typeof toolDispatch !== "object") return false;
+  const dispatch = toolDispatch as { result?: { output?: unknown } };
+  return typeof dispatch.result?.output === "string" && dispatch.result.output.includes("GATE_PENDING");
+}
+
 /** H6 — lê o orçamento acumulado já gasto por esta execution. */
 function readIterationsUsed(checkpoint: unknown): number {
   if (!checkpoint || typeof checkpoint !== "object") return 0;
@@ -380,6 +386,19 @@ export async function runAgentLoop(
       if (dispatch.evidence?.id) {
         evidenceIds.push(dispatch.evidence.id);
       }
+    }
+
+    if (isGatePendingDispatch(toolDispatch)) {
+      stopReason = "GATE_PENDING";
+      details.push({
+        iteration,
+        modelResult: stepResult.model,
+        toolDispatch,
+        evidenceId: (toolDispatch as { evidenceId?: string }).evidenceId || null,
+        stopped: true,
+        stopReason,
+      });
+      break;
     }
 
     const toolError = getToolDispatchError(toolDispatch);

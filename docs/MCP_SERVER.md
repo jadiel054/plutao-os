@@ -45,12 +45,10 @@ PLUTAO_MCP_USER_ID=
 # Obrigatório para callbacks HTTPS próprios: URIs completas e exatas,
 # incluindo query string, separadas por vírgula. Vazio recusa todo HTTPS.
 #
-# Claude documenta callback loopback para clientes hospedados/Desktop:
-# http://localhost/callback e http://127.0.0.1/callback. O servidor aceita
-# esses callbacks em qualquer porta, mas exige o caminho /callback e rejeita
-# fragmentos. Não invente https://claude.ai/api/mcp/callback nem
-# /api/mcp/auth_callback: não são rotas do Plutão nem callbacks normativos
-# da documentação atual do Claude.
+# Clientes locais podem usar callback loopback HTTP em localhost ou
+# 127.0.0.1. O servidor aceita qualquer porta, mas exige o caminho /callback
+# e rejeita fragmentos. Use HTTPS apenas com URI completa cadastrada na
+# allowlist; rotas de callback devem pertencer ao Plutão.
 MCP_OAUTH_REDIRECT_ALLOWLIST=https://cliente.example/oauth/callback?client=plutao
 ```
 
@@ -58,7 +56,7 @@ Redeploy após salvar. **Não** use token na query string.
 
 ---
 
-## Fluxo (cliente Claude / Cursor / Grok com OAuth)
+## Fluxo de cliente MCP com OAuth
 
 1. Cliente chama `/api/mcp` sem token → **401** +  
    `WWW-Authenticate: Bearer resource_metadata="https://…/.well-known/oauth-protected-resource"`
@@ -105,7 +103,7 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 - [x] Rate limit por grant: 30 calls/min **em todas as tools** (guard `withMcpGuards`)
 - [x] Auditoria de todo call (audit_events `mcp.tool_call`)
 - [x] `system_status.model` mascarado (`plutao-primary`)
-- [x] Evidence de missão (`model_step.source`) mascarado (`model:plutao-primary`) — não grava `model:groq:…`
+- [x] Evidence de missão (`model_step.source`) mascarado (`model:plutao-primary`) — não grava identificadores externos de provedor/modelo
 
 ---
 

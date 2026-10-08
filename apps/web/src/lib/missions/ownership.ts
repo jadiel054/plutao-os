@@ -70,6 +70,7 @@ export type EvidenceItem = {
   missionId: string;
   executionId?: string;
   status?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
 };
 

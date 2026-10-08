@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/Header";
 import { MobileNav } from "@/components/MobileNav";
@@ -16,6 +16,7 @@ import { CockpitAgentFab } from "@/components/CockpitAgentFab";
 import { runAutonomousMission } from "@/lib/cockpit/runAutonomousMission";
 import { usePendingIntents } from "@/hooks/usePendingIntents";
 import { formatModelLabel } from "@/lib/runtime/model/label";
+import { createMissionIntake } from "@/lib/missions/intakeClient";
 
 type MissionRow = {
   id: string;
@@ -44,6 +45,11 @@ type ExecutionRow = {
   status: string;
   checkpoint: Record<string, unknown> | null;
   checkpointAt: string | null;
+  jobId?: string;
+  jobStatus?: string;
+  jobAttempts?: number;
+  jobMaxAttempts?: number;
+  jobLastError?: string | null;
 };
 
 function networkErrorMessage(action: string): string {
@@ -85,6 +91,7 @@ export default function CockpitPage() {
 
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const missionIntakeKeyRef = useRef<{ objective: string; key: string } | null>(null);
 
   const [dodResult, setDodResult] = useState<{
     passed: boolean;
@@ -202,7 +209,18 @@ export default function CockpitPage() {
         const res = await fetch(`/api/missions/${id}/executions`, { cache: "no-store" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         const d = await res.json();
-        setExecution(d.recoverable ?? null);
+        setExecution(
+          d.recoverable
+            ? {
+                ...d.recoverable,
+                jobId: d.runtimeJob?.id,
+                jobStatus: d.runtimeJob?.status,
+                jobAttempts: d.runtimeJob?.attempts,
+                jobMaxAttempts: d.runtimeJob?.maxAttempts,
+                jobLastError: d.runtimeJob?.lastError ?? null,
+              }
+            : null
+        );
         setPanelErrors((prev) => ({ ...prev, executions: false }));
       } else if (resource === "evidence") {
         const res = await fetch(`/api/missions/${id}/evidence`, { cache: "no-store" });
@@ -288,7 +306,18 @@ export default function CockpitPage() {
     if (rRes.status === "fulfilled" && rRes.value.ok) {
       try {
         const d = await rRes.value.json();
-        setExecution(d.recoverable ?? null);
+        setExecution(
+          d.recoverable
+            ? {
+                ...d.recoverable,
+                jobId: d.runtimeJob?.id,
+                jobStatus: d.runtimeJob?.status,
+                jobAttempts: d.runtimeJob?.attempts,
+                jobMaxAttempts: d.runtimeJob?.maxAttempts,
+                jobLastError: d.runtimeJob?.lastError ?? null,
+              }
+            : null
+        );
       } catch {
         newPanelErrors.executions = true;
       }
@@ -397,6 +426,15 @@ export default function CockpitPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     if (!objective.trim()) return;
+    const normalizedObjective = objective.trim();
+    if (missionIntakeKeyRef.current?.objective !== normalizedObjective) {
+      missionIntakeKeyRef.current = {
+        objective: normalizedObjective,
+        key: crypto.randomUUID(),
+      };
+    }
+    const idempotencyKey = missionIntakeKeyRef.current.key;
+    const intakePayload = { objective: normalizedObjective, source: "cockpit" as const };
     setError(null);
     setActionBusy("create_mission");
 
@@ -404,7 +442,8 @@ export default function CockpitPage() {
 
     if (isOffline) {
       try {
-        await createOfflineMissionIntent({ objective: objective.trim() });
+        await createOfflineMissionIntent(intakePayload, idempotencyKey);
+        missionIntakeKeyRef.current = null;
         setObjective("");
         addToast("Salvo localmente (Pendente de sincronização)", "info", "Offline");
       } catch {
@@ -416,11 +455,7 @@ export default function CockpitPage() {
     }
 
     try {
-      const res = await fetch("/api/missions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ objective: objective.trim() }),
-      });
+      const res = await createMissionIntake({ ...intakePayload, idempotencyKey });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         const errMsg = d.error ?? "Falha ao criar missão";
@@ -428,13 +463,15 @@ export default function CockpitPage() {
         addToast(errMsg, "error");
         return;
       }
+      missionIntakeKeyRef.current = null;
       setObjective("");
       addToast("Missão criada com sucesso!", "success");
       await load();
     } catch {
       // Falha de rede ao tentar criar online -> criar PendingIntent offline
       try {
-        await createOfflineMissionIntent({ objective: objective.trim() });
+        await createOfflineMissionIntent(intakePayload, idempotencyKey);
+        missionIntakeKeyRef.current = null;
         setObjective("");
         addToast(
           "Falha de rede. Missão salva localmente (Pendente de sincronização).",
@@ -970,6 +1007,28 @@ export default function CockpitPage() {
                               <span className="text-[var(--text-muted)]">Status do Runtime:</span>
                               <span className="text-[var(--nucleo)] font-bold">{execution.status}</span>
                             </div>
+                            {execution.jobStatus ? (
+                              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-2.5 py-2 text-[10px] font-mono space-y-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                  <span className="text-[var(--text-muted)]">Job durável:</span>
+                                  <span className="text-blue-300 font-bold">
+                                    {execution.jobStatus === "WAITING_APPROVAL"
+                                      ? "Aguardando aprovação"
+                                      : execution.jobStatus}
+                                  </span>
+                                  {execution.jobAttempts != null && execution.jobMaxAttempts != null ? (
+                                    <span className="text-[var(--text-muted)]">
+                                      tentativa {execution.jobAttempts}/{execution.jobMaxAttempts}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {execution.jobStatus === "WAITING_APPROVAL" ? (
+                                  <p className="text-amber-200">A missão será retomada pelo worker após a decisão no gate.</p>
+                                ) : execution.jobLastError ? (
+                                  <p className="text-amber-300 break-words">{execution.jobLastError}</p>
+                                ) : null}
+                              </div>
+                            ) : null}
 
                             {execution.checkpoint && (
                               <div className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[10px] font-mono overflow-x-auto text-[var(--text-secondary)]">

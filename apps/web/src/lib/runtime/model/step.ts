@@ -2,7 +2,7 @@
  * Model Step - Execução de passo do modelo com integração híbrida (Online/Offline)
  *
  * Implementa:
- * - Chamada ao modelo (Groq ou Local)
+ * - Chamada ao modelo (remoto ou local)
  * - Persistência de checkpoints no banco de dados
  * - Integração com LocalProvider para modo offline
  * - Tool dispatch automático
@@ -24,10 +24,11 @@ import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
 import { ModelProviderFactory, setModelProviderMode } from "./provider";
 import { resolveCloudModelConfig } from "./resolveConfig";
 import { buildSystemPrompt } from "./missionPrompt";
-import { callModelWithRetry, LocalModelCallError, type ModelProviderLike } from "./modelCall";
+import { callModelWithRetry, classifyModelError, type ModelProviderLike } from "./modelCall";
 import { loadConnectorRuntime } from "@/lib/chat/connectorRuntime";
 import { sanitizeText } from "@/lib/security/sanitize";
 import { loadAgentIdentity } from "@/lib/agente/identity";
+import { resolveSpecialistPolicy } from "@/lib/missions/specialistProfiles";
 import type { ModelConfig, ModelMessage, ModelStepResult } from "./types";
 import type { ModelMode } from "@plutao/domain";
 
@@ -46,6 +47,7 @@ type CheckpointShape = {
   modelMode?: ModelMode;
   localModelId?: string;
   localModelStatus?: "idle" | "loading" | "loaded" | "error";
+  missionGraphRuntime?: { activeNodeId?: string | null; [key: string]: unknown };
 };
 
 function asCp(raw: unknown): CheckpointShape {
@@ -100,6 +102,8 @@ export async function runModelStep(
       error: string;
       hint?: string;
       detail?: string;
+      code?: string;
+      retryable?: boolean;
     }
 > {
   const effectiveMode = mode || "auto";
@@ -172,6 +176,57 @@ export async function runModelStep(
 
   const evidence = parseEvidence(mission.evidence).slice(-8);
   const cp = asCp(execution.checkpoint);
+  const activeNodeId = cp.missionGraphRuntime?.activeNodeId;
+  const missionGraph = mission.missionGraph as
+    | { version?: number; nodes?: Array<Record<string, unknown>> }
+    | null;
+  const hasPersistedMissionGraph = mission.missionGraph !== null && mission.missionGraph !== undefined;
+  if (
+    hasPersistedMissionGraph &&
+    (missionGraph?.version !== 2 || typeof activeNodeId !== "string")
+  ) {
+    return { error: "MISSION_GRAPH_ACTIVE_NODE_INVALID" };
+  }
+  if (activeNodeId != null && typeof activeNodeId !== "string") {
+    return { error: "MISSION_GRAPH_ACTIVE_NODE_INVALID" };
+  }
+  const activeNode = typeof activeNodeId === "string" && missionGraph?.version === 2 && Array.isArray(missionGraph.nodes)
+    ? missionGraph.nodes.find((candidate) => candidate.id === activeNodeId)
+    : undefined;
+  if (typeof activeNodeId === "string" && !activeNode) {
+    return { error: "MISSION_GRAPH_ACTIVE_NODE_INVALID" };
+  }
+  if (activeNode && !Object.prototype.hasOwnProperty.call(activeNode, "specialistProfileId")) {
+    return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" };
+  }
+  if (
+    activeNode &&
+    activeNode.specialistProfileId !== null &&
+    typeof activeNode.specialistProfileId !== "string"
+  ) {
+    return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" };
+  }
+  const specialistProfileId =
+    activeNode?.specialistProfileId === null || typeof activeNode?.specialistProfileId === "string"
+      ? activeNode.specialistProfileId
+      : null;
+  const rawRequiredCapabilities = activeNode?.requiredCapabilities;
+  if (
+    activeNode &&
+    (!Array.isArray(rawRequiredCapabilities) ||
+      !rawRequiredCapabilities.every((capability) => typeof capability === "string"))
+  ) {
+    return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" };
+  }
+  const requiredCapabilities = (rawRequiredCapabilities ?? []) as string[];
+  const specialistResolution = resolveSpecialistPolicy(specialistProfileId, requiredCapabilities);
+  if (!specialistResolution.ok) {
+    return {
+      error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID",
+      code: specialistResolution.reason,
+    };
+  }
+  const specialist = specialistResolution.profile;
 
   const cpWithMode: CheckpointShape = {
     ...cp,
@@ -180,6 +235,16 @@ export async function runModelStep(
 
   const userPrompt = [
     `Mission objective: ${mission.objective}`,
+    (() => {
+      if (!activeNode) return null;
+      return [
+        `Active serial mission node: ${String(activeNode.title ?? activeNode.id)}`,
+        specialist ? `Assigned specialist: ${specialist.label}` : null,
+        typeof activeNode.description === "string" ? `Node description: ${activeNode.description}` : null,
+        typeof activeNode.definitionOfDone === "string" ? `Node definition of done: ${activeNode.definitionOfDone}` : null,
+        "Work only on this active node. Do not begin a later node; the durable worker will release it after this node is verified.",
+      ].filter(Boolean).join("\n");
+    })(),
     mission.definitionOfDone ? `Definition of done: ${mission.definitionOfDone}` : null,
     `Execution status: ${execution.status}`,
     `Checkpoint: ${JSON.stringify(cpWithMode)}`,
@@ -193,7 +258,7 @@ export async function runModelStep(
     .join("\n");
 
   const messages: ModelMessage[] = [
-    { role: "system", content: buildSystemPrompt(agent, connectorBlock, execution.missionId) },
+    { role: "system", content: buildSystemPrompt(agent, connectorBlock, execution.missionId, specialist) },
     { role: "user", content: userPrompt },
     ...additionalMessages,
   ];
@@ -208,19 +273,31 @@ export async function runModelStep(
     providerType = callResult.providerType;
     modelId = callResult.modelId;
   } catch (e) {
-    const mce = e instanceof LocalModelCallError ? e : (e as { summary?: () => string; httpStatus?: number; message?: string });
-    const summary = typeof mce.summary === "function" ? mce.summary() : (mce.message ?? "model call failed");
+    const failure = classifyModelError(e, {
+      provider: provider.getProviderType(),
+      model: provider.getModelId(),
+    });
 
     try {
       const errEvidenceId = randomUUID();
       const errItem: EvidenceItem = {
         id: errEvidenceId,
         type: "model_error",
-        content: sanitizeText("MODEL_CALL_FAILED: " + summary).slice(0, 600),
+        content: failure.code,
         source: EVIDENCE_MODEL_SOURCE,
         taskId: execution.currentTaskId,
         missionId: execution.missionId,
         executionId,
+        metadata: {
+          ...(cp.missionGraphRuntime?.activeNodeId
+            ? { missionNodeId: cp.missionGraphRuntime.activeNodeId, graphVersion: 2 }
+            : {}),
+          category: failure.category,
+          retryable: failure.retryable,
+          provider: failure.provider,
+          model: failure.model,
+          httpStatus: failure.httpStatus,
+        },
         createdAt: new Date().toISOString(),
       };
       const prevEvErr = parseEvidence(mission.evidence);
@@ -232,17 +309,13 @@ export async function runModelStep(
       console.error("[runModelStep] falha ao gravar evidence de erro do modelo:", logErr);
     }
 
-    const httpStatus = mce.httpStatus;
-    const hint =
-      httpStatus === 404
-        ? "Model id não existe neste endpoint — confira preferredModel/MODEL_NAME versus MODEL_BASE_URL (ex.: 'openai/gpt-oss-120b' só existe na Groq, não na OpenAI)."
-        : httpStatus === 401 || httpStatus === 403
-          ? "Chave de API rejeitada pelo provedor — confira GROQ_API_KEY/MODEL_API_KEY."
-          : httpStatus != null && httpStatus >= 500
-            ? "Provedor instável — reexecute a missão em alguns minutos."
-            : "Confira MODEL_API_KEY, MODEL_NAME e MODEL_BASE_URL.";
-
-    return { error: "MODEL_CALL_FAILED" as const, detail: summary, hint };
+    return {
+      error: "MODEL_CALL_FAILED" as const,
+      code: failure.code,
+      retryable: failure.retryable,
+      detail: failure.code,
+      hint: failure.hint,
+    };
   }
 
   const now = new Date();
@@ -257,6 +330,9 @@ export async function runModelStep(
     taskId: execution.currentTaskId,
     missionId: execution.missionId,
     executionId,
+    ...(cp.missionGraphRuntime?.activeNodeId
+      ? { metadata: { missionNodeId: cp.missionGraphRuntime.activeNodeId, graphVersion: 2 } }
+      : {}),
     createdAt: now.toISOString(),
   };
 

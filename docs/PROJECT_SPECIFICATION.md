@@ -683,7 +683,7 @@ Potential adapters:
 
 ```text
 OpenAIAdapter
-AnthropicAdapter
+ModelProviderAdapter
 GeminiAdapter
 OpenRouterAdapter
 GroqAdapter

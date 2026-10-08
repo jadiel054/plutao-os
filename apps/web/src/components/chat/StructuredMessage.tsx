@@ -1,8 +1,10 @@
 "use client";
 
+import { extractAnswerSections } from "@/lib/chat/answerFormatting";
 import { ReasoningBlock, type ReasoningStepItem } from "./ReasoningBlock";
 import { ActionCards, type ToolCallItem } from "./ActionCards";
 import { CodeBlock } from "./CodeBlock";
+import { AnswerResultCard } from "./AnswerResultCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 export type StructuredStep =
@@ -19,7 +21,7 @@ type StructuredMessageProps = {
   isEdited?: boolean;
 };
 
-/** Parses text content to extract ```lang ... ``` code blocks */
+/** Parses text content to extract ```lang ... ``` code blocks. */
 function parseContentParts(content: string) {
   const parts: Array<{ type: "text" | "code"; text: string; language?: string }> = [];
   const regex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
@@ -46,6 +48,17 @@ function parseContentParts(content: string) {
   return parts;
 }
 
+function renderMarkdownParts(content: string) {
+  const parts = parseContentParts(content);
+  return parts.map((part, index) => {
+    if (part.type === "code") {
+      return <CodeBlock key={index} code={part.text} language={part.language} />;
+    }
+    if (!part.text.trim()) return null;
+    return <MarkdownRenderer key={index} text={part.text} />;
+  });
+}
+
 export function StructuredMessage({
   role,
   content,
@@ -69,49 +82,39 @@ export function StructuredMessage({
 
   const reasoningSteps: ReasoningStepItem[] =
     steps
-      ?.filter((s): s is { type: "reasoning"; reasoning: ReasoningStepItem } => s.type === "reasoning")
-      .map((s) => s.reasoning) ?? [];
+      ?.filter((step): step is { type: "reasoning"; reasoning: ReasoningStepItem } => step.type === "reasoning")
+      .map((step) => step.reasoning) ?? [];
 
   const toolCallSteps: ToolCallItem[] =
     steps
-      ?.filter((s): s is { type: "tool_call"; toolCall: ToolCallItem } => s.type === "tool_call")
-      .map((s) => s.toolCall) ??
+      ?.filter((step): step is { type: "tool_call"; toolCall: ToolCallItem } => step.type === "tool_call")
+      .map((step) => step.toolCall) ??
     trace?.toolCalls ?? [];
 
-  const parts = parseContentParts(content);
-
+  const { result, body } = extractAnswerSections(content);
   const isReasoningStreaming = isStreaming && toolCallSteps.length === 0 && !content;
 
   return (
-    <div className="space-y-4 min-w-0 [overflow-wrap:anywhere] break-words">
+    <div className="min-w-0 space-y-4 [overflow-wrap:anywhere] break-words">
+      {result ? <AnswerResultCard content={result.content} /> : null}
+
       {reasoningSteps.length > 0 && (
         <ReasoningBlock steps={reasoningSteps} isStreaming={isReasoningStreaming} />
       )}
 
-      {toolCallSteps.length > 0 && <ActionCards toolCalls={toolCallSteps} />}
+      {body.trim() ? <div className="space-y-3">{renderMarkdownParts(body)}</div> : null}
 
-      {(parts.length > 0 && (parts.length > 1 || parts[0]?.text?.trim())) && (
-        <div className="space-y-3">
-          {parts.map((p, idx) => {
-            if (p.type === "code") {
-              return <CodeBlock key={idx} code={p.text} language={p.language} />;
-            }
-            if (!p.text.trim()) return null;
-            return <MarkdownRenderer key={idx} text={p.text} />;
-          })}
-        </div>
-      )}
+      {toolCallSteps.length > 0 ? <ActionCards toolCalls={toolCallSteps} /> : null}
 
-      {toolCallSteps.length > 0 && (
-        <div className="pt-1 text-[11px] text-[var(--text-muted)] flex items-center gap-1.5">
-          <span className="opacity-60">fontes</span>
+      {toolCallSteps.length > 0 ? (
+        <div className="flex items-center gap-1.5 pt-1 text-[11px] text-[var(--text-muted)]">
+          <span className="opacity-60">Fontes de ferramenta</span>
           <span className="opacity-40">·</span>
-          <span className="text-[var(--selo)] font-medium">
-            {toolCallSteps[0]?.provider ?? "GitHub"}{" "}
-            ({toolCallSteps.length} {toolCallSteps.length === 1 ? "chamada" : "chamadas"})
+          <span className="font-medium text-[var(--selo)]">
+            {toolCallSteps[0]?.provider ?? "conector"} ({toolCallSteps.length} {toolCallSteps.length === 1 ? "chamada" : "chamadas"})
           </span>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

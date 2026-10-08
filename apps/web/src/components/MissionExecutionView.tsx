@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { MissionEvent, MissionPlanV1, MissionStep } from "@plutao/domain";
 import { isStepInFailureLoop } from "@plutao/domain";
+import { MissionGraphView } from "@/components/MissionGraphView";
 
 function formatAt(at: string): string {
   try {
@@ -25,6 +26,12 @@ export function MissionExecutionView({
   onTest,
   onStop,
   busy,
+  graph,
+  graphRuntime,
+  jobStatus,
+  specialistProfiles,
+  specialistsEditable,
+  onSpecialistChange,
 }: {
   plan: MissionPlanV1;
   onInspect?: (step: MissionStep) => void;
@@ -32,6 +39,12 @@ export function MissionExecutionView({
   onTest?: (step: MissionStep) => void;
   onStop?: () => void;
   busy?: boolean;
+  graph?: unknown;
+  graphRuntime?: unknown;
+  jobStatus?: string | null;
+  specialistProfiles?: Array<{ id: string; label: string }>;
+  specialistsEditable?: boolean;
+  onSpecialistChange?: (nodeId: string, specialistProfileId: string | null) => void;
 }) {
   const [open, setOpen] = useState(true);
   const events = [...plan.events].reverse().slice(0, 40);
@@ -136,6 +149,18 @@ export function MissionExecutionView({
                 ) : null}
               </div>
             </div>
+          ) : null}
+
+          {graph ? (
+            <MissionGraphView
+              graph={graph}
+              runtime={graphRuntime}
+              jobStatus={jobStatus}
+              specialistProfiles={specialistProfiles}
+              specialistsEditable={specialistsEditable}
+              specialistsBusy={busy}
+              onSpecialistChange={onSpecialistChange}
+            />
           ) : null}
 
           {events.length === 0 ? (

@@ -1,7 +1,6 @@
 /**
  * Label de modelo para UI. Evita prefixo duplicado: quando o model id já
- * contém "/" (ex.: apiModel da Groq "openai/gpt-oss-120b"), não concatena
- * o provider por cima ("openai/openai/gpt-oss-120b").
+ * contém "/", não concatena o provider por cima nem duplica prefixos.
  */
 export function formatModelLabel(
   provider: string | null | undefined,

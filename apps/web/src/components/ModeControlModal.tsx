@@ -44,7 +44,7 @@ export function ModeControlModal({ isOpen, onClose, onNotify }: ModeControlModal
       onNotify?.("Modo Automático ativado (alterna conforme conexão)", "info");
     } else if (targetMode === "online") {
       setOnlineMode();
-      onNotify?.("Modo Online forçado (Groq / gpt-oss-120b)", "success");
+      onNotify?.("Modo Online forçado (provedor remoto)", "success");
     } else if (targetMode === "offline") {
       setOfflineMode();
       onNotify?.(
@@ -158,7 +158,7 @@ export function ModeControlModal({ isOpen, onClose, onNotify }: ModeControlModal
                 )}
               </div>
               <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                Alterna automaticamente entre nuvem (Groq) quando online e modelo local quando offline.
+                Alterna automaticamente entre provedor remoto quando online e modelo local quando offline.
               </p>
             </div>
           </button>
@@ -184,7 +184,7 @@ export function ModeControlModal({ isOpen, onClose, onNotify }: ModeControlModal
                 )}
               </div>
               <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                Utiliza provedor de alto desempenho na nuvem (Groq - gpt-oss-120b). Requer conexão com a internet.
+                Utiliza o provedor remoto configurado. Requer conexão com a internet.
               </p>
             </div>
           </button>

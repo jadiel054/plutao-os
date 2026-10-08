@@ -39,8 +39,8 @@ jobs:
           # Só superfície de usuário (ajuda, legal, components de settings).
           # Docs de arquitetura internas podem mencionar stacks técnicos.
           TARGETS="apps/web/src/app/ajuda apps/web/src/app/legal apps/web/src/components"
-          FOUND=$(grep -RIn --include='*.tsx' --include='*.ts' \
-            -e 'ChatGPT' -e 'created by Grok' -e 'powered by Claude' -e 'powered by ChatGPT' \
+          FOUND=$(grep -REIn --include='*.tsx' --include='*.ts' \
+            -e 'created by [[:alnum:]_-]+' -e 'powered by [[:alnum:]_-]+' \
             $TARGETS 2>/dev/null || true)
           if [ -n "$FOUND" ]; then
             echo "Found forbidden third-party AI marketing strings in product UI:"

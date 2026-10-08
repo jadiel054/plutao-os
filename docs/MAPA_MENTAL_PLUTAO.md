@@ -22,7 +22,7 @@ Plutão
 └── Meta longa: modelos próprios + infra própria
 ```
 
-**Não é “mais um ChatGPT clone”.**  
+**Não é um chat genérico.**
 **Não deve ser genérico** (textos, legal, ajuda, branding).  
 **Não mencionar** outras IAs em docs/UI do produto — só Plutão e seus agentes.
 
@@ -58,7 +58,7 @@ Plutão
               ▼                                                 ▼
      ┌─────────────────┐                              ┌─────────────────┐
      │  Neon Postgres  │                              │  Model providers │
-     │  @plutao/db     │                              │  OpenAI-compat   │
+     │  @plutao/db     │                              │  API compatível  │
      │  Drizzle        │                              │  MODEL_* env     │
      └─────────────────┘                              └─────────────────┘
               │

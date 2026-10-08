@@ -1,7 +1,7 @@
 /**
  * Server-side Autonomia V1.1 cycle.
- * Survives client tab close for the duration of the HTTP request (Vercel maxDuration).
- * Does NOT implement Service Worker / closed-PWA workers — that is a later phase.
+ * The normal caller is the authenticated durable runtime worker. Direct callers
+ * such as gate approval may still resume a known execution explicitly.
  *
  * ## Missões longas (H1)
  * `POST /api/missions/:id/autonomous-run` declara `maxDuration = 300` (5 min).
@@ -9,16 +9,16 @@
  * Se o trabalho ultrapassar o teto da plataforma, a execução é cortada no meio
  * (execution pode ficar RUNNING/INTERRUPTED sem complete limpo).
  *
- * **Débito arquitetural (não implementar em H1):** executor durável com
- * job table + scheduler (ex. fila / Inngest) para retomada fora do ciclo HTTP.
- * Até lá, missões simples (poucos tool calls) são o caminho suportado;
- * missões multi-arquivo longas devem ser fatiadas ou aceitar risco de timeout.
+ * O endpoint público de autonomous-run apenas enfileira; esta função não deve
+ * ser chamada por ele sem que um worker tenha reivindicado o job.
  */
 import { and, eq } from "drizzle-orm";
 import { missions } from "@plutao/db";
 import {
   applyStepTransition,
+  getMissionGraphSerialOrder,
   parseMissionPlan,
+  type MissionGraphV2,
   type MissionPlanV1,
 } from "@plutao/domain";
 import { getDb } from "@/lib/db";
@@ -28,11 +28,15 @@ import { verifyDefinitionOfDone } from "@/lib/missions/dod";
 import {
   completeExecution,
   findRecoverableExecution,
+  getOwnedExecution,
+  resumeExecution,
   startExecution,
   writeCheckpoint,
 } from "@/lib/runtime/service";
-import { runAgentLoop, MAX_ITERATIONS } from "@/lib/runtime/agent-loop";
+import { MAX_ITERATIONS } from "@/lib/runtime/agent-loop";
 import { nextStatuses } from "@/lib/missions/lifecycle";
+import { ensurePersistedMissionGraph } from "@/lib/missions/graphPersistence";
+import { runNextMissionGraphNodeSerial } from "@/lib/missions/serialMissionExecutor";
 
 export type AutonomousRunResult = {
   ok: boolean;
@@ -46,61 +50,50 @@ export type AutonomousRunResult = {
   error?: string;
   message?: string;
   dod?: unknown;
+  continuation?: boolean;
+  waitingApproval?: boolean;
+  graphNodeId?: string;
 };
 
 const PATH_TO_EXECUTING = ["UNDERSTANDING", "PLANNING", "EXECUTING"] as const;
 const ORDER = ["CREATED", "UNDERSTANDING", "PLANNING", "EXECUTING"];
 
-/**
- * H1: garante passo 0 PENDING → RUNNING no plano estruturado, se alinhado.
- * Não vive no PATCH align — só no caminho de execução real.
- * Retorna o plano atualizado ou null se nada mudou / sem plano.
- */
+/** Legacy helper retained for callers/tests; graph execution uses node-level transitions. */
 export async function ensureFirstPlanStepRunning(
   missionId: string,
   userId: string
 ): Promise<MissionPlanV1 | null> {
   const mission = await getOwnedMission(missionId, userId);
   if (!mission) return null;
-
   const plan = parseMissionPlan(mission.plan);
   if (!plan || !plan.aligned || plan.steps.length === 0) return plan;
-
   const step0 = plan.steps[0];
   if (!step0 || step0.status !== "PENDING") return plan;
-
   const next = applyStepTransition(plan, step0.id, "RUNNING", {
     eventLabel: `Iniciando: ${step0.title}`,
     eventDetail: "Passo 0 liberado pelo runtime autônomo",
   });
   if (!next) return plan;
-
-  const completedSteps = next.steps
-    .filter((s) => s.status === "PASSED")
-    .map((s) => s.title);
+  const completedSteps = next.steps.filter((step) => step.status === "PASSED").map((step) => step.title);
   const pendingSteps = next.steps
-    .filter((s) => s.status !== "PASSED" && s.status !== "CANCELLED")
-    .map((s) => s.title);
-
+    .filter((step) => step.status !== "PASSED" && step.status !== "CANCELLED")
+    .map((step) => step.title);
   const db = getDb();
   await db
     .update(missions)
-    .set({
-      plan: next,
-      completedSteps,
-      pendingSteps,
-      updatedAt: new Date(),
-    })
+    .set({ plan: next, completedSteps, pendingSteps, updatedAt: new Date() })
     .where(and(eq(missions.id, missionId), eq(missions.userId, userId)));
-
   return next;
 }
 
 export async function runAutonomousMissionServer(opts: {
   missionId: string;
   userId: string;
+  /** Quando presente, o worker executa exatamente o job reivindicado. */
+  executionId?: string | null;
   currentTaskId?: string | null;
   maxIterations?: number;
+  missionGraph?: MissionGraphV2;
   /** G3: conversa do chat que originou a missão — events no Computador. */
   conversationId?: string | null;
 }): Promise<AutonomousRunResult> {
@@ -126,7 +119,7 @@ export async function runAutonomousMissionServer(opts: {
   }
 
   let status = String(mission.status).toUpperCase();
-  if (["COMPLETED", "CANCELLED", "FAILED"].includes(status)) {
+  if (["COMPLETED", "CANCELLED", "FAILED", "INCONCLUSIVE"].includes(status)) {
     return {
       ok: false,
       missionId,
@@ -151,6 +144,37 @@ export async function runAutonomousMissionServer(opts: {
       executionId: null,
       error: "MODEL_NOT_CONFIGURED",
       message: "Configure MODEL_API_KEY no Vercel",
+    };
+  }
+
+  let missionGraph: MissionGraphV2;
+  try {
+    missionGraph = opts.missionGraph ?? await ensurePersistedMissionGraph(missionId, userId);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "MISSION_GRAPH_INVALID";
+    return {
+      ok: false,
+      missionId,
+      finalStatus: status,
+      allowedTransitions: nextStatuses(status),
+      stepsOk: 0,
+      completed: false,
+      executionId: opts.executionId ?? null,
+      error: code,
+      message: "O grafo versionado da missão não pôde ser carregado com segurança.",
+    };
+  }
+  if (!getMissionGraphSerialOrder(missionGraph)) {
+    return {
+      ok: false,
+      missionId,
+      finalStatus: status,
+      allowedTransitions: nextStatuses(status),
+      stepsOk: 0,
+      completed: false,
+      executionId: opts.executionId ?? null,
+      error: "MISSION_GRAPH_SERIAL_LIMIT",
+      message: "O worker serial aceita até 20 nós por execução nesta etapa.",
     };
   }
 
@@ -183,10 +207,14 @@ export async function runAutonomousMissionServer(opts: {
     status = t.status;
   }
 
-  // H1: plano alinhado → passo 0 RUNNING antes do agent loop
-  await ensureFirstPlanStepRunning(missionId, userId);
-
-  let recoverable = await findRecoverableExecution(missionId, userId);
+  type ExecutionRow = NonNullable<Awaited<ReturnType<typeof getOwnedExecution>>>;
+  let recoverable: ExecutionRow | null = opts.executionId
+    ? await getOwnedExecution(opts.executionId, userId)
+    : await findRecoverableExecution(missionId, userId);
+  if (recoverable?.status === "PENDING") {
+    const resumed = await resumeExecution(recoverable.id, userId);
+    recoverable = "execution" in resumed ? resumed.execution ?? null : null;
+  }
   if (!recoverable) {
     const started = await startExecution({
       missionId,
@@ -194,6 +222,10 @@ export async function runAutonomousMissionServer(opts: {
       currentTaskId: opts.currentTaskId ?? null,
     });
     recoverable = started.execution;
+  }
+  if (recoverable?.status === "PENDING") {
+    const resumed = await resumeExecution(recoverable.id, userId);
+    recoverable = "execution" in resumed ? resumed.execution ?? null : null;
   }
 
   const executionId = recoverable?.id ? String(recoverable.id) : null;
@@ -227,24 +259,20 @@ export async function runAutonomousMissionServer(opts: {
     }
   }
 
-  const loop = await runAgentLoop(executionId, userId, maxIterations);
-  const stepsOk = loop.iterations ?? 0;
+  const graphRun = await runNextMissionGraphNodeSerial({
+    missionId,
+    userId,
+    executionId,
+    graph: missionGraph,
+    maxIterations,
+  });
+  const stepsOk = graphRun.iterations;
 
-  const loopFailed =
-    !loop.ok ||
-    loop.stopReason.startsWith("TOOL_ERROR") ||
-    loop.stopReason.startsWith("MODEL_STEP_ERROR") ||
-    loop.stopReason === "MAX_ITERATIONS_REACHED";
-
-  if (loopFailed) {
-    const failure = loop.error ?? loop.stopReason;
+  if (graphRun.kind === "failed") {
+    const failure = graphRun.error || graphRun.stopReason;
     await completeExecution(executionId, userId, "FAILED", failure);
 
-    const failedMission = await transitionMissionStatus({
-      missionId,
-      userId,
-      toStatus: "FAILED",
-    });
+    const failedMission = await transitionMissionStatus({ missionId, userId, toStatus: "FAILED" });
     const failedStatus = failedMission.ok
       ? failedMission.status
       : String((await getOwnedMission(missionId, userId))?.status ?? status);
@@ -257,9 +285,41 @@ export async function runAutonomousMissionServer(opts: {
       stepsOk,
       completed: false,
       executionId,
-      stopReason: loop.stopReason,
+      stopReason: graphRun.stopReason,
       error: failure,
       message: `Execução falhou: ${failure}`,
+    };
+  }
+
+  if (graphRun.kind === "continuation") {
+    return {
+      ok: true,
+      missionId,
+      finalStatus: status,
+      allowedTransitions: nextStatuses(status),
+      stepsOk,
+      completed: false,
+      executionId,
+      stopReason: "MISSION_GRAPH_NODE_PASSED",
+      continuation: true,
+      graphNodeId: graphRun.nodeId,
+      message: `Nó ${graphRun.nodeId} verificado; worker liberará o próximo nó em série.`,
+    };
+  }
+
+  if (graphRun.kind === "waiting_approval") {
+    return {
+      ok: true,
+      missionId,
+      finalStatus: status,
+      allowedTransitions: nextStatuses(status),
+      stepsOk,
+      completed: false,
+      executionId,
+      stopReason: "MISSION_GRAPH_WAITING_APPROVAL",
+      waitingApproval: true,
+      graphNodeId: graphRun.nodeId,
+      message: `Nó ${graphRun.nodeId} aguardando aprovação humana; execução pausada até a decisão.`,
     };
   }
 
@@ -309,20 +369,20 @@ export async function runAutonomousMissionServer(opts: {
   const finalStatus = final ? String(final.status) : status;
 
   return {
-    ok: stepsOk > 0 || completed || loop.ok,
+    ok: stepsOk > 0 || completed || graphRun.kind === "complete",
     missionId,
     finalStatus,
     allowedTransitions: nextStatuses(finalStatus),
     stepsOk,
     completed,
     executionId,
-    stopReason: loop.stopReason,
+    stopReason: "MISSION_GRAPH_COMPLETE",
     message: completed
       ? `Missão COMPLETED — ${stepsOk} passo(s), DoD OK`
       : stepsOk > 0
         ? `Execução ok (${stepsOk} passo(s)) — status: ${finalStatus}`
-        : loop.error ?? loop.stopReason ?? "Nenhum passo concluído",
+        : "Grafo serial concluído; missão aguarda/terminou verificação global",
     dod: dodResult,
-    error: stepsOk === 0 && !completed ? loop.error ?? loop.stopReason : undefined,
+    error: undefined,
   };
 }

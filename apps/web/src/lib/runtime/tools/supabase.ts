@@ -78,7 +78,7 @@ function buildWritePayload(parsed: SupabasePayload): Record<string, unknown> {
   };
 }
 
-export async function runSupabase(input: string, userId: string): Promise<ToolResult> {
+export async function runSupabase(input: string, userId: string, executionId?: string): Promise<ToolResult> {
   const started = Date.now();
   const parsed = parseInput(input);
   if ("error" in parsed) {
@@ -217,6 +217,7 @@ export async function runSupabase(input: string, userId: string): Promise<ToolRe
       payload: buildWritePayload(parsed),
       contentPreview: parsed.query.slice(0, 200),
       missionId: parsed.missionId ?? null,
+      executionId: executionId ?? null,
       gateId: parsed._gateId,
     });
 

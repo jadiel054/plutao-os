@@ -63,7 +63,7 @@ export function ModelFilterMenu({
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--selo)]"
           >
             <option value="all"> Todos os Provedores</option>
-            <option value="cloud"> Nuvem (Groq / OpenRouter)</option>
+            <option value="cloud"> Nuvem (remoto)</option>
             <option value="local"> Local Browser (WebGPU / CPU)</option>
           </select>
         </div>

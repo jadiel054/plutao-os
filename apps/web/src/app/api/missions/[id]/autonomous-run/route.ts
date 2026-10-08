@@ -1,27 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
-import { getOwnedMission } from "@/lib/missions/ownership";
-import { getOwnedConversation, getOwnedTaskInMission } from "@/lib/missions/ownership";
-import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
+import { getOwnedConversation, getOwnedMission, getOwnedTaskInMission } from "@/lib/missions/ownership";
+import { isMissionStatus, TERMINAL_STATUSES } from "@/lib/missions/lifecycle";
 import { ensureExecutionsTable } from "@/lib/runtime/ensure";
-import {
-  completeRuntimeJob,
-  enqueueMissionExecutionJob,
-  leaseRuntimeJob,
-  retryRuntimeJob,
-} from "@/lib/runtime/durableJobs";
+import { enqueueMissionExecutionJob } from "@/lib/runtime/durableJobs";
 import { createRequestId, recordRuntimeTelemetry } from "@/lib/observability/runtimeTelemetry";
+import { sanitizeError } from "@/lib/security/sanitize";
+import { getMissionGraphSerialOrder } from "@plutao/domain";
+import { ensurePersistedMissionGraph, MissionGraphPersistenceError } from "@/lib/missions/graphPersistence";
 
 export const runtime = "nodejs";
-/** Allow long autonomous cycles on Vercel Pro (Hobby caps lower). */
-export const maxDuration = 300;
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * POST — run Autonomia V1.1 fully on the server (Background Execution V1).
- * Client may disconnect; work continues until this request finishes or platform timeout.
- * Not Service Worker / closed-PWA execution — that remains a later phase.
+ * POST — cria uma execution e a deixa PENDING para o worker durável.
+ *
+ * Este endpoint é somente enqueue: não reivindica o job e não executa o
+ * agent loop dentro da requisição HTTP. O worker autenticado é a autoridade
+ * normal de processamento e de conclusão do job.
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
   const user = await getSessionUser();
@@ -35,9 +32,24 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Missão não encontrada" }, { status: 404 });
   }
 
+  const missionStatus = String(mission.status).toUpperCase();
+  if (isMissionStatus(missionStatus) && TERMINAL_STATUSES.has(missionStatus)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        missionId,
+        finalStatus: missionStatus,
+        error: "ALREADY_TERMINAL",
+        message: "Missão já finalizada",
+      },
+      { status: 409 }
+    );
+  }
+
+  const requestId = createRequestId(req.headers.get("x-request-id"));
+
   try {
     await ensureExecutionsTable();
-    const requestId = createRequestId(req.headers.get("x-request-id"));
     const body = await req.json().catch(() => ({}));
     const currentTaskId = body.currentTaskId ? String(body.currentTaskId) : null;
     const maxIterations = body.maxIterations ? Number(body.maxIterations) : undefined;
@@ -52,84 +64,89 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
     }
 
-    let jobId: string | null = null;
-    let jobLockToken: string | null = null;
-    try {
-      const queued = await enqueueMissionExecutionJob({
-        missionId,
-        userId: user.id,
-        currentTaskId,
-        conversationId,
-        maxIterations,
-      });
-      jobId = queued.job.id;
-      const leased = await leaseRuntimeJob(jobId);
-      jobLockToken = leased?.lockToken ?? null;
-    } catch (error) {
-      // Compatibilidade durante rollout: a execução direta continua funcionando antes da 0024.
-      console.warn("[missions/:id/autonomous-run] durable queue unavailable", error);
+    const graph = await ensurePersistedMissionGraph(missionId, user.id);
+    const serialOrder = getMissionGraphSerialOrder(graph);
+    if (!serialOrder) {
+      return NextResponse.json(
+        {
+          ok: false,
+          missionId,
+          error: "MISSION_GRAPH_SERIAL_LIMIT",
+          message: "O worker serial aceita até 20 nós por execução nesta etapa.",
+        },
+        { status: 422 }
+      );
     }
-    const runStartedAt = Date.now();
-    await recordRuntimeTelemetry({
-      userId: user.id,
-      requestId,
-      missionId,
-      jobId,
-      status: "started",
-      metadata: { source: "autonomous-run", durableQueue: Boolean(jobId) },
-    });
 
-    const result = await runAutonomousMissionServer({
+    const queued = await enqueueMissionExecutionJob({
       missionId,
       userId: user.id,
       currentTaskId,
-      maxIterations,
       conversationId,
+      maxIterations,
+      maxAttempts: 10 + serialOrder.length * 4,
+      requestId,
     });
-
-    if (jobId) {
-      const successful = result.ok || result.error === "ALREADY_TERMINAL";
-      if (successful) {
-        await completeRuntimeJob(jobId, jobLockToken ?? "", true);
-      } else {
-        await retryRuntimeJob(jobId, jobLockToken ?? "", result.error ?? "AUTONOMOUS_RUN_FAILED");
-      }
-    }
+    const jobStatus = String(queued.job.status).toUpperCase();
+    const executionStatus = String(queued.execution.status).toUpperCase();
 
     await recordRuntimeTelemetry({
       userId: user.id,
       requestId,
       missionId,
-      jobId,
-      status: result.ok || result.error === "ALREADY_TERMINAL" ? "succeeded" : "failed",
-      durationMs: Date.now() - runStartedAt,
-      errorType: result.error ?? null,
-      error: result.message,
-      metadata: { source: "autonomous-run", durableQueue: Boolean(jobId) },
+      executionId: queued.execution.id,
+      jobId: queued.job.id,
+      status: "queued",
+      metadata: {
+        source: "autonomous-run",
+        durableQueue: true,
+        jobStatus,
+        executionStatus,
+      },
     });
 
-    const status =
-      result.error === "NOT_FOUND"
-        ? 404
-        : result.error === "MODEL_NOT_CONFIGURED"
-          ? 503
-          : result.error === "ALREADY_TERMINAL"
-            ? 409
-            : result.ok
-              ? 200
-              : 400;
-
-    return NextResponse.json(result, { status });
-  } catch (e) {
-    console.error("[missions/:id/autonomous-run]", e);
+    return NextResponse.json(
+      {
+        ok: true,
+        queued: jobStatus === "PENDING" || jobStatus === "RUNNING",
+        missionId,
+        executionId: queued.execution.id,
+        jobId: queued.job.id,
+        status: jobStatus,
+        executionStatus,
+        message:
+          jobStatus === "RUNNING"
+            ? "Missão já está em processamento pelo worker durável"
+            : "Missão enfileirada para execução durável",
+      },
+      { status: 202 }
+    );
+  } catch (error) {
+    if (error instanceof MissionGraphPersistenceError) {
+      return NextResponse.json(
+        { ok: false, missionId, error: error.code },
+        { status: error.code === "MISSION_NOT_FOUND" ? 404 : 409 }
+      );
+    }
+    const safeError = sanitizeError(error, "DURABLE_QUEUE_UNAVAILABLE");
+    console.error("[missions/:id/autonomous-run enqueue]", safeError);
+    await recordRuntimeTelemetry({
+      userId: user.id,
+      requestId,
+      missionId,
+      status: "failed",
+      errorType: "DURABLE_QUEUE_UNAVAILABLE",
+      error: safeError,
+      metadata: { source: "autonomous-run", durableQueue: false },
+    });
     return NextResponse.json(
       {
         ok: false,
         missionId,
-        error: "INTERNAL_ERROR",
-        message: e instanceof Error ? e.message : "Falha na execução autônoma",
+        error: "DURABLE_QUEUE_UNAVAILABLE",
+        message: "O worker durável está indisponível. A missão não foi executada.",
       },
-      { status: 500 }
+      { status: 503 }
     );
   }
 }

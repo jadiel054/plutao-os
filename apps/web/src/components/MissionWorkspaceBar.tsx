@@ -6,6 +6,12 @@ import { parseMissionPlan } from "@plutao/domain";
 import { MissionPlanner } from "@/components/MissionPlanner";
 import { MissionExecutionView } from "@/components/MissionExecutionView";
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 /**
  * Barra de Mission Workspace acima do input do chat.
  * G3: autonomous-run é fire-and-forget (não bloqueia UI até 5 min).
@@ -26,6 +32,11 @@ export function MissionWorkspaceBar({
   });
 
   const [plan, setPlan] = useState<MissionPlanV1 | null>(null);
+  const [graph, setGraph] = useState<unknown>(null);
+  const [graphRuntime, setGraphRuntime] = useState<unknown>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [missionStatus, setMissionStatus] = useState("");
+  const [specialistProfiles, setSpecialistProfiles] = useState<Array<{ id: string; label: string }>>([]);
   const [objective, setObjective] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -33,6 +44,11 @@ export function MissionWorkspaceBar({
   const load = useCallback(async (isSilent = false) => {
     if (!missionId) {
       setPlan(null);
+      setGraph(null);
+      setGraphRuntime(null);
+      setJobStatus(null);
+      setMissionStatus("");
+      setSpecialistProfiles([]);
       setObjective("");
       return;
     }
@@ -47,9 +63,51 @@ export function MissionWorkspaceBar({
         return;
       }
       setObjective(String(data.objective ?? ""));
+      setMissionStatus(String(data.status ?? ""));
       setPlan(parseMissionPlan(data.plan));
+      setGraph(data.graph ?? null);
+      setSpecialistProfiles(
+        Array.isArray(data.specialistProfiles)
+          ? data.specialistProfiles.filter(
+              (profile: unknown): profile is { id: string; label: string } =>
+                typeof profile === "object" &&
+                profile !== null &&
+                typeof (profile as { id?: unknown }).id === "string" &&
+                typeof (profile as { label?: unknown }).label === "string"
+            )
+          : []
+      );
+
+      try {
+        const executionsRes = await fetch(`/api/missions/${missionId}/executions`, {
+          cache: "no-store",
+        });
+        if (executionsRes.ok) {
+          const executionsData = asRecord(await executionsRes.json());
+          const rows = Array.isArray(executionsData?.executions)
+            ? executionsData.executions
+            : [];
+          const currentExecution =
+            asRecord(executionsData?.recoverable) ?? asRecord(rows[0]);
+          const checkpoint = asRecord(currentExecution?.checkpoint);
+          setGraphRuntime(checkpoint?.missionGraphRuntime ?? null);
+          const runtimeJob = asRecord(executionsData?.runtimeJob);
+          setJobStatus(typeof runtimeJob?.status === "string" ? runtimeJob.status : null);
+        } else {
+          setGraphRuntime(null);
+          setJobStatus(null);
+        }
+      } catch {
+        setGraphRuntime(null);
+        setJobStatus(null);
+      }
     } catch {
       setPlan(null);
+      setGraph(null);
+      setGraphRuntime(null);
+      setJobStatus(null);
+      setMissionStatus("");
+      setSpecialistProfiles([]);
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -86,6 +144,9 @@ export function MissionWorkspaceBar({
       }
       const next = parseMissionPlan(data.plan);
       if (next) setPlan(next);
+      if (data.graph !== undefined) setGraph(data.graph);
+      const updatedMission = asRecord(data.mission);
+      if (typeof updatedMission?.status === "string") setMissionStatus(updatedMission.status);
       return data;
     } catch {
       onNotifyRef.current?.("Erro de rede ao atualizar plano", "error");
@@ -183,6 +244,24 @@ export function MissionWorkspaceBar({
     }
   }
 
+  async function assignSpecialist(nodeId: string, specialistProfileId: string | null) {
+    const result = await patch({
+      action: "assign_specialist",
+      nodeId,
+      specialistProfileId,
+      requiredCapabilities: [],
+    });
+    if (result) {
+      const label = specialistProfiles.find((profile) => profile.id === specialistProfileId)?.label;
+      onNotifyRef.current?.(
+        specialistProfileId
+          ? `Perfil ${label ?? specialistProfileId} atribuído ao nó.`
+          : "Perfil padrão atribuído ao nó.",
+        "success"
+      );
+    }
+  }
+
   if (!missionId) return null;
 
   if (loading && !plan) {
@@ -214,6 +293,14 @@ export function MissionWorkspaceBar({
       />
       <MissionExecutionView
         plan={plan}
+        graph={graph}
+        graphRuntime={graphRuntime}
+        jobStatus={jobStatus}
+        specialistProfiles={specialistProfiles}
+        specialistsEditable={
+          !plan.aligned && ["CREATED", "UNDERSTANDING", "PLANNING"].includes(missionStatus.toUpperCase())
+        }
+        onSpecialistChange={(nodeId, profileId) => void assignSpecialist(nodeId, profileId)}
         busy={busy}
         onInspect={(step: MissionStep) =>
           void patch({

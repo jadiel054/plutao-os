@@ -1,4 +1,4 @@
-# Revisão da investigação do Claude — 2026-10-07
+# Revisão técnica de segurança — 2026-10-07
 
 ## Escopo
 
@@ -24,7 +24,7 @@ Arquivos principais:
 
 A comparação HTTPS agora exige `URL.href` exata, incluindo origin, caminho, barra final e query. Fragmentos são recusados. O callback loopback HTTP só aceita `localhost`/`127.0.0.1` no caminho `/callback`, em qualquer porta, sem fragmento. O cliente precisa enviar `code_challenge_method=S256` explicitamente; não existe mais default silencioso.
 
-A documentação não inventa um callback do Claude. Os caminhos `/api/mcp/callback` e `/api/mcp/auth_callback` não são rotas do Plutão; callbacks HTTPS próprios devem ser cadastrados como URI completa na allowlist. O fluxo real do Claude não foi testado autenticado porque isso exige uma sessão/cliente externo e não havia autorização para operar uma conta de terceiro.
+A documentação não presume rotas de callback. Os caminhos `/api/mcp/callback` e `/api/mcp/auth_callback` não são rotas do Plutão; callbacks HTTPS próprios devem ser cadastrados como URI completa na allowlist. O fluxo autenticado de cliente externo não foi testado, pois depende de sessão autorizada.
 
 ### 2. Migrations — fail-closed e plano de baseline
 

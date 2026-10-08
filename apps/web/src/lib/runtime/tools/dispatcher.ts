@@ -17,6 +17,7 @@ import { runRender } from "./render";
 import { runExportTool } from "./export";
 import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
 import { evaluateInternalTool, isInternalTool } from "@/lib/capabilities/registry";
+import { isToolAllowedBySpecialist } from "@/lib/missions/specialistProfiles";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
 import { sanitizeText } from "@/lib/security/sanitize";
 
@@ -35,17 +36,17 @@ async function dispatchLocal(
     case "filesystem":
       return await runFilesystem(input, opts.executionId, opts.userId);
     case "github":
-      return await runGithub(input, opts.userId);
+      return await runGithub(input, opts.userId, opts.executionId);
     case "vercel":
-      return await runVercel(input, opts.userId);
+      return await runVercel(input, opts.userId, opts.executionId);
     case "supabase":
-      return await runSupabase(input, opts.userId);
+      return await runSupabase(input, opts.userId, opts.executionId);
     case "telegram":
-      return await runTelegram(input, opts.userId);
+      return await runTelegram(input, opts.userId, opts.executionId);
     case "cloudflare":
-      return await runCloudflare(input, opts.userId);
+      return await runCloudflare(input, opts.userId, opts.executionId);
     case "render":
-      return await runRender(input, opts.userId);
+      return await runRender(input, opts.userId, opts.executionId);
     case "files.export_pdf":
     case "files.export_xlsx":
     case "files.export_markdown":
@@ -77,6 +78,7 @@ type CheckpointShape = {
   after?: Record<string, unknown>;
   /** G3: conversa que originou a missão — alimenta o Computador. */
   conversationId?: string | null;
+  missionGraphRuntime?: { activeNodeId?: string | null; [key: string]: unknown };
 };
 
 function asCp(raw: unknown): CheckpointShape {
@@ -115,6 +117,54 @@ export async function dispatchTool(opts: {
 
   const hash = inputHash(opts.name, String(opts.input ?? ""));
   const cp = asCp(execution.checkpoint);
+  const activeNodeId = cp.missionGraphRuntime?.activeNodeId;
+  const db = getDb();
+  const graphMissionRows = await db
+    .select({ missionGraph: missions.missionGraph })
+    .from(missions)
+    .where(and(eq(missions.id, execution.missionId), eq(missions.userId, opts.userId)))
+    .limit(1);
+  if (!graphMissionRows[0]) return { error: "NOT_FOUND" as const };
+  const rawGraph = graphMissionRows[0]?.missionGraph;
+  const hasPersistedGraph = rawGraph !== null && rawGraph !== undefined;
+  if (typeof activeNodeId === "string" || hasPersistedGraph || activeNodeId != null) {
+    if (typeof activeNodeId !== "string") {
+      return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" as const };
+    }
+    if (!rawGraph || typeof rawGraph !== "object" || Array.isArray(rawGraph)) {
+      return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" as const };
+    }
+    const graph = rawGraph as { version?: unknown; nodes?: unknown };
+    if (graph.version !== 2 || !Array.isArray(graph.nodes)) {
+      return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" as const };
+    }
+    const node = graph.nodes.find(
+      (candidate): candidate is Record<string, unknown> =>
+        typeof candidate === "object" &&
+        candidate !== null &&
+        !Array.isArray(candidate) &&
+        candidate.id === activeNodeId
+    );
+    if (!node || !Object.prototype.hasOwnProperty.call(node, "specialistProfileId")) {
+      return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" as const };
+    }
+    const profileId =
+      node.specialistProfileId === null || typeof node.specialistProfileId === "string"
+        ? node.specialistProfileId
+        : "__invalid_profile__";
+    if (
+      !Array.isArray(node.requiredCapabilities) ||
+      !node.requiredCapabilities.every((capability) => typeof capability === "string")
+    ) {
+      return { error: "MISSION_GRAPH_SPECIALIST_POLICY_INVALID" as const };
+    }
+    if (!isToolAllowedBySpecialist(profileId, node.requiredCapabilities as string[], opts.name)) {
+      return {
+        error: "SPECIALIST_TOOL_NOT_ALLOWED" as const,
+        message: "A ferramenta solicitada está fora do perfil especialista deste nó.",
+      };
+    }
+  }
   const calls = new Set(cp.toolCalls ?? []);
   const callKey = `${opts.name}:${hash}`;
 
@@ -136,7 +186,6 @@ export async function dispatchTool(opts: {
   // H6 — claim atômico por compare-and-swap do checkpoint. Sem isso, duas
   // requests simultâneas podem ler o mesmo histórico vazio e executar a tool
   // duas vezes antes que qualquer uma grave o novo checkpoint.
-  const db = getDb();
   const claimedCheckpoint = {
     ...cp,
     toolCalls: [...calls, callKey],
@@ -196,6 +245,9 @@ export async function dispatchTool(opts: {
     taskId,
     missionId: execution.missionId,
     executionId: opts.executionId,
+    ...(cp.missionGraphRuntime?.activeNodeId
+      ? { metadata: { missionNodeId: cp.missionGraphRuntime.activeNodeId, graphVersion: 2 } }
+      : {}),
     createdAt: now.toISOString(),
   };
 
