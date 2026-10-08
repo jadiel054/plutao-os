@@ -1,11 +1,13 @@
 # VERIFICATION.md — Plutão Verification Matrix & Criteria
 
-**Last Updated:** 2026-10-07
+**Last Updated:** 2026-10-08
 **Status:** Multi-Layer Verification Operational (`Foundation` → `Runtime` → `Autonomia V1.1` → `DoD Gate` → `Production`)
 
 This document tracks verified capabilities across all architectural layers of Project Plutão. Status transitions from **IMPLEMENTED** → **VERIFIED** only when real evidence (automated test green, production response, or documented mobile/e2e proof) exists.
 
 The latest user-flow production smoke test is documented in [`docs/testes/2026-09-17-production-smoke/relatorio-production-smoke.md`](testes/2026-09-17-production-smoke/relatorio-production-smoke.md). It confirms the authentication, mission, chat, settings, persistence and DoD paths tested on 17/09/2026, and records the capabilities that remain unverified.
+
+For the Mission Graph V2 rollout, the worker health probe passed, but the authenticated E2E workflow on 2026-10-08 did **not** validate a mission: the workflow completed successfully while its only Playwright test was skipped because `E2E_EMAIL` and `E2E_PASSWORD` were empty. The serial mission smoke and specialist pilot remain pending; see [`the status report`](testes/2026-10-08-smoke-piloto-pendentes/relatorio-smoke-piloto.md). Do not mark these capabilities VERIFIED from a green workflow whose test was skipped.
 
 ---
 
