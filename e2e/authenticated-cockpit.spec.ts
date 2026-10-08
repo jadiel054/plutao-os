@@ -34,25 +34,25 @@ test("usuário autenticado cria e abre uma missão no Cockpit", async ({ page })
     await expect(createButton).toBeEnabled();
     await createButton.click();
 
-    // openMission só existe depois do load() pós-create; o card é um <button> com o objetivo.
+    // Card da lista é um <button> cujo nome acessível inclui o objetivo.
     const missionRowButton = page.getByRole("button", { name: objectivePattern });
     await expect(missionRowButton).toBeVisible({ timeout: 25_000 });
 
-    // --- Abrir detalhe e validar painéis do ciclo de vida ---
+    // --- Abrir detalhe e validar painéis ---
     await missionRowButton.click();
 
-    // openMission faz vários fetches em paralelo; 5s default era insuficiente no CI.
-    await expect(page.getByText("CICLO DE VIDA DA MISSÃO")).toBeVisible({
-      timeout: 25_000,
-    });
-    await expect(
-      page.getByText("TIMELINE DA MISSÃO").or(page.getByText("EVIDÊNCIAS DA MISSÃO")),
-    ).toBeVisible({ timeout: 15_000 });
+    // openMission: vários fetches em paralelo.
+    const lifecycleHeading = page.getByText("CICLO DE VIDA DA MISSÃO");
+    await expect(lifecycleHeading).toBeVisible({ timeout: 25_000 });
 
-    // Status da missão recém-criada deve estar exposto no painel aberto.
-    await expect(page.getByText(/CREATED|UNDERSTANDING|PLANNING/)).toBeVisible({
-      timeout: 10_000,
-    });
+    // Asserts separados: .or() + toBeVisible falha em strict mode quando ambos existem.
+    await expect(page.getByText("TIMELINE DA MISSÃO")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("EVIDÊNCIAS DA MISSÃO")).toBeVisible({ timeout: 15_000 });
+
+    // Status no cabeçalho do ciclo (missão recém-criada).
+    await expect(
+      lifecycleHeading.locator("..").getByText(/CREATED|UNDERSTANDING|PLANNING/),
+    ).toBeVisible({ timeout: 10_000 });
 
     const missions = await page.request.get("/api/missions");
     if (missions.ok()) {
