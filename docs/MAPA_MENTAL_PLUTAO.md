@@ -105,7 +105,7 @@ Chat
 ├── Tools só se conector connected
 ├── FollowUpChips · fila · card Conectar/Pular
 ├── Anti falso-positivo de “plano de missão”
-├── Persistência server (conversations/messages)  VERIFICADO via MCP write
+├── Persistência server (conversations/messages)  VERIFICADO via chat/UI
 └── Model resolve: id catálogo → provider + apiModel + baseUrl
 ```
 
@@ -141,7 +141,8 @@ Operador: 4/4 connected (revalidar pós-deploy)
 MCP Plutão (nível GitHub/Vercel)
 ├── Resource server     /api/mcp
 ├── Authorization AS    /api/oauth/authorize + /token
-├── Consent UI          /oauth/consent (mcp:read + mcp:write)
+├── Consent UI          /oauth/consent (mcp:read; read-only)
+├── Client registration CIMD + DCR compatível
 ├── PRM + AS metadata   well-known
 ├── PKCE S256 · refresh + rotação · revoke
 ├── Audit + rate limit 30/min
@@ -151,7 +152,6 @@ MCP Plutão (nível GitHub/Vercel)
       plutao_list_connectors (read)
       plutao_list_conversations (read)
       plutao_get_mission (read)
-      plutao_send_message (write)
 ```
 
 Detalhe operacional: **`docs/MCP_SERVER.md`**.
@@ -194,7 +194,7 @@ Bot de ajuda + FAQ qualificado  PENDENTE
 ## 6. Roadmap mental
 
 ```
-Ciclo A–F (voz + MCP write + polish)  FECHADO 2026-09-28
+Ciclo A–F (voz + MCP read-only + polish)  FECHADO 2026-09-28
 
 Próximas prioridades (recalcular com operador)
 ├── Feedback execução no chat do write-gate

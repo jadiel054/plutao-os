@@ -1,11 +1,9 @@
 /**
- * Plutão MCP Resource Server
- *
+ * Plutão MCP Resource Server.
  * URL: https://<APP_URL>/api/mcp
- * Auth: Authorization: Bearer <access_token OAuth | ops API key>
+ * Auth: Authorization: Bearer <OAuth access token | read-only ops key>
  * Discovery: /.well-known/oauth-protected-resource
- *
- * Tools: mcp:read + mcp:write (gate no call time). Tokens de conectores nunca são expostos.
+ * Tools: somente mcp:read; nenhuma operação de escrita é exposta.
  */
 
 import { createMcpHandler } from "mcp-handler";
@@ -20,7 +18,6 @@ import {
   toolGetMission,
   toolListConnectors,
   toolListConversations,
-  toolSendMessage,
   toolSystemStatus,
   withMcpGuards,
 } from "@/lib/mcp/tools";
@@ -33,37 +30,35 @@ const mcpHandler = createMcpHandler((server) => {
     "plutao_system_status",
     {
       title: "Status do sistema Plutão",
-      description:
-        "Auditoria: modelo mascarado, conectores do usuário autenticado e fase MCP.",
+      description: "Status read-only: modelo mascarado, conectores do usuário autenticado e fase MCP.",
       inputSchema: z.object({}),
     },
     async () =>
       withMcpGuards("plutao_system_status", {}, async () => {
         const { userId, method } = getMcpAuth();
         return toolSystemStatus(userId, method);
-      })
+      }),
   );
 
   server.registerTool(
     "plutao_list_connectors",
     {
       title: "Listar conectores",
-      description:
-        "Status, account e capabilities dos conectores — nunca inclui access tokens.",
+      description: "Status e capabilities dos conectores da conta; nunca inclui access tokens.",
       inputSchema: z.object({}),
     },
     async () =>
       withMcpGuards("plutao_list_connectors", {}, async () => {
         const { userId } = getMcpAuth();
         return toolListConnectors(userId);
-      })
+      }),
   );
 
   server.registerTool(
     "plutao_list_conversations",
     {
       title: "Listar conversas",
-      description: "Conversas recentes do chat do usuário (id, título, pin).",
+      description: "Conversas recentes do chat do usuário (id, título e pin).",
       inputSchema: z.object({
         limit: z.number().int().min(1).max(50).optional().describe("Máximo (default 20)"),
       }),
@@ -72,59 +67,46 @@ const mcpHandler = createMcpHandler((server) => {
       withMcpGuards("plutao_list_conversations", { limit }, async () => {
         const { userId } = getMcpAuth();
         return toolListConversations(userId, limit ?? 20);
-      })
+      }),
   );
 
   server.registerTool(
     "plutao_get_mission",
     {
       title: "Detalhe de missão",
-      description: "Plano, passos, evidências e erros — somente missões do usuário do token.",
-      inputSchema: z.object({
-        missionId: z.string().min(1).describe("UUID da missão"),
-      }),
+      description: "Plano, passos, evidências e erros, somente para missões do usuário autenticado.",
+      inputSchema: z.object({ missionId: z.string().min(1).describe("UUID da missão") }),
     },
     async ({ missionId }) =>
       withMcpGuards("plutao_get_mission", { missionId }, async () => {
         const { userId } = getMcpAuth();
         return toolGetMission(userId, missionId);
-      })
-  );
-
-  server.registerTool(
-    "plutao_send_message",
-    {
-      title: "Enviar mensagem",
-      description:
-        "Envia mensagem ao agente e persiste na conversa. Requer scope mcp:write. Sem conversationId cria conversa (source mcp).",
-      inputSchema: z.object({
-        content: z
-          .string()
-          .min(1)
-          .max(4000)
-          .describe("Texto da mensagem (1–4000 caracteres)"),
-        conversationId: z
-          .string()
-          .uuid()
-          .optional()
-          .describe("UUID da conversa existente (deve pertencer ao usuário)"),
       }),
-    },
-    async ({ content, conversationId }) =>
-      withMcpGuards("plutao_send_message", { contentLength: content?.length, conversationId }, async () => {
-        const { userId } = getMcpAuth();
-        return toolSendMessage(userId, { content, conversationId });
-      })
   );
 });
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Accept, Authorization, Content-Type, Last-Event-ID, MCP-Protocol-Version",
+  "Access-Control-Expose-Headers": "MCP-Protocol-Version, MCP-Session-Id, WWW-Authenticate",
+};
+
+function withMcpCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(CORS_HEADERS)) headers.set(name, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+export async function OPTIONS(): Promise<Response> {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
 async function handle(req: Request): Promise<Response> {
   const auth = await authenticateMcpRequest(req);
-  if (!auth.ok) {
-    return mcpUnauthorizedResponse(auth);
-  }
+  if (!auth.ok) return withMcpCors(mcpUnauthorizedResponse(auth));
 
-  return mcpAuthStore.run(
+  const response = await mcpAuthStore.run(
     {
       userId: auth.userId,
       scopes: auth.scopes,
@@ -132,8 +114,9 @@ async function handle(req: Request): Promise<Response> {
       grantId: auth.grantId,
       method: auth.method,
     },
-    () => mcpHandler(req)
+    () => mcpHandler(req),
   );
+  return withMcpCors(response);
 }
 
 export { handle as GET, handle as POST, handle as DELETE };

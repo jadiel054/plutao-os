@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getMcpResourceUrl,
   issueAccessToken,
   peekAuthorizationCode,
   refreshExpiresAt,
@@ -10,41 +11,26 @@ import {
 import {
   attachRefreshToken,
   consumeAuthCodeRow,
-  findOAuthClient,
   findGrantByRefreshToken,
   newRefreshTokenPlain,
   touchGrant,
 } from "@/lib/mcp/grants";
-import { isOAuthGrantRegistered } from "@/lib/mcp/clientRegistration";
+import { clientSupportsGrant, resolveMcpOAuthClient } from "@/lib/mcp/clientMetadata";
 
 export const runtime = "nodejs";
 
 function tokenError(error: string, description?: string, status = 400) {
   return NextResponse.json(
     { error, error_description: description },
-    {
-      status,
-      headers: {
-        "Cache-Control": "no-store",
-        "Access-Control-Allow-Origin": "*",
-      },
-    }
+    { status, headers: { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } },
   );
 }
 
 function tokenOk(body: Record<string, unknown>) {
-  return NextResponse.json(body, {
-    headers: {
-      "Cache-Control": "no-store",
-      "Access-Control-Allow-Origin": "*",
-    },
-  });
+  return NextResponse.json(body, { headers: { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
 }
 
-/**
- * OAuth 2.1 Token Endpoint — authorization_code + PKCE e refresh_token.
- * token_endpoint_auth_methods_supported: none (public clients).
- */
+/** OAuth 2.1 token endpoint — authorization_code + PKCE S256 e refresh token. */
 export async function POST(req: NextRequest) {
   let grantType = "";
   let code = "";
@@ -52,6 +38,7 @@ export async function POST(req: NextRequest) {
   let clientId = "";
   let codeVerifier = "";
   let refreshToken = "";
+  let resource = "";
 
   const contentType = req.headers.get("content-type") || "";
   try {
@@ -63,6 +50,7 @@ export async function POST(req: NextRequest) {
       clientId = String(body.client_id || "");
       codeVerifier = String(body.code_verifier || "");
       refreshToken = String(body.refresh_token || "");
+      resource = String(body.resource || "");
     } else {
       const form = await req.formData();
       grantType = String(form.get("grant_type") || "");
@@ -71,32 +59,29 @@ export async function POST(req: NextRequest) {
       clientId = String(form.get("client_id") || "");
       codeVerifier = String(form.get("code_verifier") || "");
       refreshToken = String(form.get("refresh_token") || "");
+      resource = String(form.get("resource") || "");
     }
   } catch {
     return tokenError("invalid_request", "corpo inválido");
   }
 
+  const canonicalResource = getMcpResourceUrl();
+  if (resource && resource !== canonicalResource) {
+    return tokenError("invalid_target", "resource não corresponde a este servidor MCP");
+  }
+
   if (grantType === "refresh_token") {
-    if (!refreshToken || !clientId) {
-      return tokenError("invalid_request", "refresh_token e client_id obrigatórios");
-    }
-    const registeredClient = await findOAuthClient(clientId);
-    if (!isOAuthGrantRegistered(registeredClient, "refresh_token", clientId)) {
+    if (!refreshToken || !clientId) return tokenError("invalid_request", "refresh_token e client_id obrigatórios");
+    const resolvedClient = await resolveMcpOAuthClient(clientId);
+    if (!resolvedClient.ok) return tokenError(resolvedClient.error, resolvedClient.description);
+    if (!clientSupportsGrant(resolvedClient.client, "refresh_token")) {
       return tokenError("unsupported_grant_type", "refresh_token não registrado para este cliente");
     }
     const grant = await findGrantByRefreshToken(refreshToken);
-    if (!grant) {
-      return tokenError("invalid_grant", "refresh_token inválido ou revogado");
-    }
-    if (!timingSafeStringEqual(grant.clientId, clientId)) {
-      return tokenError("invalid_grant", "client_id não confere");
-    }
-    const issued = issueAccessToken({
-      userId: grant.userId,
-      clientId: grant.clientId,
-      scope: grant.scope,
-      grantId: grant.id,
-    });
+    if (!grant) return tokenError("invalid_grant", "refresh_token inválido ou revogado");
+    if (!timingSafeStringEqual(grant.clientId, clientId)) return tokenError("invalid_grant", "client_id não confere");
+
+    const issued = issueAccessToken({ userId: grant.userId, clientId: grant.clientId, scope: grant.scope, grantId: grant.id });
     const newRefresh = newRefreshTokenPlain();
     await attachRefreshToken(grant.id, newRefresh, refreshExpiresAt());
     await touchGrant(grant.id);
@@ -110,14 +95,14 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  if (grantType !== "authorization_code") {
-    return tokenError("unsupported_grant_type");
-  }
+  if (grantType !== "authorization_code") return tokenError("unsupported_grant_type");
   if (!code || !redirectUri || !clientId || !codeVerifier) {
     return tokenError("invalid_request", "code, redirect_uri, client_id e code_verifier obrigatórios");
   }
-  const registeredClient = await findOAuthClient(clientId);
-  if (!isOAuthGrantRegistered(registeredClient, "authorization_code", clientId)) {
+
+  const resolvedClient = await resolveMcpOAuthClient(clientId);
+  if (!resolvedClient.ok) return tokenError(resolvedClient.error, resolvedClient.description);
+  if (!clientSupportsGrant(resolvedClient.client, "authorization_code")) {
     return tokenError("unsupported_grant_type", "authorization_code não registrado para este cliente");
   }
 
@@ -127,31 +112,16 @@ export async function POST(req: NextRequest) {
   } catch {
     return tokenError("server_error", "token signing não configurado", 503);
   }
-  if (!peeked) {
-    return tokenError("invalid_grant", "código inválido ou expirado");
-  }
-  if (!timingSafeStringEqual(peeked.client_id, clientId)) {
-    return tokenError("invalid_grant", "client_id não confere");
-  }
-  if (!timingSafeStringEqual(peeked.redirect_uri, redirectUri)) {
-    return tokenError("invalid_grant", "redirect_uri não confere");
-  }
-  if (!verifyPkceS256(codeVerifier, peeked.code_challenge)) {
-    return tokenError("invalid_grant", "PKCE verification failed");
-  }
+  if (!peeked) return tokenError("invalid_grant", "código inválido ou expirado");
+  if (!timingSafeStringEqual(peeked.client_id, clientId)) return tokenError("invalid_grant", "client_id não confere");
+  if (!timingSafeStringEqual(peeked.redirect_uri, redirectUri)) return tokenError("invalid_grant", "redirect_uri não confere");
+  if ((peeked.resource || canonicalResource) !== canonicalResource) return tokenError("invalid_target", "authorization code destinado a outro resource");
+  if (!verifyPkceS256(codeVerifier, peeked.code_challenge)) return tokenError("invalid_grant", "PKCE verification failed");
 
   const consumed = await consumeAuthCodeRow(peeked.jti);
-  if (!consumed) {
-    return tokenError("invalid_grant", "código já usado, inválido ou expirado");
-  }
-
-  const issued = issueAccessToken({
-    userId: consumed.userId,
-    clientId: consumed.clientId,
-    scope: consumed.scope,
-    grantId: consumed.grantId,
-  });
-  const supportsRefresh = isOAuthGrantRegistered(registeredClient, "refresh_token", clientId);
+  if (!consumed) return tokenError("invalid_grant", "código já usado, inválido ou expirado");
+  const issued = issueAccessToken({ userId: consumed.userId, clientId: consumed.clientId, scope: consumed.scope, grantId: consumed.grantId });
+  const supportsRefresh = clientSupportsGrant(resolvedClient.client, "refresh_token");
   const refreshPlain = supportsRefresh ? newRefreshTokenPlain() : undefined;
   if (refreshPlain) await attachRefreshToken(consumed.grantId, refreshPlain, refreshExpiresAt());
 

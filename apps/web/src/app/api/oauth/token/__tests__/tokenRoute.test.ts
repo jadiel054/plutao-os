@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
-  findOAuthClient: vi.fn(),
   findGrantByRefreshToken: vi.fn(),
   issueAccessToken: vi.fn(),
   newRefreshTokenPlain: vi.fn(),
@@ -11,49 +10,62 @@ const mocks = vi.hoisted(() => ({
   refreshTtlSec: vi.fn(),
   touchGrant: vi.fn(),
   timingSafeStringEqual: vi.fn(),
-  consumeAuthCodeRow: vi.fn(),
-  peekAuthorizationCode: vi.fn(),
-  verifyPkceS256: vi.fn(),
+  resolveMcpOAuthClient: vi.fn(),
+  clientSupportsGrant: vi.fn(),
 }));
 
 vi.mock("@/lib/mcp/grants", () => ({
-  findOAuthClient: mocks.findOAuthClient,
   findGrantByRefreshToken: mocks.findGrantByRefreshToken,
   newRefreshTokenPlain: mocks.newRefreshTokenPlain,
   attachRefreshToken: mocks.attachRefreshToken,
   refreshExpiresAt: mocks.refreshExpiresAt,
   refreshTtlSec: mocks.refreshTtlSec,
   touchGrant: mocks.touchGrant,
-  consumeAuthCodeRow: mocks.consumeAuthCodeRow,
 }));
 vi.mock("@/lib/mcp/tokens", () => ({
+  getMcpResourceUrl: () => "https://plutao.test/api/mcp",
   issueAccessToken: mocks.issueAccessToken,
-  newRefreshTokenPlain: mocks.newRefreshTokenPlain,
   refreshExpiresAt: mocks.refreshExpiresAt,
   refreshTtlSec: mocks.refreshTtlSec,
   timingSafeStringEqual: mocks.timingSafeStringEqual,
-  consumeAuthCodeRow: mocks.consumeAuthCodeRow,
-  peekAuthorizationCode: mocks.peekAuthorizationCode,
-  verifyPkceS256: mocks.verifyPkceS256,
+}));
+vi.mock("@/lib/mcp/clientMetadata", () => ({
+  resolveMcpOAuthClient: mocks.resolveMcpOAuthClient,
+  clientSupportsGrant: mocks.clientSupportsGrant,
 }));
 
 import { POST } from "../route";
 
-function refreshRequest(clientId: string, refreshToken = "refresh-current") {
+function refreshRequest(clientId: string, refreshToken = "refresh-current", resource = "") {
   return new NextRequest("https://plutao.test/api/oauth/token", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId }),
+    body: JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId, ...(resource ? { resource } : {}) }),
   });
 }
 
-describe("POST /api/oauth/token client registration checks", () => {
+const legacyClient = {
+  clientId: "legacy-client",
+  source: "legacy",
+  clientName: null,
+  redirectUris: [],
+  grantTypes: ["authorization_code", "refresh_token"],
+  responseTypes: ["code"],
+  tokenEndpointAuthMethod: "none",
+};
+
+describe("POST /api/oauth/token client policy and resource", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.resolveMcpOAuthClient.mockResolvedValue({ ok: true, client: legacyClient });
+    mocks.clientSupportsGrant.mockImplementation((client, grant) => client.grantTypes.includes(grant));
   });
 
-  it("rejects a grant_type not registered for a known client", async () => {
-    mocks.findOAuthClient.mockResolvedValue({ grantTypes: ["authorization_code"], redirectUris: [] });
+  it("rejects a grant_type not listed in the resolved client metadata", async () => {
+    mocks.resolveMcpOAuthClient.mockResolvedValue({
+      ok: true,
+      client: { ...legacyClient, grantTypes: ["authorization_code"] },
+    });
 
     const response = await POST(refreshRequest("registered-client"));
 
@@ -63,7 +75,6 @@ describe("POST /api/oauth/token client registration checks", () => {
   });
 
   it("keeps the legacy refresh-token flow for clients outside the registry", async () => {
-    mocks.findOAuthClient.mockResolvedValue(null);
     mocks.findGrantByRefreshToken.mockResolvedValue({
       id: "grant-1",
       userId: "user-1",
@@ -85,10 +96,14 @@ describe("POST /api/oauth/token client registration checks", () => {
     const response = await POST(refreshRequest("legacy-client"));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      access_token: "access-next",
-      refresh_token: "refresh-next",
-    });
+    expect(await response.json()).toMatchObject({ access_token: "access-next", refresh_token: "refresh-next" });
     expect(mocks.attachRefreshToken).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a resource indicator for a different MCP server", async () => {
+    const response = await POST(refreshRequest("legacy-client", "refresh-current", "https://attacker.example/mcp"));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_target" });
+    expect(mocks.findGrantByRefreshToken).not.toHaveBeenCalled();
   });
 });

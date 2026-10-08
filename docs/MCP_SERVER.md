@@ -1,79 +1,71 @@
-# MCP Server do Plutão — OAuth 2.1 (produção)
+# Plutão MCP Server — OAuth 2.1 / Streamable HTTP
 
-Arquitetura alinhada a **GitHub / Vercel MCP** e à spec MCP Authorization:
+O Plutão oferece um servidor MCP HTTP protegido. O resource server publica **somente leitura**: quatro tools com escopo `mcp:read`. A antiga tool `plutao_send_message` foi removida porque não havia gate explícito de confirmação antes de gravar/acionar o agente. Nenhum token de GitHub, Vercel, Neon ou outro conector é retornado.
 
-| Papel | Componente |
-|-------|------------|
-| **Resource server** | `POST/GET /api/mcp` — tools; só `Authorization: Bearer` |
-| **Authorization server** | `/api/oauth/authorize`, `/api/oauth/token`, consent UI |
-| **Discovery** | `/.well-known/oauth-protected-resource` + `oauth-authorization-server` |
+| Papel | URL |
+|---|---|
+| Resource server | `https://plutao-os.vercel.app/api/mcp` |
+| Protected Resource Metadata (RFC 9728) | `/.well-known/oauth-protected-resource` |
+| Authorization Server Metadata (RFC 8414) | `/.well-known/oauth-authorization-server` |
+| Authorization / consent | `/api/oauth/authorize` → `/oauth/consent` |
+| Token / revoke | `/api/oauth/token` · `/api/oauth/revoke` |
+| Dynamic Client Registration (compatibilidade) | `/api/oauth/register` |
 
-**Scopes:** `mcp:read` (obrigatório) e `mcp:write` (envio de mensagens). Tokens de GitHub/Vercel/Neon **nunca** saem nas respostas.
+## Compatibilidade e descoberta
 
----
+- O AS anuncia suporte a **Client ID Metadata Documents (CIMD)**. Clientes modernos devem preferir CIMD; o Plutão recupera o documento por HTTPS sem seguir redirects, com timeout e limite de tamanho.
+- A resolução CIMD bloqueia host local/privado, valida DNS e fixa um endereço público para a conexão HTTPS; aceita apenas documento JSON público, `client_id` correspondente exatamente, cliente público (`token_endpoint_auth_method=none`) e `response_types=[code]`.
+- Callback HTTPS CIMD deve ser da **mesma origin** do documento client_id, ou estar na allowlist exata do servidor. O authorize request precisa repetir exatamente um `redirect_uri` declarado no documento.
+- DCR (RFC 7591) continua disponível para clientes que não suportem CIMD. HTTPS em DCR e clientes legados é fail-closed e requer allowlist global **exata**. Erros retornam `error=invalid_redirect_uri`, uma razão estável e `invalid_uri`; a URI é percent-encoded também em `error_description`. A resposta JSON faz o escape apropriado; o valor não é escrito em logs.
+- Redirects HTTP são aceitos somente para `localhost`, `127.0.0.1` e `[::1]`, com porta variável conforme RFC 8252. Wildcards, HTTP remoto, fragmentos e userinfo são recusados. URIs repetidas idênticas no DCR são deduplicadas antes da validação.
+- `resource` é o URI canônico do servidor MCP, informado em authorization e token requests e verificado antes de emitir/aceitar tokens. PKCE S256 é obrigatório. O callback inclui `iss` (RFC 9207).
 
-## Endpoints
-
-| URL | Função |
-|-----|--------|
-| `https://<APP>/api/mcp` | MCP Streamable HTTP |
-| `https://<APP>/.well-known/oauth-protected-resource` | RFC 9728 |
-| `https://<APP>/.well-known/oauth-authorization-server` | RFC 8414 |
-| `https://<APP>/api/oauth/authorize` | Login + redirect consent |
-| `https://<APP>/api/oauth/register` | Registra cliente OAuth público e emite `client_id` automaticamente (RFC 7591) |
-| `https://<APP>/oauth/consent` | UI de permissão (lista scopes) |
-| `https://<APP>/api/oauth/token` | code → access_token + refresh (PKCE) |
-| `https://<APP>/api/oauth/revoke` | revoga grant (token ou grant_id autenticado) |
-| `https://<APP>/api/oauth/grants` | lista grants do usuário (sessão) |
-
----
-
-## Variáveis de ambiente (Vercel)
+## Vercel: configuração operacional
 
 ```bash
 APP_URL=https://plutao-os.vercel.app
 
-# Assinatura de auth codes e access tokens (≥16 chars)
+# HMAC de authorization codes/access tokens (>=16 caracteres)
 MCP_TOKEN_SECRET=   # openssl rand -hex 32
-# fallback: CONNECTOR_TOKEN_SECRET ou SESSION_SECRET
+# Fallback legado: CONNECTOR_TOKEN_SECRET ou SESSION_SECRET
 
-# Ops break-glass (opcional) — só header Bearer, nunca query
-# Ops key recebe mcp:read + mcp:write para dogfooding
+# Opcional — break-glass, somente Bearer no header e escopo fixo mcp:read
 PLUTAO_MCP_API_KEY=
 PLUTAO_MCP_USER_ID=
 
-# Obrigatório para callbacks HTTPS próprios: URIs completas e exatas,
-# incluindo query string, separadas por vírgula. Vazio recusa todo HTTPS.
-#
-# Clientes locais podem usar callback loopback HTTP em localhost ou
-# 127.0.0.1. O servidor aceita qualquer porta, mas exige o caminho /callback
-# e rejeita fragmentos. Use HTTPS apenas com URI completa cadastrada na
-# allowlist; rotas de callback devem pertencer ao Plutão.
+# Opcional — callbacks HTTPS de DCR e clientes legados que não usem CIMD.
+# Lista separada por vírgula de URIs COMPLETAS, exatamente como declaradas.
+# Inclua path e query quando existirem. Nunca use curingas.
 MCP_OAUTH_REDIRECT_ALLOWLIST=https://cliente.example/oauth/callback?client=plutao
 ```
 
-Redeploy após salvar. **Não** use token na query string.
+Após alteração de env, faça redeploy. **Nunca** passe Bearer/access/refresh tokens em query string ou URL. Não há migration de banco para esta correção.
 
----
+## Fluxo MCP OAuth
 
-## Fluxo de cliente MCP com OAuth
+1. Cliente inicia `POST /api/mcp` sem token e recebe `401` com `WWW-Authenticate`, `resource_metadata` e `scope="mcp:read"`.
+2. Cliente descobre PRM/AS metadata. O metadata AS informa CIMD, DCR compatível, `mcp:read` e suporte a `iss`.
+3. Cliente registra/resolve identidade via CIMD ou usa DCR. Deve enviar `resource=https://plutao-os.vercel.app/api/mcp`, `response_type=code`, `code_challenge_method=S256`, challenge, client_id e redirect_uri exata.
+4. Usuário faz login e vê o nome/identidade do cliente e o único escopo de leitura. Pode autorizar ou negar o consentimento.
+5. O callback recebe `code`, `state` e `iss`. O cliente troca o código em `/api/oauth/token` com `client_id`, `redirect_uri`, `code_verifier` e `resource`.
+6. Chamadas MCP usam `Authorization: Bearer <access_token>` no header. Token tem audiência fixa no endpoint MCP. Access token expira em ~1h; refresh token, quando elegível, é opaco e rotacionado.
 
-1. Cliente chama `/api/mcp` sem token → **401** +  
-   `WWW-Authenticate: Bearer resource_metadata="https://…/.well-known/oauth-protected-resource"`
-2. Cliente lê PRM → `authorization_servers: [APP_URL]`
-3. Cliente lê AS metadata → authorize + token endpoints; `scopes_supported: mcp:read mcp:write`
-4. Browser: `/api/oauth/authorize?…&scope=mcp:read%20mcp:write&code_challenge=…&code_challenge_method=S256`
-5. Usuário loga no Plutão → **Autorizar** no consent (scopes listados)
-6. Redirect com `?code=` → cliente troca em `/api/oauth/token` com `code_verifier`
-7. Cliente usa `Authorization: Bearer <access_token>` nas tools
+## Erros DCR de callback
 
-**PKCE S256 é obrigatório.** Access token: ~1h, `aud` = URL do MCP.
+Exemplo ilustrativo:
 
-Clientes MCP compatíveis com registro dinâmico chamam `POST /api/oauth/register` com `redirect_uris`; não precisam de `client_id` pré-criado. O servidor devolve um `client_id` e restringe cada cliente às URIs registradas. Clientes legados configurados manualmente continuam aceitos pelo fluxo OAuth anterior **somente quando a URI também passa pela allowlist exata**; não existe fallback HTTPS aberto.
+```json
+{
+  "error": "invalid_redirect_uri",
+  "error_description": "redirect_uri recusada (https_uri_not_allowlisted): https%3A%2F%2Fcliente.example%2Fcallback",
+  "reason": "https_uri_not_allowlisted",
+  "invalid_uri": "https://cliente.example/callback"
+}
+```
 
----
+Use o valor `invalid_uri` exato na allowlist — ou configure o cliente para CIMD com callback same-origin. As razões incluem `malformed_uri`, `wildcard_not_allowed`, `userinfo_not_allowed`, `fragment_not_allowed`, `http_non_loopback`, `unsupported_scheme`, `https_uri_not_allowlisted` e `not_registered_for_client`.
 
-## Ops (curl / CI)
+## Operação e verificação
 
 ```bash
 curl -sS -X POST "$APP_URL/api/mcp" \
@@ -83,72 +75,27 @@ curl -sS -X POST "$APP_URL/api/mcp" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
----
+CORS permite origem cruzada sem cookies, incluindo `Authorization`, `MCP-Protocol-Version` e `Last-Event-ID`; `OPTIONS` responde ao preflight. Tokens são aceitos somente no header Bearer.
 
-## Segurança (checklist)
+### Tools de leitura
 
-- [x] Sem secret em query string
-- [x] Bearer only no resource server
-- [x] PKCE S256
-- [x] Consentimento explícito (conta, client_id, redirect_uri, scopes)
-- [x] Redirect fail-closed: URI HTTPS completa (origin + caminho + query) exata; loopback HTTP restrito a `/callback`
-- [x] Token curto + audience fixa no MCP
-- [x] Sem tokens de conectores nas respostas
-- [x] 401 com `resource_metadata` (RFC 9728)
-- [x] Auth codes single-use (DB)
-- [x] Refresh token + rotação
-- [x] Registro dinâmico OAuth de clientes MCP (RFC 7591); quota 10 registros/hora por IP (hash chaveado)
-- [x] Revogação de grants (API + UI Privacidade)
-- [x] Write tools (`mcp:write`) com gate no call time
-- [x] Rate limit por grant: 30 calls/min **em todas as tools** (guard `withMcpGuards`)
-- [x] Auditoria de todo call (audit_events `mcp.tool_call`)
-- [x] `system_status.model` mascarado (`plutao-primary`)
-- [x] Evidence de missão (`model_step.source`) mascarado (`model:plutao-primary`) — não grava identificadores externos de provedor/modelo
+| Tool | Conteúdo |
+|---|---|
+| `plutao_system_status` | Status resumido, modelo mascarado e capacidades read-only |
+| `plutao_list_connectors` | Estado/capabilities, sem tokens |
+| `plutao_list_conversations` | Conversas do usuário autenticado |
+| `plutao_get_mission` | Detalhes de uma missão pertencente ao usuário autenticado |
 
----
+Todas passam por rate limit de 30 chamadas/minuto por grant e trilha de auditoria. Não há `mcp:write` no metadata, na API key operacional, na tela de consentimento nem em `tools/list`.
 
-## Tools
+## Arquivos principais
 
-| Tool | Scope | Descrição |
-|------|-------|-----------|
-| `plutao_system_status` | read | Modelo mascarado, fase, resumo conectores |
-| `plutao_list_connectors` | read | Status/capabilities sem secrets |
-| `plutao_list_conversations` | read | Conversas do chat (tabela `conversations`) |
-| `plutao_get_mission` | read | Detalhe da missão do `sub` do token |
-| `plutao_send_message` | **write** | Envia mensagem; cria conversa se omitir id; ownership check |
-
-### `plutao_send_message`
-
-- Input: `{ content: string (1–4000), conversationId?: uuid }`
-- Sem `conversationId`: cria conversa; mensagens com `metadata.source = "mcp"`
-- Com id: anexa **somente** se `conversation.userId === token.sub` (senão forbidden)
-- Sem `mcp:write`: erro claro com hint de re-consent
-- Resposta: `conversationId`, ids das mensagens, texto do agente
-
-### Auditoria
-
-Todo call (read e write) grava em `audit_events`:
-
-- `userId`, `client_id`, `grant_id`, `tool`, `params_sha256`, `latency_ms`, `status`, timestamp
-- Nunca grava Bearer nem tokens de conector
-
-### Rate limit
-
-30 calls / 60s por grant, com bucket persistido e incremento atômico no Neon (`rate_limit_buckets`). Acima: `rate_limited` + `retryAfterSec`, inclusive entre instâncias Vercel.
-
-O endpoint de registro OAuth é limitado a 10 cadastros por hora por IP (janela UTC, hash HMAC armazenado no Neon). Para revisar e limpar manualmente clientes dinâmicos sem grants com mais de 30 dias, use `docs/sql/cleanup_mcp_oauth_clients.sql`.
-
----
-
-## Arquivos
-
-- `apps/web/src/lib/mcp/tokens.ts` — codes + access tokens HMAC; `MCP_SCOPES`
-- `apps/web/src/lib/mcp/auth.ts` — Bearer verify + ALS + `hasMcpScope`
-- `apps/web/src/lib/mcp/tools.ts` — tools + send_message
-- `apps/web/src/lib/mcp/audit.ts` — audit (erros passam pelo sanitizador central) + rate limit
-- `apps/web/src/lib/mcp/tools.ts#withMcpGuards` — rate limit + auditoria para todas as tools
-- `apps/web/src/lib/mcp/grants.ts` — grants DB
-- `apps/web/src/app/api/mcp/route.ts`
-- `apps/web/src/app/api/oauth/*`
-- `apps/web/src/app/oauth/consent/page.tsx`
-- `apps/web/src/app/.well-known/*`
+- `apps/web/src/lib/mcp/tokens.ts` — tokens/códigos, scope e validação de callback
+- `apps/web/src/lib/mcp/clientRegistration.ts` — DCR e allowlist de grant
+- `apps/web/src/lib/mcp/clientMetadata.ts` — CIMD, validação SSRF e callbacks
+- `apps/web/src/lib/mcp/auth.ts` — autenticação Bearer, ALS e `mcp:read`
+- `apps/web/src/lib/mcp/tools.ts` — tools read-only, rate limit e auditoria
+- `apps/web/src/lib/mcp/grants.ts` — grants e códigos single-use no banco
+- `apps/web/src/app/api/mcp/route.ts` — MCP Streamable HTTP + CORS
+- `apps/web/src/app/api/oauth/*` — registro, autorização, token e revogação
+- `apps/web/src/app/oauth/consent/page.tsx` — consentimento explícito

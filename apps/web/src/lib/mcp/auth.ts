@@ -6,7 +6,7 @@
  * 2) PLUTAO_MCP_API_KEY de ops (break-glass, header only)
  *
  * 401 inclui resource_metadata (RFC 9728) para discovery OAuth.
- * Scope mcp:read é obrigatório para qualquer tool; mcp:write é gate no call time.
+ * O resource server expõe somente operações mcp:read.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -94,7 +94,7 @@ export async function authenticateMcpRequest(req: Request): Promise<McpAuthResul
     return {
       ok: true,
       userId,
-      scopes: ["mcp:read", "mcp:write"],
+      scopes: ["mcp:read"],
       clientId: "plutao-ops",
       method: "ops_key",
     };
@@ -107,7 +107,7 @@ export function mcpUnauthorizedResponse(result: Extract<McpAuthResult, { ok: fal
   const resourceMeta = `${getMcpIssuer()}/.well-known/oauth-protected-resource`;
   const www =
     result.status === 401
-      ? `Bearer realm="plutao-mcp", resource_metadata="${resourceMeta}", scope="mcp:read mcp:write"`
+      ? `Bearer realm="plutao-mcp", resource_metadata="${resourceMeta}", scope="mcp:read"`
       : `Bearer realm="plutao-mcp"`;
 
   return new Response(JSON.stringify({ error: result.error }), {
