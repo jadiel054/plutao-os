@@ -1,0 +1,83 @@
+name: Package B Production Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Suíte de produção a executar"
+        required: true
+        type: choice
+        options:
+          - serial
+          - gate-approval
+          - gate-rejection
+        default: serial
+      write_gate:
+        description: "Habilitar a criação controlada de um repositório privado apenas na conta GitHub E2E isolada"
+        required: true
+        type: choice
+        options:
+          - disabled
+          - enabled
+        default: disabled
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plutao-package-b-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Validate dispatch and credentials presence
+        env:
+          E2E_EMAIL: ${{ secrets.PLUTAO_E2E_EMAIL }}
+          E2E_PASSWORD: ${{ secrets.PLUTAO_E2E_PASSWORD }}
+          SUITE: ${{ inputs.suite }}
+          WRITE_GATE: ${{ inputs.write_gate }}
+        run: |
+          set -euo pipefail
+          if [ -z "$E2E_EMAIL" ] || [ -z "$E2E_PASSWORD" ]; then
+            echo "::error::PLUTAO_E2E_EMAIL / PLUTAO_E2E_PASSWORD não configurados"
+            exit 1
+          fi
+          if [ "$SUITE" = "serial" ] && [ "$WRITE_GATE" != "disabled" ]; then
+            echo "::error::A suíte serial não pode habilitar escrita externa"
+            exit 1
+          fi
+          if [ "$SUITE" != "serial" ] && [ "$WRITE_GATE" != "enabled" ]; then
+            echo "::error::A prova de gate exige write_gate=enabled e conta E2E isolada"
+            exit 1
+          fi
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run package B production suite
+        env:
+          E2E_BASE_URL: https://plutao-os.vercel.app
+          E2E_EMAIL: ${{ secrets.PLUTAO_E2E_EMAIL }}
+          E2E_PASSWORD: ${{ secrets.PLUTAO_E2E_PASSWORD }}
+          PACKAGE_B_WRITE_GATE: ${{ inputs.write_gate }}
+          PACKAGE_B_SUITE: ${{ inputs.suite }}
+        run: |
+          set -euo pipefail
+          if [ "$PACKAGE_B_SUITE" = "serial" ]; then
+            npx playwright test e2e/package-b-production.spec.ts --grep '@package-b-serial' --workers=1
+          elif [ "$PACKAGE_B_SUITE" = "gate-approval" ]; then
+            npx playwright test e2e/package-b-production.spec.ts --grep '@package-b-gate-preflight|@package-b-gate-approval' --workers=1
+          elif [ "$PACKAGE_B_SUITE" = "gate-rejection" ]; then
+            npx playwright test e2e/package-b-production.spec.ts --grep '@package-b-gate-preflight|@package-b-gate-rejection' --workers=1
+          else
+            echo "::error::Suíte desconhecida"
+            exit 1
+          fi
