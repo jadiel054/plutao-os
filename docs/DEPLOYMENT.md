@@ -41,16 +41,19 @@ Do not expose database URLs to the client.
 
 ## Durable runtime worker (mission execution)
 
-O endpoint `POST /api/missions/:id/autonomous-run` **somente enfileira** uma execution `PENDING` e retorna `202`. O processamento acontece em `POST /api/cron/runtime-worker`, protegido por `Authorization: Bearer $CRON_SECRET`. O workflow `.github/workflows/runtime_worker.yml` chama essa rota a cada cinco minutos na branch padrão.
+O endpoint `POST /api/missions/:id/autonomous-run` **somente enfileira** uma execution `PENDING` e retorna `202`. O processamento acontece em `POST /api/cron/runtime-worker`, protegido por `Authorization: Bearer $CRON_SECRET`. O workflow `.github/workflows/runtime_worker.yml` chama essa rota a cada cinco minutos na branch padrão e executa antes um probe read-only em `GET /api/cron/runtime-worker/health`.
+
+O probe de saúde usa o mesmo bearer do cron, não reivindica jobs e retorna apenas contagens agregadas (`PENDING`, `RUNNING`, `WAITING_APPROVAL` e estados terminais), idade dos itens mais antigos e leases de execução expirados. Ele não retorna `userId`, `missionId`, `executionId`, payload ou texto de erro.
 
 Em produção:
 
 1. Defina `CRON_SECRET` no ambiente da Vercel e como secret do repositório no GitHub Actions, com o mesmo valor.
 2. Migrations 0024–0026 já foram aplicadas no Neon `main` em 2026-10-07; confira o schema antes do rollout. O smoke autenticado multi-nó continua pendente.
-3. Execute uma missão de teste com pelo menos dois nós dependentes e confirme que o mesmo job passa por continuations serializadas até `runtime_jobs.SUCCEEDED` e `executions.COMPLETED`.
-4. Confirme que uma falha terminal de nó não vira sucesso do job e que o DoD usa evidence da execution/nó correspondente.
-5. Teste um Write Gate pendente: confirme job `WAITING_APPROVAL`, execução recuperável, aprovação/rejeição vinculada à evidence do nó e retomada do mesmo job.
-6. Confirme que o Cockpit distingue job durável, execution e mission status. Refaça a validação ao abrir no PWA e no APK.
+3. Dispare o workflow e confirme que o probe `GET /api/cron/runtime-worker/health` retorna `200` antes do processamento. O worker serial processa no máximo um job por invocation (`maxBatch = 1`).
+4. Execute uma missão de teste com pelo menos dois nós dependentes e confirme que o mesmo job passa por continuations serializadas até `runtime_jobs.SUCCEEDED` e `executions.COMPLETED`.
+5. Confirme que uma falha terminal de nó não vira sucesso do job e que o DoD usa evidence da execution/nó correspondente.
+6. Teste um Write Gate pendente: confirme job `WAITING_APPROVAL`, execução recuperável, aprovação/rejeição vinculada à evidence do nó e retomada do mesmo job.
+7. Confirme que o Cockpit distingue job durável, execution e mission status. Refaça a validação ao abrir no PWA e no APK.
 
 Se o worker ou a migration estiverem indisponíveis, o endpoint público responde `503 DURABLE_QUEUE_UNAVAILABLE` e **não** executa fallback síncrono.
 
