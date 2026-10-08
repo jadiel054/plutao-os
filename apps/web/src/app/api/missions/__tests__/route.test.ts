@@ -31,8 +31,11 @@ function insertOnlyDb(insertedMission: Record<string, unknown>) {
   return { db: { insert }, values, returning };
 }
 
-function duplicateDb(existingMission: Record<string, unknown>) {
-  const returning = vi.fn().mockRejectedValue({ code: "23505" });
+function duplicateDb(
+  existingMission: Record<string, unknown>,
+  insertError: unknown = { code: "23505" }
+) {
+  const returning = vi.fn().mockRejectedValue(insertError);
   const values = vi.fn().mockReturnValue({ returning });
   const insert = vi.fn().mockReturnValue({ values });
   const selection = {
@@ -137,6 +140,47 @@ describe("POST /api/missions unified intake", () => {
     expect(response.status).toBe(200);
     expect(data.deduplicated).toBe(true);
     expect(data.mission.id).toBe("mission-existing");
+  });
+
+  it("recognizes a Neon unique violation nested in the Drizzle cause chain", async () => {
+    const existingMission = {
+      id: "mission-neon-replay",
+      objective: "Smoke de idempotência",
+      context: "Contexto sintético",
+      constraints: "Sem PII",
+      definitionOfDone: null,
+      creationSource: "cockpit",
+      conversationId: null,
+      status: "CREATED",
+      currentState: "CREATED",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const mock = duplicateDb(existingMission, {
+      message: "Failed query: insert into missions ...",
+      cause: {
+        message: "duplicate key value violates unique constraint missions_user_idempotency_uidx",
+        code: "23505",
+      },
+    });
+    vi.mocked(getDb).mockReturnValue(mock.db as never);
+
+    const response = await POST(
+      makeRequest(
+        {
+          objective: "Smoke de idempotência",
+          context: "Contexto sintético",
+          constraints: "Sem PII",
+          source: "cockpit",
+        },
+        "neon-replay-attempt-1"
+      )
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.deduplicated).toBe(true);
+    expect(data.mission.id).toBe("mission-neon-replay");
   });
 
   it("rejects reuse of a key for a different mission", async () => {

@@ -154,21 +154,29 @@ async function createMission(
   requireCondition(Boolean(missionId), "MISSION_ID_MISSING");
 
   if (options.verifyIdempotency) {
-    const replay = await page.request.post("/api/missions", {
-      data: body,
-      headers: { "x-idempotency-key": key },
-    });
-    const replayData = await jsonResponse(replay, [200], "MISSION_IDEMPOTENT_REPLAY");
-    requireCondition(
-      record(replayData.mission).id === missionId && replayData.deduplicated === true,
-      "MISSION_IDEMPOTENT_REPLAY_MISMATCH"
-    );
+    try {
+      const replay = await page.request.post("/api/missions", {
+        data: body,
+        headers: { "x-idempotency-key": key },
+      });
+      const replayData = await jsonResponse(replay, [200], "MISSION_IDEMPOTENT_REPLAY");
+      requireCondition(
+        record(replayData.mission).id === missionId && replayData.deduplicated === true,
+        "MISSION_IDEMPOTENT_REPLAY_MISMATCH"
+      );
 
-    const conflict = await page.request.post("/api/missions", {
-      data: { ...body, objective: `${body.objective} — payload diferente` },
-      headers: { "x-idempotency-key": key },
-    });
-    await jsonResponse(conflict, [409], "MISSION_IDEMPOTENCY_CONFLICT");
+      const conflict = await page.request.post("/api/missions", {
+        data: { ...body, objective: `${body.objective} — payload diferente` },
+        headers: { "x-idempotency-key": key },
+      });
+      await jsonResponse(conflict, [409], "MISSION_IDEMPOTENCY_CONFLICT");
+    } catch (error) {
+      // The first POST already persisted this synthetic mission; cancel it if a later assertion fails.
+      await page.request
+        .patch(`/api/missions/${missionId}`, { data: { action: "cancel" } })
+        .catch(() => null);
+      throw error;
+    }
   }
 
   return { id: missionId, objective: options.objective, tag: options.tag };
