@@ -155,9 +155,15 @@ function LoginForm() {
                 Usar senha
               </button>
             </div>
-            <label className="block space-y-1">
-              <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">E-mail</span>
+            <div className="space-y-1">
+              <label
+                htmlFor="magic-link-email"
+                className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]"
+              >
+                E-mail
+              </label>
               <input
+                id="magic-link-email"
                 type="email"
                 required
                 value={magicLinkEmail}
@@ -165,7 +171,7 @@ function LoginForm() {
                 placeholder="seu@email.com"
                 className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--selo)] transition-colors"
               />
-            </label>
+            </div>
             <button
               type="submit"
               disabled={magicLoading}
@@ -176,9 +182,15 @@ function LoginForm() {
           </form>
         ) : (
           <form onSubmit={onSubmitPassword} className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl">
-            <label className="block space-y-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">E-mail</span>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="login-email"
+                className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]"
+              >
+                E-mail
+              </label>
               <input
+                id="login-email"
                 type="email"
                 required
                 autoComplete="email"
@@ -187,23 +199,29 @@ function LoginForm() {
                 placeholder="seu@email.com"
                 className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--selo)] transition-colors"
               />
-            </label>
+            </div>
 
-            <label className="block space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Senha</span>
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center gap-2">
+                <label
+                  htmlFor="login-password"
+                  className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]"
+                >
+                  Senha
+                </label>
                 <button
                   type="button"
                   onClick={() => {
                     setMagicLinkEmail(email);
                     setShowMagicForm(true);
                   }}
-                  className="text-[10px] text-[var(--selo)] hover:underline"
+                  className="text-[10px] text-[var(--selo)] hover:underline shrink-0"
                 >
                   Entrar sem senha (Magic Link)
                 </button>
               </div>
               <input
+                id="login-password"
                 type="password"
                 required
                 minLength={8}
@@ -213,7 +231,7 @@ function LoginForm() {
                 placeholder="••••••••"
                 className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)] px-3.5 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--selo)] transition-colors"
               />
-            </label>
+            </div>
 
             <button
               type="submit"
