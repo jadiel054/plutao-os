@@ -1,6 +1,6 @@
 # Contrato de missão e grafo v2 do Plutão
 
-**Status (2026-10-08):** intake unificado, grafo versionado persistido, execução serial no worker, espera/retomada de Write Gate, visualização do grafo e dois perfis especialistas seriais estão no código publicado após o PR #137. O schema 0024–0026 está aplicado e verificado em produção; o worker autenticado já respondeu ao probe operacional, mas o smoke de missão completa permanece pendente. Eventos canônicos e paralelismo continuam pendentes.
+**Status (2026-10-08):** intake unificado, grafo versionado persistido, execução serial no worker, espera/retomada de Write Gate, visualização do grafo e dois perfis especialistas seriais estão publicados após o PR #137. O schema 0024–0026 está aplicado e verificado em produção; o probe do worker passou. O workflow E2E de produção (#37827811717) terminou `success`, mas seu único teste foi `skipped` por ausência de `E2E_EMAIL`/`E2E_PASSWORD`; portanto, não houve smoke de missão nem piloto real de especialistas. Eventos canônicos e paralelismo continuam pendentes. Veja o [`relatório de status`](testes/2026-10-08-smoke-piloto-pendentes/relatorio-smoke-piloto.md).
 
 ## Objetivo
 
@@ -56,7 +56,7 @@ A atribuição usa `PATCH /api/missions/:id/plan` com `action: "assign_specialis
 - `/api/missions/:id/plan` cria/alinha o plano V1 e persiste a representação V2 validada; gravações pré-alinhamento e alinhamento comparam estado/grafo esperado para recusar corridas concorrentes. Depois de alinhar/iniciar, a topologia fica imutável.
 - O enqueue valida/backfilla o grafo antes de criar o job. Topologias acima de 20 nós são rejeitadas nesta versão serial.
 - Uma chamada do worker processa no máximo um nó e usa continuation do mesmo job. Aprovação humana põe o job em espera em vez de converter pedido de aprovação em sucesso.
-- O schema de `runtime_jobs` da 0024 já existia. As migrations 0025/0026 foram aplicadas em `main` em 2026-10-07; a inspeção read-only confirmou colunas, tipos, nulabilidade, default, FK `ON DELETE SET NULL` e índice. O deployment do código foi confirmado pelo worker em 2026-10-08; o smoke autenticado multi-nó, a retomada mobile e o gate pendente ainda permanecem necessários.
+- O schema de `runtime_jobs` da 0024 já existia. As migrations 0025/0026 foram aplicadas em `main` em 2026-10-07; a inspeção read-only confirmou colunas, tipos, nulabilidade, default, FK `ON DELETE SET NULL` e índice. O deployment do código e o probe do worker foram confirmados; o E2E autenticado foi ignorado por falta das credenciais de teste (`E2E_EMAIL`/`E2E_PASSWORD` vazios), então smoke multi-nó, retomada mobile e gate pendente continuam não verificados. Não habilitar paralelismo antes dessas evidências e da revisão do piloto especialista.
 
 ## PWA, APK e execução offline
 
