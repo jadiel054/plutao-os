@@ -9,11 +9,22 @@ test("usuário autenticado cria e abre uma missão no Cockpit", async ({ page })
 
   try {
     await page.goto("/login");
-    await page.getByLabel("E-mail").fill(email!);
-    await page.getByLabel("Senha").fill(password!);
+
+    // Seletores estáveis: ids do formulário de senha (não getByLabel — o botão
+    // "Entrar sem senha" competia com o label por substring).
+    const emailInput = page.locator("#login-email");
+    const passwordInput = page.locator("#login-password");
+    await expect(emailInput).toBeVisible();
+    await expect(passwordInput).toBeVisible();
+    await emailInput.fill(email!);
+    await passwordInput.fill(password!);
     await page.getByRole("button", { name: "Entrar com e-mail" }).click();
+
     await expect(page).toHaveURL(/\/cockpit/);
-    await page.getByPlaceholder("Descreva o objetivo principal da missão...").fill(objective);
+
+    const objectiveField = page.getByPlaceholder("Descreva o objetivo principal da missão...");
+    await expect(objectiveField).toBeVisible();
+    await objectiveField.fill(objective);
     await page.getByRole("button", { name: "Criar Missão" }).click();
     await expect(page.getByText(objective)).toBeVisible();
     await page.getByText(objective).click();
@@ -22,10 +33,14 @@ test("usuário autenticado cria e abre uma missão no Cockpit", async ({ page })
     const missions = await page.request.get("/api/missions");
     if (missions.ok()) {
       const data = await missions.json();
-      const created = (data.missions ?? []).find((mission: { objective?: string; id?: string }) => mission.objective === objective);
+      const created = (data.missions ?? []).find(
+        (mission: { objective?: string; id?: string }) => mission.objective === objective,
+      );
       missionId = created?.id ?? null;
     }
   } finally {
-    if (missionId) await page.request.delete(`/api/missions/${missionId}`);
+    if (missionId) {
+      await page.request.delete(`/api/missions/${missionId}`);
+    }
   }
 });
