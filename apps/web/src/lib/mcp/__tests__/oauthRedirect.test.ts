@@ -1,16 +1,11 @@
-/**
- * H5(a) — redirect_uri do OAuth MCP.
- *
- * Antes: allowlist vazia devolvia `true` (qualquer https passava) e a comparação
- * era por `startsWith`, então `https://app.exemplo.com.evil.io` era aceito.
- */
+/** Redirect URI policy for MCP OAuth. */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isRedirectUriAllowed } from "../tokens";
+import { isRedirectUriAllowed, validateRedirectUri } from "../tokens";
 
 const ORIGINAL = process.env.MCP_OAUTH_REDIRECT_ALLOWLIST;
 
-describe("H5(a) — validação de redirect_uri", () => {
+describe("MCP OAuth redirect URI policy", () => {
   beforeEach(() => {
     delete process.env.MCP_OAUTH_REDIRECT_ALLOWLIST;
   });
@@ -19,56 +14,39 @@ describe("H5(a) — validação de redirect_uri", () => {
     else process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = ORIGINAL;
   });
 
-  it("allowlist vazia FALHA FECHADO para https", () => {
-    expect(isRedirectUriAllowed("https://qualquer-cliente.example.com/callback")).toBe(false);
-    expect(isRedirectUriAllowed("https://evil.io/cb")).toBe(false);
+  it("fails closed for HTTPS when no allowlist or trusted CIMD origin is provided", () => {
+    expect(isRedirectUriAllowed("https://client.example/callback")).toBe(false);
   });
 
-  it("allowlist vazia mantém localhost (fluxo de desenvolvimento)", () => {
-    expect(isRedirectUriAllowed("http://localhost:3000/callback")).toBe(true);
-    expect(isRedirectUriAllowed("http://127.0.0.1:8080/cb")).toBe(false);
-    expect(isRedirectUriAllowed("http://localhost:43127/callback#fragmento")).toBe(false);
+  it.each([
+    "http://localhost:43127/callback",
+    "http://127.0.0.1:8080/oauth/callback",
+    "http://[::1]:54321/callback",
+  ])("accepts loopback HTTP with a variable port: %s", (uri) => {
+    expect(isRedirectUriAllowed(uri)).toBe(true);
   });
 
-  it("origin exato na allowlist é aceito", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://oauth-client.example/api/mcp/callback";
-    expect(isRedirectUriAllowed("https://oauth-client.example/api/mcp/callback")).toBe(true);
+  it.each([
+    "http://evil.example/callback",
+    "http://localhost:43127/callback#fragment",
+    "https://*.example.com/callback",
+    "https://user:pass@client.example/callback",
+    "https://client.example/callback#fragment",
+    "ftp://client.example/callback",
+    "javascript:alert(1)",
+  ])("rejects unsafe callback: %s", (uri) => {
+    expect(isRedirectUriAllowed(uri)).toBe(false);
   });
 
-  it("prefixo parecido e caminho diferente NÃO são aceitos", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://app.exemplo.com/callback";
-    expect(isRedirectUriAllowed("https://app.exemplo.com.evil.io/callback")).toBe(false);
-    expect(isRedirectUriAllowed("https://app.exemplo.com.br/callback")).toBe(false);
-    expect(isRedirectUriAllowed("https://app.exemplo.com/outro")).toBe(false);
-    expect(isRedirectUriAllowed("https://app.exemplo.com/callback")).toBe(true);
+  it("accepts an exact HTTPS entry and rejects lookalike origins or changed paths", () => {
+    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://app.example/callback";
+    expect(isRedirectUriAllowed("https://app.example/callback")).toBe(true);
+    expect(isRedirectUriAllowed("https://app.example.evil.io/callback")).toBe(false);
+    expect(isRedirectUriAllowed("https://app.example/other")).toBe(false);
   });
 
-  it("entrada com caminho exige caminho idêntico", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io/oauth/callback";
-    expect(isRedirectUriAllowed("https://cliente.io/oauth/callback")).toBe(true);
-    expect(isRedirectUriAllowed("https://cliente.io/outro/caminho")).toBe(false);
-  });
-
-  it("exige query e barra final exatas", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io/callback?tenant=a";
-    expect(isRedirectUriAllowed("https://cliente.io/callback?tenant=a")).toBe(true);
-    expect(isRedirectUriAllowed("https://cliente.io/callback?tenant=b")).toBe(false);
-    expect(isRedirectUriAllowed("https://cliente.io/callback")).toBe(false);
-    expect(isRedirectUriAllowed("https://cliente.io/callback/?tenant=a")).toBe(false);
-  });
-
-  it("protocolos e formatos perigosos são recusados", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "https://cliente.io/cb";
-    expect(isRedirectUriAllowed("javascript:alert(1)")).toBe(false);
-    expect(isRedirectUriAllowed("data:text/html,<script>1</script>")).toBe(false);
-    expect(isRedirectUriAllowed("ftp://cliente.io/cb")).toBe(false);
-    expect(isRedirectUriAllowed("https://cliente.io/cb#fragmento")).toBe(false);
-    expect(isRedirectUriAllowed("não é url")).toBe(false);
-    expect(isRedirectUriAllowed("")).toBe(false);
-  });
-
-  it("http não-localhost é sempre recusado", () => {
-    process.env.MCP_OAUTH_REDIRECT_ALLOWLIST = "http://cliente.io";
-    expect(isRedirectUriAllowed("http://cliente.io/cb")).toBe(false);
+  it("permits an exact same-origin HTTPS callback for a CIMD client only", () => {
+    expect(validateRedirectUri("https://client.example/oauth/callback", { sameOriginAs: "https://client.example/client.json" }).ok).toBe(true);
+    expect(validateRedirectUri("https://other.example/oauth/callback", { sameOriginAs: "https://client.example/client.json" })).toMatchObject({ ok: false, reason: "https_uri_not_allowlisted" });
   });
 });

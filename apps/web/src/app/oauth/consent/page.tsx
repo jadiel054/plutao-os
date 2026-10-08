@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
-import { findOAuthClient } from "@/lib/mcp/grants";
+import { getMcpResourceUrl } from "@/lib/mcp/tokens";
+import { resolveMcpOAuthClient } from "@/lib/mcp/clientMetadata";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,6 @@ function one(v: string | string[] | undefined): string {
 const SCOPE_COPY: Record<string, string> = {
   "mcp:read":
     "mcp:read — status, conectores (sem tokens), conversas e detalhes de missão",
-  "mcp:write":
-    "mcp:write — enviar mensagens ao agente e criar/anexar conversas em seu nome",
 };
 
 export default async function OAuthConsentPage({ searchParams }: Props) {
@@ -25,6 +24,7 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
   const clientId = one(sp.client_id);
   const redirectUri = one(sp.redirect_uri);
   const scope = one(sp.scope) || "mcp:read";
+  const resource = one(sp.resource) || getMcpResourceUrl();
   const codeChallenge = one(sp.code_challenge);
   const state = one(sp.state);
 
@@ -56,18 +56,9 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
     );
   }
 
-  const registeredClient = await findOAuthClient(clientId);
-
-  const requestedScopes = scope
-    .split(/[\s+]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const scopeList =
-    requestedScopes.length > 0
-      ? requestedScopes
-      : (["mcp:read"] as string[]);
-  // Sempre mostrar mcp:read; se write pedido, listar explicitamente
-  const displayScopes = [...new Set(["mcp:read", ...scopeList.filter((s) => s === "mcp:write")])];
+  const resolvedClient = clientId ? await resolveMcpOAuthClient(clientId) : null;
+  const clientName = resolvedClient?.ok ? resolvedClient.client.clientName : null;
+  const displayScopes = ["mcp:read"];
 
   return (
     <main className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-6 p-6 text-[var(--text)]">
@@ -89,10 +80,10 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
         </div>
         <div>
           <div className="text-xs text-[var(--text-muted)]">Cliente</div>
-          {registeredClient?.clientName && (
-            <div className="font-medium">{registeredClient.clientName}</div>
+          {clientName && (
+            <div className="font-medium">{clientName}</div>
           )}
-          {registeredClient?.clientName && (
+          {clientName && (
             <div className="text-xs text-[var(--text-muted)]">Nome declarado pelo aplicativo; não verificado.</div>
           )}
           <div className="break-all font-mono text-xs">{clientId}</div>
@@ -119,6 +110,7 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
         <input type="hidden" name="client_id" value={clientId} />
         <input type="hidden" name="redirect_uri" value={redirectUri} />
         <input type="hidden" name="scope" value={scope} />
+        <input type="hidden" name="resource" value={resource} />
         <input type="hidden" name="code_challenge" value={codeChallenge} />
         <input type="hidden" name="state" value={state} />
 

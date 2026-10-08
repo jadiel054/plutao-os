@@ -17,8 +17,9 @@ export async function GET() {
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: ["mcp:read", "mcp:write"],
-    client_id_metadata_document_supported: false,
+    scopes_supported: ["mcp:read"],
+    client_id_metadata_document_supported: true,
+    authorization_response_iss_parameter_supported: true,
     logo_uri: `${issuer}/icon.png`,
   };
 

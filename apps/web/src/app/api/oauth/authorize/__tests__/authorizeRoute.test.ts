@@ -41,7 +41,11 @@ describe("GET /api/oauth/authorize client registration checks", () => {
     const response = await GET(authorizeRequest("https://untrusted.example/callback"));
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: "invalid_request" });
+    expect(await response.json()).toMatchObject({
+      error: "invalid_redirect_uri",
+      reason: "https_uri_not_allowlisted",
+      invalid_uri: "https://untrusted.example/callback",
+    });
     expect(mocks.getSessionUser).not.toHaveBeenCalled();
   });
 

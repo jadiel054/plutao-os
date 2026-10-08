@@ -66,7 +66,21 @@ export async function POST(req: NextRequest) {
 
   const parsed = parseOAuthClientRegistration(body);
   if (!parsed.ok) {
-    return registrationError("invalid_client_metadata", parsed.error);
+    if (parsed.error === "invalid_redirect_uri") {
+      return NextResponse.json(
+        {
+          error: "invalid_redirect_uri",
+          error_description: parsed.description,
+          reason: parsed.reason,
+          invalid_uri: parsed.redirectUri,
+        },
+        {
+          status: 400,
+          headers: { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" },
+        },
+      );
+    }
+    return registrationError(parsed.error, parsed.description);
   }
 
   const clientId = `${DYNAMIC_OAUTH_CLIENT_ID_PREFIX}${randomBytes(24).toString("base64url")}`;

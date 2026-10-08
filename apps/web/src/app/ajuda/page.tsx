@@ -25,6 +25,10 @@ const FAQ = [
     a: "Conectores ligam contas externas (começando pelo GitHub) com estados claros: desconectado, autorizando, conectado, reconectar ou erro. O token fica criptografado no servidor. Só com status conectado o Executor pode chamar tools daquela conta.",
   },
   {
+    q: "Como conectar um agente ao Plutão via MCP?",
+    a: "Use https://plutao-os.vercel.app/api/mcp. O acesso é OAuth 2.1 com PKCE e somente leitura: status, conectores sem tokens, conversas e detalhes de missões. Clientes MCP modernos podem usar Client ID Metadata Documents; clientes com registro dinâmico recebem um erro que identifica o callback HTTPS não permitido. Callbacks HTTPS precisam ser autorizados exatamente; HTTP só é aceito para localhost, 127.0.0.1 ou [::1].",
+  },
+  {
     q: "Posso interromper uma missão?",
     a: "Sim. Use parar missão na interface de execução. O estado passa a CANCELLED (terminal). Não reescreve evidência já gravada.",
   },

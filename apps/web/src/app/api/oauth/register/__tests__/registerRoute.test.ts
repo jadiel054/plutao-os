@@ -68,4 +68,38 @@ describe("POST /api/oauth/register", () => {
     expect(mocks.createOAuthClient).toHaveBeenCalledOnce();
     expect(mocks.consumeOAuthRegistrationQuota).toHaveBeenCalledWith("ip-hash", 10);
   });
+
+  it("deduplicates identical callback URIs and accepts loopback with a variable port", async () => {
+    const callback = "http://127.0.0.1:43127/callback";
+    const response = await POST(request(JSON.stringify({ redirect_uris: [callback, callback] })));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.redirect_uris).toEqual([callback]);
+    expect(mocks.createOAuthClient).toHaveBeenCalledWith(expect.objectContaining({ redirectUris: [callback] }));
+  });
+
+  it("returns the exact escaped URI and reason for HTTPS outside the allowlist", async () => {
+    const callback = "https://other.example/oauth/callback?state=a%20b";
+    const response = await POST(request(JSON.stringify({ redirect_uris: [callback] })));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      error: "invalid_redirect_uri",
+      reason: "https_uri_not_allowlisted",
+      invalid_uri: callback,
+    });
+    expect(body.error_description).toContain(encodeURIComponent(callback));
+    expect(mocks.createOAuthClient).not.toHaveBeenCalled();
+  });
+
+  it("rejects wildcard callbacks with a specific reason", async () => {
+    const callback = "https://*.example.com/callback";
+    const response = await POST(request(JSON.stringify({ redirect_uris: [callback] })));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({ error: "invalid_redirect_uri", reason: "wildcard_not_allowed", invalid_uri: callback });
+  });
 });
