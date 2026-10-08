@@ -9,6 +9,27 @@ import { missionObjectiveToGraphV2 } from "@plutao/domain";
 
 export const runtime = "nodejs";
 
+function isUniqueConstraintViolation(error: unknown): boolean {
+  const visited = new Set<object>();
+  let current: unknown = error;
+  while (typeof current === "object" && current !== null && !visited.has(current)) {
+    visited.add(current);
+    const candidate = current as {
+      code?: unknown;
+      message?: unknown;
+      detail?: unknown;
+      cause?: unknown;
+    };
+    if (candidate.code === "23505") return true;
+    const message = [candidate.message, candidate.detail]
+      .filter((part): part is string => typeof part === "string")
+      .join(" ");
+    if (/duplicate key|unique constraint/i.test(message)) return true;
+    current = candidate.cause;
+  }
+  return typeof error === "string" && /duplicate key|unique constraint/i.test(error);
+}
+
 export async function GET() {
   const user = await getSessionUser();
   if (!user) {
@@ -123,14 +144,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ mission: inserted[0] }, { status: 201 });
     } catch (insertErr: unknown) {
-      const errorCode =
-        insertErr && typeof insertErr === "object" && "code" in insertErr
-          ? (insertErr as { code?: string }).code
-          : undefined;
-      const isUniqueConstraintErr =
-        errorCode === "23505" || String(insertErr).toLowerCase().includes("unique");
-
-      if (input.idempotencyKey && isUniqueConstraintErr) {
+      if (input.idempotencyKey && isUniqueConstraintViolation(insertErr)) {
         const existingRows = await db
           .select({
             id: missions.id,
