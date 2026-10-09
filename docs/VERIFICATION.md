@@ -7,7 +7,7 @@ This document tracks verified capabilities across all architectural layers of Pr
 
 The latest user-flow production smoke test is documented in [`docs/testes/2026-09-17-production-smoke/relatorio-production-smoke.md`](testes/2026-09-17-production-smoke/relatorio-production-smoke.md). It confirms the authentication, mission, chat, settings, persistence and DoD paths tested on 17/09/2026, and records the capabilities that remain unverified.
 
-For the Mission Graph V2 rollout, the worker health probe passed, but the authenticated E2E workflow on 2026-10-08 did **not** validate a mission: the workflow completed successfully while its only Playwright test was skipped because `E2E_EMAIL` and `E2E_PASSWORD` were empty. The serial mission smoke and specialist pilot remain pending; see [`the status report`](testes/2026-10-08-smoke-piloto-pendentes/relatorio-smoke-piloto.md). Do not mark these capabilities VERIFIED from a green workflow whose test was skipped.
+For the Mission Graph V2 rollout, the minimum authenticated Cockpit E2E passed in run [#37853714597](https://github.com/jadiel054/plutao-os/actions/runs/37853714597) (`1 passed`, 8.3s), but it does not cover multi-node execution. Package B run [#37857489190](https://github.com/jadiel054/plutao-os/actions/runs/37857489190) validated production intake/idempotency and graph/specialist assignment APIs, then timed out waiting for the worker. A read-only Neon check found the test job/execution cancelled with no node checkpoint; a later worker run processed the already-cancelled job. Therefore serial continuation, DoD/evidence per node, Write Gate decisions, and specialist model quality remain **unverified**. See [`the status report`](testes/2026-10-08-smoke-piloto-pendentes/relatorio-smoke-piloto.md); do not infer these capabilities from a green workflow or a health probe.
 
 ---
 
@@ -165,3 +165,13 @@ For the Mission Graph V2 rollout, the worker health probe passed, but the authen
 - [x] **Computador (local):** Computador e MissionExecutionView exibem topologia, dependências, status de nó, tentativas e espera de aprovação. Validação visual com dados reais após as migrations permanece pendente; eventos do chat continuam sendo uma projeção separada.
 - [x] **Perfis especialistas (local):** `software_engineer` e `teaching_assistant`, seleção pré-alinhamento, prompt por papel e allowlist aplicada no dispatcher; typecheck e testes de política/rota/prompt.
 - [ ] **Paralelismo:** execução concorrente, isolamento entre nós e testes de corrida seguem desativados/futuros.
+
+### Production evidence update — 2026-10-08
+
+- [x] **Intake replay/conflict:** run #37857489190 observed exact idempotent replay and HTTP 409 for a different payload after PR #145 was deployed.
+- [x] **Authenticated ownership boundary (partial):** owner-scoped list contained the synthetic mission and anonymous GET returned 401. Cross-account denial was not tested.
+- [x] **Specialist assignment API/fail-closed (not model pilot):** incompatible capability and unknown profile returned 422; both profiles were assigned before alignment; graph remained immutable after alignment.
+- [ ] **Serial worker execution/continuation:** run #37857489190 enqueued the execution/job but timed out after 34m12s. Persisted job/execution were later observed `CANCELLED`, with no active node or node states. The scheduled worker workflow had no invocation during the test window; run #37866058588 later reconciled the cancelled job only.
+- [ ] **Write Gate approval/rejection and same-job resume:** not run; no external write was attempted.
+- [ ] **Specialist model quality/latency/failure metrics:** not measured; no model step ran.
+- [ ] **Worker cadence:** the workflow is active and declares `*/5 * * * *`, but the observed gap blocks safe serial validation. Do not manually dispatch the global worker until jobs can be isolated from other users.
