@@ -19,7 +19,8 @@ import { and, eq } from "drizzle-orm";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { sanitizeText } from "@/lib/security/sanitize";
 import { getOwnedExecution } from "@/lib/runtime/service";
-import { releaseRuntimeJobAfterApproval } from "@/lib/runtime/durableJobs";
+import { releaseRuntimeJobAfterApproval as releaseDurableRuntimeJob } from "@/lib/runtime/durableJobs";
+import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
 
 export const runtime = "nodejs";
 /** Allow long autonomous cycles post-gate approval on Vercel Pro (Hobby caps lower). */
@@ -28,6 +29,12 @@ export const maxDuration = 300;
 type Ctx = { params: Promise<{ id: string }> };
 
 const EVIDENCE_MAX = 2000;
+
+async function releaseRuntimeJobAfterApproval(executionId: string, userId: string) {
+  const released = await releaseDurableRuntimeJob(executionId, userId);
+  if (released) await publishRuntimeWorkerWake("write_gate_resolved");
+  return released;
+}
 
 async function appendEvidence(
   missionId: string | null | undefined,

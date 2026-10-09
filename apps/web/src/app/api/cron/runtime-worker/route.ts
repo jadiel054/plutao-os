@@ -22,6 +22,7 @@ import { createRequestId, recordRuntimeTelemetry } from "@/lib/observability/run
 import { sanitizeError } from "@/lib/security/sanitize";
 import { getMissionGraphSerialOrder } from "@plutao/domain";
 import { ensurePersistedMissionGraph } from "@/lib/missions/graphPersistence";
+import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -137,6 +138,9 @@ export async function POST(req: NextRequest) {
         const waiting = await waitRuntimeJobForApproval(job.id, job.lockToken ?? "");
         if (!waiting) {
           const continued = await continueRuntimeJob(job.id, job.lockToken ?? "");
+          if (continued?.status === "PENDING") {
+            await publishRuntimeWorkerWake("graph_continued", { delaySeconds: 2 });
+          }
           processed.push({ id: job.id, status: continued?.status ?? "PENDING", executionStatus: finalExecution?.status });
           continue;
         }
@@ -208,6 +212,12 @@ export async function POST(req: NextRequest) {
           ? await continueRuntimeJob(job.id, job.lockToken ?? "")
           : await retryRuntimeJob(job.id, job.lockToken ?? "", outcome.reason);
         const retryStatus = String(retry?.status ?? "PENDING");
+        if (retry?.status === "PENDING") {
+          await publishRuntimeWorkerWake(
+            graphContinuation ? "graph_continued" : "job_retry",
+            { delaySeconds: graphContinuation ? 2 : 30 }
+          );
+        }
         await recordRuntimeTelemetry({
           userId: job.userId,
           requestId,
@@ -240,7 +250,14 @@ export async function POST(req: NextRequest) {
       } else if (outcome.action === "succeed") {
         await completeRuntimeJob(job.id, job.lockToken ?? "", "SUCCEEDED");
       } else {
-        await retryRuntimeJob(job.id, job.lockToken ?? "", outcome.reason === "EXECUTION_NOT_TERMINAL" ? message : outcome.reason);
+        const retry = await retryRuntimeJob(
+          job.id,
+          job.lockToken ?? "",
+          outcome.reason === "EXECUTION_NOT_TERMINAL" ? message : outcome.reason
+        );
+        if (retry?.status === "PENDING") {
+          await publishRuntimeWorkerWake("job_retry", { delaySeconds: 30 });
+        }
       }
       await recordRuntimeTelemetry({
         userId: job.userId,

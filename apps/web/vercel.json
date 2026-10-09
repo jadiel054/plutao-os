@@ -4,5 +4,16 @@
       "path": "/api/cron/cleanup-write-gates",
       "schedule": "0 3 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/queues/runtime-worker/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "plutao-runtime-worker",
+          "maxDeliveries": 8
+        }
+      ]
+    }
+  }
 }
