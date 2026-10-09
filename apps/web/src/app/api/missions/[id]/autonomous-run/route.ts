@@ -4,6 +4,7 @@ import { getOwnedConversation, getOwnedMission, getOwnedTaskInMission } from "@/
 import { isMissionStatus, TERMINAL_STATUSES } from "@/lib/missions/lifecycle";
 import { ensureExecutionsTable } from "@/lib/runtime/ensure";
 import { enqueueMissionExecutionJob } from "@/lib/runtime/durableJobs";
+import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
 import { createRequestId, recordRuntimeTelemetry } from "@/lib/observability/runtimeTelemetry";
 import { sanitizeError } from "@/lib/security/sanitize";
 import { getMissionGraphSerialOrder } from "@plutao/domain";
@@ -104,6 +105,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         executionStatus,
       },
     });
+
+    if (jobStatus === "PENDING") {
+      await publishRuntimeWorkerWake("mission_enqueued");
+    }
 
     return NextResponse.json(
       {
