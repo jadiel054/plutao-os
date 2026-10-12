@@ -23,6 +23,7 @@ Reflects the Neon database **plutao** as of 2026-09-09:
 | `0024_autonomous_platform_foundation` | Durable `runtime_jobs` queue with leases, retries and execution ownership | Additive/idempotent. Apply with the direct Neon URL before enabling the runtime worker cron. |
 | `0025_mission_intake` | Mission creation source and optional conversation ownership link | Additive/idempotent. Apply with the direct Neon URL before deploying the unified mission intake endpoint. |
 | `0026_mission_graph_v2` | Nullable `graph_version` and `mission_graph` definition on missions | Additive/idempotent. Apply before deploying graph persistence or the serial graph worker. |
+| `0027_execution_mission_fk` | Restore `executions.mission_id → missions.id ON DELETE CASCADE` already declared in `src/schema.ts` | Idempotent repair; fails closed if orphan executions exist. |
 
 Journal: `meta/_journal.json` lists all applied and pending migration tags.
 
