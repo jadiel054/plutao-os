@@ -196,3 +196,25 @@ export function sanitizeTitle(raw: unknown, maxLen = 200): string {
     .trim();
   return clean.slice(0, maxLen);
 }
+
+/**
+ * Strips hallucinated/invented tool JSON payloads and fake tool call blocks
+ * from model output text.
+ */
+export function stripInventedToolCalls(text: string): string {
+  if (!text) return text;
+  let cleaned = text;
+
+  // 1. Remove fenced code blocks that contain tool payloads (e.g., {"connector": ...} or {"action": ...})
+  cleaned = cleaned.replace(/```(?:json)?\s*\{\s*"(?:connector|action)"[\s\S]*?```/gi, "");
+
+  // 2. Remove unfenced JSON objects with "connector" or "action" fields
+  cleaned = cleaned.replace(/\{\s*"(?:connector|action)"\s*:[\s\S]*?\n\}/gi, "");
+  cleaned = cleaned.replace(/\{\s*"(?:connector|action)"\s*:[\s\S]*?\}/gi, "");
+
+  // 3. Remove standalone fake status lines like "Obtendo detalhes do repositório..."
+  cleaned = cleaned.replace(/^Obtendo detalhes do reposit[oó]rio[^\n.]*\.?\s*$/gim, "");
+
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+  return cleaned;
+}

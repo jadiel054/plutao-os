@@ -72,15 +72,33 @@ export type GitHubToolPlan = {
 };
 
 function extractRepoNameCandidate(text: string): string | undefined {
+  const EXCLUDED = new Set([
+    "github", "repo", "repos", "reposit", "repositorio", "repositório",
+    "publico", "público", "privado", "private", "com", "um", "uma", "no", "na",
+    "nos", "nas", "do", "da", "dos", "das", "para", "por", "em", "de", "o", "a",
+    "os", "as", "meu", "minha", "meus", "minhas", "seu", "sua", "seus", "suas",
+    "nosso", "nossa", "nossos", "nossas",
+    "projeto", "projetos", "crescimento", "analise", "análise",
+    "expansao", "expansão", "ideia", "ideias", "auditoria", "overview", "me",
+    "fala", "sobre", "como", "expandir", "melhorar", "evoluir"
+  ]);
+
   const patterns = [
     /(?:chamado|nome|named?)\s+["']?([a-zA-Z0-9_.-]+)["']?/i,
     /(?:criar|create|preciso|quero)\s+(?:de\s+)?(?:um\s+)?(?:reposit[oó]rio|repo)\s+(?:p[uú]blico\s+|privado\s+)?(?:chamado\s+)?["']?([a-zA-Z0-9_.-]+)["']?/i,
-    /(?:reposit[oó]rio|repo)\s+(?:p[uú]blico\s+|privado\s+)?(?:no\s+github\s+)?(?:chamado\s+)?["']?([a-zA-Z0-9_.-]+)["']?/i,
+    /(?:ideias?\s+(?:de\s+)?crescimento|an[aá]lise|analisa|analisar|expans[aã]o|expandir|auditoria|auditar|overview|resumo|status|detalhes?|sobre|fala\s+sobre|me\s+fala\s+sobre)\s+(?:(?:para|do|da|de|o|a|os|as|sobre|no|na|nos|nas|projeto|repo|reposit[oó]rio)\s+)*["']?([a-zA-Z0-9_.-]+)["']?/i,
+    /(?:para|do|da|de|sobre|no|na)\s+(?:(?:o|a|os|as|repo|reposit[oó]rio|projeto)\s+)*["']?([a-zA-Z0-9_.-]+)["']?/i,
+    /(?:reposit[oó]rio|repo|projeto)\s+(?:p[uú]blico\s+|privado\s+)?(?:no\s+github\s+)?(?:chamado\s+)?["']?([a-zA-Z0-9_.-]+)["']?/i,
+    /(?:para|do|da|de|sobre)\s+["']?([a-zA-Z0-9_.-]+)["']?(?:\s+no\s+github)?/i,
   ];
+
   for (const re of patterns) {
     const m = text.match(re);
-    if (m?.[1] && m[1].length >= 2 && !/^(github|repo|reposit|publico|privado|com|um|uma|no|no)$/i.test(m[1])) {
-      return m[1];
+    if (m?.[1] && m[1].length >= 2) {
+      const candidate = m[1].toLowerCase().replace(/[.,!?:;]$/, "");
+      if (!EXCLUDED.has(candidate)) {
+        return m[1].replace(/[.,!?:;]$/, "");
+      }
     }
   }
   return undefined;
@@ -101,6 +119,8 @@ function extractReadmeContent(text: string): string | null {
 export function detectGitHubToolAction(text: string, defaultOwner?: string | null): GitHubToolPlan | null {
   const t = text.toLowerCase();
 
+  const fullRepoMatch = text.match(/\b([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)\b/);
+
   const isGithubIntent =
     t.includes("github") ||
     t.includes("repo") ||
@@ -117,7 +137,9 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     t.includes("codigo") ||
     t.includes("árvore") ||
     t.includes("arvore") ||
-    /\b(action|workflow|pipeline|tree|search)\b/.test(t);
+    /\b(action|workflow|pipeline|tree|search)\b/.test(t) ||
+    Boolean(fullRepoMatch) ||
+    /\b(crescimento|expans[aã]o|expandir|analis|an[aá]lise|auditoria|overview)\b/.test(t);
 
   if (!isGithubIntent) {
     return null;
@@ -141,7 +163,6 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
   let query: string | undefined = undefined;
   const tree_sha: string | undefined = undefined;
 
-  const fullRepoMatch = text.match(/\b([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)\b/);
   if (fullRepoMatch) {
     owner = fullRepoMatch[1];
     repo = fullRepoMatch[2];
@@ -151,6 +172,11 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
   if (!repo && named) {
     repo = named;
   }
+
+  const wantsAnalysis =
+    /\b(analis|an[aá]lise|crescimento|expans[aã]o|expandir|ideias?|sugest[oõ]es|auditoria|overview|resumo|status|detalhe|detalhes|sobre|info|informa[çc][oõ]es)\b/.test(t) ||
+    /fala\s+sobre/i.test(t) ||
+    /como\s+(melhorar|evoluir|expandir)/i.test(t);
 
   const listOnly =
     /\b(listar|liste|mostrar|mostre|quais\s+(s[aã]o\s+)?(os\s+)?(meus\s+)?repos|meus\s+reposit)/.test(t);
@@ -257,9 +283,12 @@ export function detectGitHubToolAction(text: string, defaultOwner?: string | nul
     t.includes("repositório") ||
     t.includes("repositorio") ||
     t.includes("repos") ||
-    t.includes("repo")
+    t.includes("repo") ||
+    Boolean(fullRepoMatch) ||
+    Boolean(named) ||
+    (wantsAnalysis && (Boolean(repo) || Boolean(named)))
   ) {
-    if ((named || repo) && (t.includes("detalhes") || t.includes("sobre") || t.includes("info"))) {
+    if ((named || repo) && (!listOnly || wantsAnalysis)) {
       action = "repo_get";
       if (!repo && named) repo = named;
     } else {

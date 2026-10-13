@@ -31,6 +31,7 @@ import {
   sanitizeValue,
   sanitizeError,
   sanitizeErrorForClient,
+  stripInventedToolCalls,
 } from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
@@ -414,6 +415,10 @@ ESTILO DE RESPOSTA (estilo Manus — obrigatório):
 - NÃO despeje um monólogo de "leitura / intenção / contexto / decisão" no chat.
 - Fale de forma natural, curta e progressiva: uma ou duas frases entre ações.
 - Cada chamada de ferramenta já aparece como card separado na UI — não narre a chamada em texto salvo se o usuário pedir detalhes.
+- NUNCA imprima JSON de tool call, payload de conector, nem blocos tipo {"connector":"github","action":"..."} no chat.
+- NUNCA diga só "Obtendo detalhes..." / "Vou chamar repo_get" sem o runtime ter executado a tool.
+- Ferramentas são executadas pelo runtime; o usuário vê cards de ação automáticos. Sua resposta usa só o resultado real injetado no contexto.
+- Se precisar de dados de um repo para responder (análise, crescimento, ideias, auditoria), o sistema deve ter executado as tools; baseie-se apenas nos dados retornados. Se não houver dados, diga o que falta em uma frase — não invente estrutura de tool.
 - Quando for só conversa (sem tool): responda direto, humano, em português.
 - Quando usar tools: texto curto de alinhamento → cards de ação (automáticos) → texto final com o resultado útil.
 - Se faltar dado essencial, pergunte em uma frase objetiva. Não faça checklist mental em voz alta.
@@ -801,7 +806,9 @@ ${
               if (cleaned.includes("<resposta>")) {
                 cleaned = cleaned.split("<resposta>")[1] || "";
               }
-              assistantContent = sanitizeText(cleaned.replace(/<\/?resposta>/g, "").trim());
+              assistantContent = sanitizeText(
+                stripInventedToolCalls(cleaned.replace(/<\/?resposta>/g, "").trim())
+              );
               if (assistantContent) {
                 for (const word of assistantContent.split(" ")) {
                   if (word) emit("content_delta", { text: `${word} ` });
@@ -1102,7 +1109,7 @@ ${
       .trim();
 
     const assistantContent = sanitizeText(
-      cleanedNonStreamAnswer ||
+      stripInventedToolCalls(cleanedNonStreamAnswer) ||
         (validatedArtifacts.length > 0
           ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
           : "Não consegui gerar uma resposta agora. Tente novamente.")
