@@ -102,9 +102,9 @@ export function StructuredMessage({
         <ReasoningBlock steps={reasoningSteps} isStreaming={isReasoningStreaming} />
       )}
 
-      {body.trim() ? <div className="space-y-3">{renderMarkdownParts(body)}</div> : null}
-
       {toolCallSteps.length > 0 ? <ActionCards toolCalls={toolCallSteps} /> : null}
+
+      {body.trim() ? <div className="space-y-3">{renderMarkdownParts(body)}</div> : null}
 
       {toolCallSteps.length > 0 ? (
         <div className="flex items-center gap-1.5 pt-1 text-[11px] text-[var(--text-muted)]">
