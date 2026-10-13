@@ -1094,7 +1094,7 @@ ${
       }
     }
 
-    let cleanedNonStreamAnswer = rawOutput
+    const cleanedNonStreamAnswer = rawOutput
       .replace(/<raciocinio>[\s\S]*?<\/raciocinio>/gi, "")
       .replace(/<resposta>([\s\S]*?)<\/resposta>/gi, "$1")
       .replace(/<\/?raciocinio>/gi, "")
