@@ -4,6 +4,7 @@ project("gguf_engine")
 add_library(
     gguf_engine
     SHARED
+    llama.cpp
     gguf_engine.cpp
 )
 
