@@ -18,6 +18,8 @@ type VoicePrefs = {
 type PreferencesShape = {
   voice?: VoicePrefs;
   onboarding_seen?: boolean;
+  /** standard (default) | elevated — auto-approves allowlisted writes */
+  autonomyMode?: "standard" | "elevated";
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -82,6 +84,16 @@ export async function PATCH(req: NextRequest) {
         patch.onboarding_seen = body.onboarding_seen;
       }
     }
+    if ("autonomyMode" in body) {
+      if (body.autonomyMode === "standard" || body.autonomyMode === "elevated") {
+        patch.autonomyMode = body.autonomyMode;
+      } else {
+        return NextResponse.json(
+          { error: "autonomyMode deve ser 'standard' ou 'elevated'" },
+          { status: 400 }
+        );
+      }
+    }
 
     let preferredModelToUpdate: string | undefined = undefined;
     if ("preferredModel" in body) {
@@ -116,6 +128,7 @@ export async function PATCH(req: NextRequest) {
       ...(typeof patch.onboarding_seen === "boolean"
         ? { onboarding_seen: patch.onboarding_seen }
         : {}),
+      ...(patch.autonomyMode ? { autonomyMode: patch.autonomyMode } : {}),
     };
 
     const updateFields: Record<string, unknown> = {
