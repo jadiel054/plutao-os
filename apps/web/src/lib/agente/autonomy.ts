@@ -1,43 +1,39 @@
 /**
- * Elevated autonomy — reduces write-gate friction for trusted operators.
+ * Agent autonomy levels — control write-gate friction.
  *
- * Mode is stored in users.preferences.autonomyMode:
- *   - "standard" (default): every write creates GATE_PENDING
- *   - "elevated": capabilities in the allowlist auto-approve (audit gate still created)
+ * Stored in users.preferences.autonomyMode:
+ *   - "standard" (default): every write creates GATE_PENDING (human must approve)
+ *   - "elevated": allowlisted low-risk writes auto-approve (audit gate still created)
+ *   - "full": ALL writes auto-approve except the hard denylist (delete/DROP/force-push/etc.)
  *
- * Destructive capabilities (delete, force-push, DROP, production deploys) are
- * never auto-approved regardless of mode.
+ * Destructive capabilities are never auto-approved in any mode.
  */
 
 import { eq } from "drizzle-orm";
 import { users } from "@plutao/db";
 import { getDb } from "@/lib/db";
 
-export type AutonomyMode = "standard" | "elevated";
+export type AutonomyMode = "standard" | "elevated" | "full";
 
 /** Capabilities that may auto-approve under elevated mode (low-risk writes). */
 export const ELEVATED_WRITE_ALLOWLIST = new Set<string>([
-  // GitHub — non-destructive
   "github.branches.create",
   "github.files.write",
   "github.prs.create",
-  // Notes / local filesystem (mission tools)
   "note.write",
   "filesystem.write",
   "filesystem.mkdir",
-  // Telegram outbound (user's own bot)
   "telegram.send_message",
-  // Export tools (local only)
   "files.export_pdf",
   "files.export_xlsx",
   "files.export_markdown",
   "files.export_html",
 ]);
 
-/** Never auto-approve these even in elevated mode. */
-export const ELEVATED_WRITE_DENYLIST = new Set<string>([
+/** Never auto-approve these in any mode. */
+export const AUTO_APPROVE_DENYLIST = new Set<string>([
   "github.repos.delete",
-  "supabase.sql_exec", // can contain DROP/TRUNCATE
+  "supabase.sql_exec",
   "cloudflare.dns_record_create",
   "cloudflare.pages_deploy",
   "render.deploy_trigger",
@@ -45,13 +41,30 @@ export const ELEVATED_WRITE_DENYLIST = new Set<string>([
   "vercel.deploy_create",
 ]);
 
-export function isElevatedAutoApprove(capability: string, mode: AutonomyMode): boolean {
-  if (mode !== "elevated") return false;
-  if (ELEVATED_WRITE_DENYLIST.has(capability)) return false;
-  // Also block anything that looks destructive by name
+/** @deprecated use AUTO_APPROVE_DENYLIST */
+export const ELEVATED_WRITE_DENYLIST = AUTO_APPROVE_DENYLIST;
+
+function isDestructiveCapability(capability: string): boolean {
+  if (AUTO_APPROVE_DENYLIST.has(capability)) return true;
   const lower = capability.toLowerCase();
-  if (/(delete|destroy|drop|truncate|force.?push|production)/.test(lower)) return false;
+  return /(delete|destroy|drop|truncate|force.?push|production)/.test(lower);
+}
+
+/**
+ * Whether this capability should skip the human write-gate card.
+ * Gate rows are still created for audit; they are auto-approved + consumed.
+ */
+export function isAutoApproveCapable(capability: string, mode: AutonomyMode): boolean {
+  if (mode === "standard") return false;
+  if (isDestructiveCapability(capability)) return false;
+  if (mode === "full") return true;
+  // elevated
   return ELEVATED_WRITE_ALLOWLIST.has(capability);
+}
+
+/** @deprecated use isAutoApproveCapable */
+export function isElevatedAutoApprove(capability: string, mode: AutonomyMode): boolean {
+  return isAutoApproveCapable(capability, mode);
 }
 
 export async function loadAutonomyMode(userId: string): Promise<AutonomyMode> {
@@ -63,9 +76,20 @@ export async function loadAutonomyMode(userId: string): Promise<AutonomyMode> {
       .limit(1);
     const prefs = (rows[0]?.preferences ?? {}) as Record<string, unknown>;
     const mode = prefs.autonomyMode;
-    if (mode === "elevated") return "elevated";
+    if (mode === "full" || mode === "elevated" || mode === "standard") return mode;
     return "standard";
   } catch {
     return "standard";
+  }
+}
+
+export function autonomyModeLabel(mode: AutonomyMode): string {
+  switch (mode) {
+    case "full":
+      return "Total (auto-aprova escritas)";
+    case "elevated":
+      return "Elevada (allowlist)";
+    default:
+      return "Padrão (aprovação humana)";
   }
 }
