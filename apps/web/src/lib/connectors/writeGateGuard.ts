@@ -6,17 +6,19 @@
  *   1. Registro de capacidades (H9): capacidade não registrada/desabilitada ou
  *      sem controle implementado → recusa imediata (fail-closed).
  *   2. Rate limit de escrita por usuário (janela deslizante em memória).
- *   3. Sem `_gateId` → cria write_gate `pending` e devolve GATE_PENDING.
+ *   3. Sem `_gateId` → cria write_gate `pending` e devolve GATE_PENDING
+ *      (ou auto-aprova se autonomyMode=elevated e capability na allowlist).
  *      Com `_gateId` → valida no servidor (usuário, provider, capability,
  *      status `approved`, hash do payload) e consome atomicamente (single-use).
  *
  * O executor NUNCA decide por conta própria se pode escrever.
  */
 
-import { createWriteGate, consumeGateForWrite, finalizeGateExecution } from "./gates";
+import { createWriteGate, consumeGateForWrite, finalizeGateExecution, approveGate } from "./gates";
 import { computeGatePayloadHash } from "./gatePayload";
 import { evaluateCapability } from "@/lib/capabilities/registry";
 import { sanitizeError } from "@/lib/security/sanitize";
+import { isElevatedAutoApprove, loadAutonomyMode } from "@/lib/agente/autonomy";
 
 const WRITE_RATE_LIMIT = 20;
 const WRITE_WINDOW_MS = 60_000;
@@ -115,7 +117,7 @@ export async function guardWrite(opts: {
     };
   }
 
-  // 3a. Sem gate → cria pedido de aprovação.
+  // 3a. Sem gate → cria pedido de aprovação (ou auto-aprova em elevated).
   if (!opts.gateId) {
     try {
       const gate = await createWriteGate({
@@ -129,6 +131,40 @@ export async function guardWrite(opts: {
         payload: opts.payload,
         contentPreview: opts.contentPreview ?? null,
       });
+
+      // Elevated autonomy: auto-approve allowlisted capabilities (still audited).
+      const autonomyMode = await loadAutonomyMode(opts.userId);
+      if (isElevatedAutoApprove(opts.capability, autonomyMode)) {
+        const approved = await approveGate(gate.id, opts.userId);
+        if (approved) {
+          const payloadHash = computeGatePayloadHash(opts.provider, opts.capability, opts.payload);
+          const claim = await consumeGateForWrite({
+            gateId: gate.id,
+            userId: opts.userId,
+            provider: opts.provider,
+            capability: opts.capability,
+            payloadHash,
+          });
+          if (claim.ok) {
+            return {
+              kind: "approved",
+              gateId: gate.id,
+              finalize: async (outcome) => {
+                try {
+                  await finalizeGateExecution(gate.id, opts.userId, outcome);
+                } catch (e) {
+                  console.error("[guardWrite elevated finalize error]", {
+                    gateId: gate.id,
+                    error: sanitizeError(e),
+                  });
+                }
+              },
+            };
+          }
+        }
+        // Fall through to pending if auto-approve path failed.
+      }
+
       return {
         kind: "gate_pending",
         gateId: gate.id,
