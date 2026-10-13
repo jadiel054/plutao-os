@@ -6,6 +6,9 @@ set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
 
+# Android NDK / Bionic define madvise(2) mas nao posix_madvise(3) nem POSIX_MADV_*
+add_compile_definitions(_POSIX_C_SOURCE=200112L _XOPEN_SOURCE=600)
+
 add_subdirectory(vendor/llama.cpp)
 
 add_library(
