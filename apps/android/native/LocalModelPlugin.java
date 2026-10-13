@@ -9,6 +9,8 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -329,10 +331,10 @@ public class LocalModelPlugin extends Plugin {
                 String promptText = "";
                 if (messages != null && messages.length() > 0) {
                     for (int i = 0; i < messages.length(); i++) {
-                        JSObject msg = messages.getJSONObject(i);
+                        JSONObject msg = messages.getJSONObject(i);
                         if (msg != null) {
-                            String role = msg.getString("role", "user");
-                            String content = msg.getString("content", "");
+                            String role = msg.optString("role", "user");
+                            String content = msg.optString("content", "");
                             if ("user".equals(role)) {
                                 promptText = content;
                             }
