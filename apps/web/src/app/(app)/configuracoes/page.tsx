@@ -10,6 +10,7 @@ import { DataControlsSection } from "@/components/DataControlsSection";
 import { SettingsModelsSection } from "@/components/SettingsModelsSection";
 import { SettingsAboutSection } from "@/components/SettingsAboutSection";
 import { SettingsProfileSection } from "@/components/SettingsProfileSection";
+import { SettingsAutonomySection } from "@/components/SettingsAutonomySection";
 import { SettingsNotificationsSection } from "@/components/SettingsNotificationsSection";
 import { SettingsConnectorsSection } from "@/components/SettingsConnectorsSection";
 import { SettingsMcpGrantsSection } from "@/components/SettingsMcpGrantsSection";
@@ -229,7 +230,7 @@ export default function SettingsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Painel de Configurações</h1>
-            <p className="text-xs text-[var(--text-muted)]">Modelos, conectores, voz, perfil e dados</p>
+            <p className="text-xs text-[var(--text-muted)]">Modelos, conectores, voz, perfil, autonomia e dados</p>
           </div>
           <button
             type="button"
@@ -275,15 +276,18 @@ export default function SettingsPage() {
           {activeTab === "conectores" && <SettingsConnectorsSection onNotify={addToast} />}
           {activeTab === "voz" && <SettingsVoiceSection onNotify={addToast} />}
           {activeTab === "perfil" && (
-            <SettingsProfileSection
-              userEmail={userEmail}
-              agentName={agentName}
-              agentIdentity={agentIdentity}
-              agentPersonality={agentPersonality}
-              setAgentName={setAgentName}
-              setAgentIdentity={setAgentIdentity}
-              setAgentPersonality={setAgentPersonality}
-            />
+            <>
+              <SettingsProfileSection
+                userEmail={userEmail}
+                agentName={agentName}
+                agentIdentity={agentIdentity}
+                agentPersonality={agentPersonality}
+                setAgentName={setAgentName}
+                setAgentIdentity={setAgentIdentity}
+                setAgentPersonality={setAgentPersonality}
+              />
+              <SettingsAutonomySection onNotify={addToast} />
+            </>
           )}
           {activeTab === "notificacoes" && (
             <SettingsNotificationsSection
