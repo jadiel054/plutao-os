@@ -53,6 +53,7 @@ jobs:
         run: |
           mkdir -p apps/android/native/cpp/vendor
           git clone --depth 1 https://github.com/ggml-org/llama.cpp.git apps/android/native/cpp/vendor/llama.cpp
+          rm -rf apps/android/native/cpp/vendor/llama.cpp/.git
 
       - name: Apply Plutão Android branding
         working-directory: apps/android
