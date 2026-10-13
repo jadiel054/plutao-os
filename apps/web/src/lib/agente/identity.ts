@@ -13,7 +13,7 @@
 import { agents } from "@plutao/db";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { NIX_IDENTITY } from "./operating-principles";
+import { NIX_IDENTITY, AUTONOMY_PRINCIPLES } from "./operating-principles";
 
 export const DEFAULT_AGENT_NAME = "Nix";
 export const DEFAULT_AGENT_IDENTITY =
@@ -77,9 +77,14 @@ export function buildIdentityLine(profile: AgentProfile): string {
   return `Você é ${profile.name}, ${profile.identity}.`;
 }
 
-/** Bloco completo de identidade (+ personalidade, quando configurada). */
+/** Bloco completo de identidade (+ personalidade + princípios de autonomia). */
 export function buildIdentityBlock(profile: AgentProfile): string {
   const line = buildIdentityLine(profile);
-  if (!profile.personality) return line;
-  return `${line}\n\nPERSONALIDADE (definida pelo usuário):\n${profile.personality}`;
+  const parts = [line];
+  if (profile.personality) {
+    parts.push(`\nPERSONALIDADE (definida pelo usuário):\n${profile.personality}`);
+  }
+  // Mission-first / less confirmation — applies to chat and MCP alike.
+  parts.push(`\n${AUTONOMY_PRINCIPLES}`);
+  return parts.join("\n");
 }
