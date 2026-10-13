@@ -199,7 +199,7 @@ export default function CockpitPage() {
         {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
       </main>
       <MobileNav />
-      <CockpitAgentFab />
+      <CockpitAgentFab missionId={null} />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
