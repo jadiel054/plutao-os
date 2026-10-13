@@ -19,7 +19,7 @@ vi.mock("@/lib/db", () => ({
   }),
 }));
 
-import { NIX_IDENTITY, OPERATOR_GOLDEN_RULE } from "../operating-principles";
+import { NIX_IDENTITY, AUTONOMY_PRINCIPLES, OPERATOR_GOLDEN_RULE } from "../operating-principles";
 import {
   DEFAULT_AGENT_IDENTITY,
   DEFAULT_AGENT_NAME,
@@ -39,7 +39,7 @@ describe("identidade do agente", () => {
     expect(profile.identity).toBe(DEFAULT_AGENT_IDENTITY);
     expect(profile.isDefault).toBe(true);
     expect(buildIdentityLine(profile)).toBe(NIX_IDENTITY);
-    expect(buildIdentityBlock(profile)).toBe(NIX_IDENTITY);
+    expect(buildIdentityBlock(profile)).toBe(`${NIX_IDENTITY}\n\n${AUTONOMY_PRINCIPLES}`);
   });
 
   it("identidade configurada pelo usuário chega ao prompt", async () => {
