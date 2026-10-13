@@ -47,8 +47,10 @@ public class GGUFEngine {
         if (isNativeLoaded) {
             this.nativeHandle = nativeLoadModel(modelPath);
             if (this.nativeHandle == 0) {
-                throw new Exception("Failed to allocate native GGUF context");
+                throw new Exception("Failed to load GGUF model weights into C++ memory context");
             }
+        } else {
+            throw new Exception("Native C++ library libgguf_engine.so is not available on this device");
         }
         return true;
     }
@@ -58,24 +60,11 @@ public class GGUFEngine {
     }
 
     public String generateResponse(String promptText, int maxTokens, TokenCallback callback) throws Exception {
-        if (isNativeLoaded && this.nativeHandle != 0) {
-            return nativeGenerate(this.nativeHandle, promptText, maxTokens, callback);
+        if (this.nativeHandle == 0) {
+            throw new Exception("GGUF Engine model weights are not loaded");
         }
 
-        // GGUF token generation loop
-        String responseText = "Resposta gerada localmente a partir dos pesos GGUF (" + promptText + ")";
-        String[] tokens = responseText.split("(?<=\\s)");
-        StringBuilder accumulated = new StringBuilder();
-        for (int i = 0; i < tokens.length; i++) {
-            accumulated.append(tokens[i]);
-            if (callback != null) {
-                callback.onToken(tokens[i], accumulated.toString(), i == tokens.length - 1);
-            }
-            try {
-                Thread.sleep(30);
-            } catch (InterruptedException ignored) {}
-        }
-        return accumulated.toString();
+        return nativeGenerate(this.nativeHandle, promptText, maxTokens, callback);
     }
 
     public void unload() {
