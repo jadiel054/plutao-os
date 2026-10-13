@@ -1,6 +1,5 @@
 package app.plutao.os;
 
-import android.content.Context;
 import android.net.Uri;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -18,7 +17,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -30,6 +28,7 @@ public class LocalModelPlugin extends Plugin {
     private final ExecutorService executorService = Executors.newCachedThreadPool();
     private final Map<String, Thread> activeDownloads = new ConcurrentHashMap<>();
     private String loadedModelId = null;
+    private GGUFEngine loadedEngine = null;
 
     private File getModelsDir() {
         File dir = new File(getContext().getFilesDir(), "models");
@@ -53,17 +52,19 @@ public class LocalModelPlugin extends Plugin {
 
             if (files != null) {
                 for (File file : files) {
-                    JSObject modelObj = new JSObject();
-                    String filename = file.getName();
-                    String id = filename.substring(0, filename.length() - 5);
-                    modelObj.put("id", id);
-                    modelObj.put("name", id.replace("_", " "));
-                    modelObj.put("filename", filename);
-                    modelObj.put("sizeBytes", file.length());
-                    modelObj.put("path", file.getAbsolutePath());
-                    modelObj.put("status", "ready");
-                    modelObj.put("downloadedAt", file.lastModified());
-                    modelsList.put(modelObj);
+                    if (GGUFEngine.validateGGUFHeader(file)) {
+                        JSObject modelObj = new JSObject();
+                        String filename = file.getName();
+                        String id = filename.substring(0, filename.length() - 5);
+                        modelObj.put("id", id);
+                        modelObj.put("name", id.replace("_", " "));
+                        modelObj.put("filename", filename);
+                        modelObj.put("sizeBytes", file.length());
+                        modelObj.put("path", file.getAbsolutePath());
+                        modelObj.put("status", "ready");
+                        modelObj.put("downloadedAt", file.lastModified());
+                        modelsList.put(modelObj);
+                    }
                 }
             }
 
@@ -79,7 +80,6 @@ public class LocalModelPlugin extends Plugin {
     public void downloadModel(PluginCall call) {
         String urlStr = call.getString("url");
         String rawId = call.getString("id");
-        String name = call.getString("name", rawId);
 
         if (urlStr == null || rawId == null) {
             call.reject("url and id are required");
@@ -144,6 +144,13 @@ public class LocalModelPlugin extends Plugin {
                 }
 
                 output.flush();
+
+                if (!GGUFEngine.validateGGUFHeader(targetFile)) {
+                    targetFile.delete();
+                    notifyError(id, "Downloaded file failed GGUF magic header validation");
+                    return;
+                }
+
                 notifyStatus(id, 100, total, fileLength, "ready", null);
 
             } catch (Exception e) {
@@ -239,6 +246,12 @@ public class LocalModelPlugin extends Plugin {
                 output.flush();
                 output.close();
 
+                if (!GGUFEngine.validateGGUFHeader(targetFile)) {
+                    targetFile.delete();
+                    call.reject("Imported file is not a valid GGUF model");
+                    return;
+                }
+
                 JSObject result = new JSObject();
                 result.put("id", id);
                 result.put("name", id.replace("_", " "));
@@ -268,6 +281,10 @@ public class LocalModelPlugin extends Plugin {
         if (targetFile.exists()) {
             boolean deleted = targetFile.delete();
             if (id.equals(loadedModelId)) {
+                if (loadedEngine != null) {
+                    loadedEngine.unload();
+                    loadedEngine = null;
+                }
                 loadedModelId = null;
             }
             call.resolve(new JSObject().put("success", deleted).put("id", id));
@@ -292,17 +309,34 @@ public class LocalModelPlugin extends Plugin {
             return;
         }
 
-        this.loadedModelId = id;
-        JSObject result = new JSObject();
-        result.put("loaded", true);
-        result.put("modelId", id);
-        result.put("path", targetFile.getAbsolutePath());
-        result.put("sizeBytes", targetFile.length());
-        call.resolve(result);
+        try {
+            if (loadedEngine != null) {
+                loadedEngine.unload();
+            }
+
+            GGUFEngine engine = new GGUFEngine();
+            engine.loadModel(targetFile.getAbsolutePath());
+
+            this.loadedEngine = engine;
+            this.loadedModelId = id;
+
+            JSObject result = new JSObject();
+            result.put("loaded", true);
+            result.put("modelId", id);
+            result.put("path", targetFile.getAbsolutePath());
+            result.put("sizeBytes", targetFile.length());
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Failed to load GGUF model: " + e.getMessage());
+        }
     }
 
     @PluginMethod
     public void unloadModel(PluginCall call) {
+        if (loadedEngine != null) {
+            loadedEngine.unload();
+            loadedEngine = null;
+        }
         this.loadedModelId = null;
         call.resolve(new JSObject().put("unloaded", true));
     }
@@ -311,6 +345,7 @@ public class LocalModelPlugin extends Plugin {
     public void chatCompletion(PluginCall call) {
         JSArray messages = call.getArray("messages");
         String rawId = call.getString("modelId", loadedModelId);
+        int maxTokens = call.getInt("maxTokens", 1024);
 
         if (rawId == null) {
             call.reject("No model loaded or specified");
@@ -327,7 +362,16 @@ public class LocalModelPlugin extends Plugin {
 
         executorService.execute(() -> {
             try {
-                // Extract last user message or construct prompt
+                if (loadedEngine == null || !id.equals(loadedModelId)) {
+                    if (loadedEngine != null) {
+                        loadedEngine.unload();
+                    }
+                    GGUFEngine engine = new GGUFEngine();
+                    engine.loadModel(targetFile.getAbsolutePath());
+                    this.loadedEngine = engine;
+                    this.loadedModelId = id;
+                }
+
                 String promptText = "";
                 if (messages != null && messages.length() > 0) {
                     for (int i = 0; i < messages.length(); i++) {
@@ -346,30 +390,18 @@ public class LocalModelPlugin extends Plugin {
                     promptText = "Olá!";
                 }
 
-                // Native GGUF local model execution output
-                String prefix = "Resposta gerada no dispositivo via modelo GGUF (" + id + "):\n\n";
-                String body = "Recebi sua mensagem: \"" + promptText + "\". A inferência local foi executada com sucesso diretamente no APK do Plutão OS sem consultar APIs de nuvem.";
-
-                String fullResponse = prefix + body;
-                String[] tokens = fullResponse.split("(?<=\\s)");
-
-                StringBuilder accumulated = new StringBuilder();
-                for (int i = 0; i < tokens.length; i++) {
-                    String token = tokens[i];
-                    accumulated.append(token);
-
+                final String finalModelId = id;
+                String responseText = loadedEngine.generateResponse(promptText, maxTokens, (token, accumulated, done) -> {
                     JSObject tokenEvent = new JSObject();
                     tokenEvent.put("token", token);
-                    tokenEvent.put("text", accumulated.toString());
-                    tokenEvent.put("done", i == tokens.length - 1);
-                    tokenEvent.put("modelId", id);
+                    tokenEvent.put("text", accumulated);
+                    tokenEvent.put("done", done);
+                    tokenEvent.put("modelId", finalModelId);
                     notifyListeners("localTokenStream", tokenEvent);
-
-                    Thread.sleep(40);
-                }
+                });
 
                 JSObject result = new JSObject();
-                result.put("text", accumulated.toString());
+                result.put("text", responseText);
                 result.put("done", true);
                 result.put("modelId", id);
                 call.resolve(result);
