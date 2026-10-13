@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { runtimeJobs } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { RUNTIME_JOB_LEASE_MS } from "./durableJobs";
@@ -65,10 +65,8 @@ export function normalizeRuntimeJobHealth(
 }
 
 /**
- * Read-only operational view of the durable queue.
- *
- * The query intentionally returns aggregates only: no user, mission, execution,
- * job ID, payload or error text is exposed by the worker health endpoint.
+ * Read-only operational view of the durable queue (global).
+ * Used by cron health probe with CRON_SECRET.
  */
 export async function getRuntimeJobHealth(checkedAt = new Date()): Promise<RuntimeJobHealth> {
   const staleBefore = new Date(checkedAt.getTime() - RUNTIME_JOB_LEASE_MS);
@@ -90,6 +88,38 @@ export async function getRuntimeJobHealth(checkedAt = new Date()): Promise<Runti
       oldestWaitingApprovalAt: sql<Date | null>`min(${runtimeJobs.updatedAt}) FILTER (WHERE ${runtimeJobs.status} = 'WAITING_APPROVAL')`,
     })
     .from(runtimeJobs);
+
+  return normalizeRuntimeJobHealth(row as RuntimeJobHealthRow | undefined, checkedAt);
+}
+
+/**
+ * User-scoped queue view for the Cockpit panel.
+ * Only aggregates jobs owned by this user — no cross-tenant leakage.
+ */
+export async function getUserRuntimeJobHealth(
+  userId: string,
+  checkedAt = new Date()
+): Promise<RuntimeJobHealth> {
+  const staleBefore = new Date(checkedAt.getTime() - RUNTIME_JOB_LEASE_MS);
+  const [row] = await getDb()
+    .select({
+      pending: sql<number>`count(*) FILTER (WHERE ${runtimeJobs.status} = 'PENDING')`,
+      running: sql<number>`count(*) FILTER (WHERE ${runtimeJobs.status} = 'RUNNING')`,
+      waitingApproval: sql<number>`count(*) FILTER (WHERE ${runtimeJobs.status} = 'WAITING_APPROVAL')`,
+      succeeded: sql<number>`count(*) FILTER (WHERE ${runtimeJobs.status} = 'SUCCEEDED')`,
+      failed: sql<number>`count(*) FILTER (WHERE ${runtimeJobs.status} = 'FAILED')`,
+      cancelled: sql<number>`count(*) FILTER (WHERE ${runtimeJobs.status} = 'CANCELLED')`,
+      expiredRunningLeases: sql<number>`count(*) FILTER (
+        WHERE ${runtimeJobs.status} = 'RUNNING'
+          AND ${runtimeJobs.lockedAt} IS NOT NULL
+          AND ${runtimeJobs.lockedAt} < ${staleBefore}
+      )`,
+      oldestPendingAt: sql<Date | null>`min(${runtimeJobs.availableAt}) FILTER (WHERE ${runtimeJobs.status} = 'PENDING')`,
+      oldestRunningAt: sql<Date | null>`min(${runtimeJobs.lockedAt}) FILTER (WHERE ${runtimeJobs.status} = 'RUNNING')`,
+      oldestWaitingApprovalAt: sql<Date | null>`min(${runtimeJobs.updatedAt}) FILTER (WHERE ${runtimeJobs.status} = 'WAITING_APPROVAL')`,
+    })
+    .from(runtimeJobs)
+    .where(eq(runtimeJobs.userId, userId));
 
   return normalizeRuntimeJobHealth(row as RuntimeJobHealthRow | undefined, checkedAt);
 }
