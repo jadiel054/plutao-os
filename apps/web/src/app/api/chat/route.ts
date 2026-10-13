@@ -846,7 +846,10 @@ ${
 
             assistantContent = sanitizeText(assistantContent);
 
-            const suggestedPlan = extractSuggestedPlan(assistantContent);
+            const isAnalysisOrSimpleQuery =
+              /\b(ideias?\s+(?:de\s+)?crescimento|an[aá]lise|analisa|analisar|overview|resumo|status|detalhes?|sobre|fala\s+sobre|me\s+fala\s+sobre|como\s+(melhorar|evoluir|expandir))\b/i.test(lastUserText);
+
+            const suggestedPlan = isAnalysisOrSimpleQuery ? null : extractSuggestedPlan(assistantContent);
             const suggestedConnectors = detectSuggestedConnectors({
               lastUserText,
               assistantText: assistantContent,
@@ -1118,7 +1121,10 @@ ${
           : "Não consegui gerar uma resposta agora. Tente novamente.")
     );
 
-    const suggestedPlan = extractSuggestedPlan(assistantContent);
+    const isAnalysisOrSimpleQuery =
+      /\b(ideias?\s+(?:de\s+)?crescimento|an[aá]lise|analisa|analisar|overview|resumo|status|detalhes?|sobre|fala\s+sobre|me\s+fala\s+sobre|como\s+(melhorar|evoluir|expandir))\b/i.test(lastUserText);
+
+    const suggestedPlan = isAnalysisOrSimpleQuery ? null : extractSuggestedPlan(assistantContent);
     const suggestedConnectors = detectSuggestedConnectors({
       lastUserText,
       assistantText: assistantContent,

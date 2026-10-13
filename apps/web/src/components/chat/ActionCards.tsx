@@ -109,6 +109,23 @@ function humanTitle(provider: string, capability: string): string {
     pulls_list: "Listar pull requests",
     actions_list: "Listar actions",
     repo_get: "Obter repositório",
+    "github.tree": "Árvore de arquivos",
+    tree: "Árvore de arquivos",
+    "github.code.search": "Buscar no código",
+    code_search: "Buscar no código",
+    "github.branches.list": "Listar branches",
+    branches_list: "Listar branches",
+    "github.prs.list": "Listar pull requests",
+    prs_list: "Listar pull requests",
+    repo_create: "Criar repositório",
+    push_files: "Enviar arquivos",
+    "github.files.write": "Escrever arquivos",
+    "github.branches.create": "Criar branch",
+    branches_create: "Criar branch",
+    "github.prs.create": "Criar pull request",
+    prs_create: "Criar pull request",
+    "github.prs.get": "Obter pull request",
+    prs_get: "Obter pull request",
   };
 
   const label = map[capability] ?? capability.replace(/_/g, " ");
