@@ -1,7 +1,8 @@
 name: Durable runtime worker
 on:
   schedule:
-    - cron: "2-59/5 * * * *"
+    # Every 2 minutes — reduces silent queue stall between missions
+    - cron: "*/2 * * * *"
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,7 +35,13 @@ jobs:
           required = {"pending", "running", "waitingApproval", "succeeded", "failed", "cancelled"}
           assert required.issubset(counts), f"missing queue counters: {required - set(counts)}"
           assert isinstance(queue.get("expiredRunningLeases"), int)
+          pending = int(counts.get("pending") or 0)
+          waiting = int(counts.get("waitingApproval") or 0)
           print(f"queue health OK: counts={counts}, expiredRunningLeases={queue['expiredRunningLeases']}")
+          if pending > 0:
+              print(f"WARN: {pending} job(s) PENDING — worker step will claim")
+          if waiting > 0:
+              print(f"INFO: {waiting} job(s) WAITING_APPROVAL — need human gate")
           PY
       - name: Process durable runtime jobs
         env:
@@ -43,9 +50,18 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$CRON_SECRET"
-          status=$(curl --silent --show-error --output /tmp/runtime-worker.json --write-out '%{http_code}' \
-            --request POST "$APP_URL/api/cron/runtime-worker" \
-            --header "Authorization: Bearer $CRON_SECRET" \
-            --header 'Accept: application/json')
-          cat /tmp/runtime-worker.json
-          test "$status" = "200"
+          # Process up to 3 batches per cron tick to drain backlog faster
+          for i in 1 2 3; do
+            status=$(curl --silent --show-error --output /tmp/runtime-worker.json --write-out '%{http_code}' \
+              --request POST "$APP_URL/api/cron/runtime-worker" \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              --header 'Accept: application/json')
+            cat /tmp/runtime-worker.json
+            test "$status" = "200"
+            processed=$(python3 -c "import json; d=json.load(open('/tmp/runtime-worker.json')); print(len(d.get('processed') or []))")
+            echo "batch $i processed=$processed"
+            if [ "$processed" = "0" ]; then
+              echo "queue drained"
+              break
+            fi
+          done
