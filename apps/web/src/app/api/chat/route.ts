@@ -104,13 +104,20 @@ async function getOrCreateConversation(
   }
 }
 
+export function isExplicitMissionRequest(userText: string): boolean {
+  if (!userText) return false;
+  const t = userText.toLowerCase();
+  return /\b(miss[aã]o|execut[aa]|implement[aa]|cockpit)\b/i.test(t);
+}
+
 async function persistMessagePair(
   db: ReturnType<typeof getDb>,
   conversationId: string | null,
   userText: string,
-  assistantText: string
+  assistantText: string,
+  metadata?: Record<string, unknown>
 ) {
-  return persistMessagePairLib(db, conversationId, userText, assistantText);
+  return persistMessagePairLib(db, conversationId, userText, assistantText, metadata);
 }
 
 async function incrementUsageCounter(db: ReturnType<typeof getDb>, userId: string, isPremium: boolean) {
@@ -848,7 +855,9 @@ ${
 
             assistantContent = sanitizeText(assistantContent);
 
-            const suggestedPlan = extractSuggestedPlan(assistantContent);
+            const suggestedPlan = isExplicitMissionRequest(lastUserText)
+              ? extractSuggestedPlan(assistantContent)
+              : null;
             const suggestedConnectors = detectSuggestedConnectors({
               lastUserText,
               assistantText: assistantContent,
@@ -961,7 +970,10 @@ ${
               await incrementUsageCounter(db, user.id, isTargetModelPremium);
             }
 
-            await persistMessagePair(db, activeConversationId, lastUserText, assistantContent);
+            await persistMessagePair(db, activeConversationId, lastUserText, assistantContent, {
+              steps: steps.length > 0 ? steps : undefined,
+              trace,
+            });
             await emitConnectorToolEvents(activeConversationId, toolRunRes);
 
             emit("done", {
@@ -1120,7 +1132,9 @@ ${
           : "Não consegui gerar uma resposta agora. Tente novamente.")
     );
 
-    const suggestedPlan = extractSuggestedPlan(assistantContent);
+    const suggestedPlan = isExplicitMissionRequest(lastUserText)
+      ? extractSuggestedPlan(assistantContent)
+      : null;
     const suggestedConnectors = detectSuggestedConnectors({
       lastUserText,
       assistantText: assistantContent,
@@ -1237,7 +1251,10 @@ ${
       await incrementUsageCounter(db, user.id, isTargetModelPremium);
     }
 
-    await persistMessagePair(db, activeConversationId, lastUserText, assistantContent);
+    await persistMessagePair(db, activeConversationId, lastUserText, assistantContent, {
+      steps: steps.length > 0 ? steps : undefined,
+      trace,
+    });
     await emitConnectorToolEvents(activeConversationId, toolRunRes);
 
     return NextResponse.json({

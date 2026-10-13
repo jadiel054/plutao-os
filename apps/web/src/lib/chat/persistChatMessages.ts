@@ -11,7 +11,8 @@ export async function persistMessagePair(
   db: Db,
   conversationId: string | null,
   userText: string,
-  assistantText: string
+  assistantText: string,
+  metadata?: Record<string, unknown>
 ) {
   if (!conversationId) return;
   try {
@@ -29,6 +30,7 @@ export async function persistMessagePair(
         conversationId,
         role: "assistant",
         content: safeAssistantText,
+        metadata: metadata ?? null,
         createdAt: new Date(now.getTime() + 10),
       },
     ]);

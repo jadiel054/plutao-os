@@ -102,16 +102,27 @@ function Section({
 }
 
 function humanTitle(provider: string, capability: string): string {
+  const cleanCap = capability.replace(/^(github|vercel)\./, "");
   const map: Record<string, string> = {
+    repo_get: "Obter repositório",
     repos_list: "Listar repositórios",
+    tree: "Árvore de arquivos",
+    code_search: "Buscar no código",
     issues_list: "Listar issues",
     issues_get: "Obter issue",
     pulls_list: "Listar pull requests",
+    prs_list: "Listar pull requests",
+    prs_get: "Obter pull request",
+    prs_create: "Criar pull request",
+    branches_list: "Listar branches",
+    branches_create: "Criar branch",
+    push_files: "Enviar arquivos",
+    files_write: "Enviar arquivos",
+    repo_create: "Criar repositório",
     actions_list: "Listar actions",
-    repo_get: "Obter repositório",
   };
 
-  const label = map[capability] ?? capability.replace(/_/g, " ");
+  const label = map[cleanCap] ?? map[capability] ?? cleanCap.replace(/_/g, " ");
   return `${label} · ${provider}`;
 }
 
