@@ -10,6 +10,8 @@ const manifestPath = path.join(appDir, "android", "app", "src", "main", "Android
 
 const nativeSourceDir = path.join(appDir, "native");
 const javaTargetDir = path.join(appDir, "android", "app", "src", "main", "java", "app", "plutao", "os");
+const cppTargetDir = path.join(appDir, "android", "app", "src", "main", "cpp");
+const buildGradlePath = path.join(appDir, "android", "app", "build.gradle");
 const mainActivityPath = path.join(javaTargetDir, "MainActivity.java");
 
 await mkdir(target, { recursive: true });
@@ -19,6 +21,14 @@ await cp(source, target, { recursive: true, force: true });
 try {
   await mkdir(javaTargetDir, { recursive: true });
   await cp(nativeSourceDir, javaTargetDir, { recursive: true, force: true });
+
+  const cppSourceDir = path.join(nativeSourceDir, "cpp");
+  try {
+    await mkdir(cppTargetDir, { recursive: true });
+    await cp(cppSourceDir, cppTargetDir, { recursive: true, force: true });
+  } catch {
+    // ignore
+  }
 
   try {
     let mainActivity = await readFile(mainActivityPath, "utf8");
@@ -40,6 +50,17 @@ try {
   } catch {
     // MainActivity might not exist yet if cap add android hasn't run locally
   }
+
+  try {
+    let buildGradle = await readFile(buildGradlePath, "utf8");
+    if (!buildGradle.includes("externalNativeBuild")) {
+      const cmakeBlock = `    externalNativeBuild {\n        cmake {\n            path "src/main/cpp/CMakeLists.txt"\n            version "3.22.1"\n        }\n    }\n`;
+      buildGradle = buildGradle.replace("android {", `android {\n${cmakeBlock}`);
+      await writeFile(buildGradlePath, buildGradle);
+    }
+  } catch {
+    // build.gradle might not exist yet if cap add android hasn't run locally
+  }
 } catch {
   // Ignore if nativeSourceDir not found
 }
@@ -53,4 +74,4 @@ if (!manifest.includes('android:scheme="plutao"')) {
   );
   await writeFile(manifestPath, updatedManifest);
 }
-console.log(`Applied Plutão Android branding and native plugins from ${source}`);
+console.log(`Applied Plutão Android branding and native C++ plugins from ${source}`);
