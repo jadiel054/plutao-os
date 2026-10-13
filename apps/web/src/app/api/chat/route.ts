@@ -1,1 +1,1264 @@
-FILE:/tmp/route_manus.ts
+import { NextRequest, NextResponse } from "next/server";
+import { eq, inArray, and } from "drizzle-orm";
+import { artifacts as artifactsTable, users, usageCounters, conversations } from "@plutao/db";
+import { getDb } from "@/lib/db";
+import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
+import { formatFileSize } from "@/lib/artifacts";
+import { getAuthOrGuestUser } from "@/lib/auth/session";
+import { incrementGuestMessageCount, GuestRateLimitError } from "@/lib/auth/guest";
+import { loadConnectorRuntime, runConnectedConnectorTools, type ConnectorRuntimeSnapshot } from "@/lib/chat/connectorRuntime";
+import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
+import { buildFollowUps } from "@/lib/chat/buildFollowUps";
+import { getModelConfig } from "@/lib/runtime/model/config";
+import { resolveCloudModelConfig } from "@/lib/runtime/model/resolveConfig";
+import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client";
+import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
+import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
+import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
+import { recordModelError } from "@/lib/missions/recordModelError";
+import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
+import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
+import { persistMessagePair as persistMessagePairLib } from "@/lib/chat/persistChatMessages";
+import { emitConnectorToolEvents } from "./emitConnectorToolEvents";
+import { OPERATOR_GOLDEN_RULE } from "@/lib/agente/operating-principles";
+import {
+  buildIdentityBlock,
+  loadAgentIdentity,
+} from "@/lib/agente/identity";
+import {
+  sanitizeTitle,
+  sanitizeText,
+  sanitizeValue,
+  sanitizeError,
+  sanitizeErrorForClient,
+} from "@/lib/security/sanitize";
+
+export const runtime = "nodejs";
+
+type ChatInputMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+type AttachedArtifactMeta = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  content: string;
+  metadata: Record<string, unknown>;
+};
+
+const MAX_MESSAGE_LENGTH = 4000;
+const MAX_TOTAL_HISTORY_LENGTH = 16000;
+const TRACE_EXTRA_SENSITIVE_KEYS = ["value", "fullInput", "fullOutput"] as const;
+
+function safeTraceInput(input: unknown): unknown {
+  return sanitizeValue(input, { extraSensitiveKeys: TRACE_EXTRA_SENSITIVE_KEYS });
+}
+
+function safeTraceOutput(output: string): string {
+  return sanitizeText(output);
+}
+
+async function getOrCreateConversation(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  providedConversationId?: string | null,
+  initialText?: string
+): Promise<string | null> {
+  try {
+    if (providedConversationId) {
+      const existing = await db
+        .select({ id: conversations.id, userId: conversations.userId })
+        .from(conversations)
+        .where(eq(conversations.id, providedConversationId))
+        .limit(1);
+
+      if (existing[0] && existing[0].userId === userId) {
+        return existing[0].id;
+      }
+    }
+
+    // H3 — título é exposto via MCP (plutao_list_conversations): sanitizado.
+    const title =
+      initialText && initialText.trim()
+        ? sanitizeTitle(initialText.trim().slice(0, 40)) || "Nova conversa"
+        : "Nova conversa";
+    const now = new Date();
+    const created = await db
+      .insert(conversations)
+      .values({
+        userId,
+        title,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: conversations.id });
+
+    return created[0]?.id ?? null;
+  } catch (err) {
+    console.error("[getOrCreateConversation error]", err);
+    return null;
+  }
+}
+
+async function persistMessagePair(
+  db: ReturnType<typeof getDb>,
+  conversationId: string | null,
+  userText: string,
+  assistantText: string
+) {
+  return persistMessagePairLib(db, conversationId, userText, assistantText);
+}
+
+async function incrementUsageCounter(db: ReturnType<typeof getDb>, userId: string, isPremium: boolean) {
+  const todayStr = new Date().toISOString().split("T")[0];
+  try {
+    const existing = await db
+      .select()
+      .from(usageCounters)
+      .where(and(eq(usageCounters.userId, userId), eq(usageCounters.day, todayStr)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db
+        .update(usageCounters)
+        .set({
+          messages: existing[0].messages + 1,
+          premiumMessages: isPremium ? existing[0].premiumMessages + 1 : existing[0].premiumMessages,
+        })
+        .where(and(eq(usageCounters.userId, userId), eq(usageCounters.day, todayStr)));
+    } else {
+      await db.insert(usageCounters).values({
+        userId,
+        day: todayStr,
+        messages: 1,
+        premiumMessages: isPremium ? 1 : 0,
+      });
+    }
+  } catch (err) {
+    console.error("[incrementUsageCounter error]", err);
+  }
+}
+
+export async function POST(req: NextRequest) {
+  let user;
+  try {
+    user = await getAuthOrGuestUser();
+  } catch (err) {
+    if (err instanceof GuestRateLimitError) {
+      return NextResponse.json(
+        { error: sanitizeErrorForClient(err, { fallback: "Limite de uso atingido." }).error },
+        { status: 429 }
+      );
+    }
+    console.error("[POST /api/chat auth error]", err);
+    return NextResponse.json({ error: "Erro de autenticação no servidor" }, { status: 500 });
+  }
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Sessão não encontrada ou expirada. Recarregue a página." },
+      { status: 401 }
+    );
+  }
+
+  // Se for convidado e tiver atingido o limite (10 msgs ou 15 min), bloqueia o chat
+  if (user.isGuest && user.guestSession) {
+    if (user.guestSession.isLimitReached) {
+      return NextResponse.json(
+        {
+          guestLimitReached: true,
+          limitReason: user.guestSession.limitReason,
+          messageCount: user.guestSession.messageCount,
+          secondsRemaining: user.guestSession.secondsRemaining,
+          error: "Você atingiu o limite de uso como Convidado (10 mensagens ou 15 minutos). Faça login para continuar.",
+        },
+        { status: 403 }
+      );
+    }
+  }
+
+  try {
+    // Convidados não possuem conectores ativos (modo leitura/básico apenas)
+    const connectorSnap: ConnectorRuntimeSnapshot = user.isGuest
+      ? {
+          connectors: [],
+          systemBlock: "\nCONECTORES ATIVOS:\nNenhum conector ativo (modo Convidado).",
+          githubConnected: false,
+          githubLogin: null,
+          vercelConnected: false,
+          vercelLogin: null,
+          vercelToken: null,
+          supabaseConnected: false,
+          telegramConnected: false,
+          cloudflareConnected: false,
+          renderConnected: false,
+        }
+      : await loadConnectorRuntime(user.id);
+
+    const body = await req.json().catch(() => ({}));
+    let history: ChatInputMessage[] = [];
+
+    if (Array.isArray(body.messages)) {
+      const rawList = body.messages.filter(
+        (m: unknown): m is Record<string, unknown> => typeof m === "object" && m !== null
+      );
+      history = rawList
+        .map((m: Record<string, unknown>): ChatInputMessage | null => {
+          if (m.role !== "user" && m.role !== "assistant") return null;
+          const content = String(m.content ?? "").trim();
+          if (!content) return null;
+          return { role: m.role, content };
+        })
+        .filter((m: ChatInputMessage | null): m is ChatInputMessage => m !== null);
+    } else if (typeof body.message === "string" && body.message.trim().length > 0) {
+      history = [{ role: "user", content: body.message.trim() }];
+    }
+
+    if (history.length === 0) {
+      return NextResponse.json({ error: "Mensagem inválida ou vazia" }, { status: 400 });
+    }
+
+    let secretsExposed = false;
+    history = history.map((msg) => {
+      const r = redactSecrets(msg.content);
+      if (r.hadSecrets) secretsExposed = true;
+      return { ...msg, content: r.text };
+    });
+
+    for (const msg of history) {
+      if (msg.content.length > MAX_MESSAGE_LENGTH) {
+        return NextResponse.json(
+          { error: "Mensagem excede o limite permitido (máximo 4000 caracteres)" },
+          { status: 400 }
+        );
+      }
+    }
+
+    const totalHistoryLength = history.reduce((sum, m) => sum + m.content.length, 0);
+    if (totalHistoryLength > MAX_TOTAL_HISTORY_LENGTH) {
+      return NextResponse.json(
+        { error: "Histórico excede o limite total permitido" },
+        { status: 400 }
+      );
+    }
+
+    const missionId =
+      typeof body.missionId === "string" && body.missionId.trim()
+        ? body.missionId.trim()
+        : null;
+
+    const providedConversationId =
+      typeof body.conversationId === "string" && body.conversationId.trim()
+        ? body.conversationId.trim()
+        : null;
+
+    const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
+    const lastUserText = lastUserMsg?.content || "";
+
+    const db = getDb();
+    const activeConversationId = await getOrCreateConversation(
+      db,
+      user.id,
+      providedConversationId,
+      lastUserText
+    );
+
+    // 1. Fetch user record for plan & preferred_model
+    const userRows = await db
+      .select({
+        id: users.id,
+        plan: users.plan,
+        preferredModel: users.preferredModel,
+      })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+
+    const userRecord = userRows[0];
+    const planDef = getPlanDefinition(userRecord?.plan);
+
+    // 2. Query today's usage_counters
+    const todayStr = new Date().toISOString().split("T")[0];
+    const usageRows = await db
+      .select()
+      .from(usageCounters)
+      .where(and(eq(usageCounters.userId, user.id), eq(usageCounters.day, todayStr)))
+      .limit(1);
+
+    const currentUsage = usageRows[0] ?? { messages: 0, premiumMessages: 0 };
+
+    // 3. Resolve preferred model & tier
+    let isTargetModelPremium = false;
+    let customModelConfig: ModelConfig | null = null;
+
+    if (userRecord?.preferredModel) {
+      const preferred = PRESET_MODELS.find((m) => m.id === userRecord.preferredModel);
+      if (preferred) {
+        const isPremium = preferred.tier === "premium";
+        const isAllowedByPlan = planDef.models.includes(isPremium ? "premium" : "economy");
+        if (isAllowedByPlan) {
+          isTargetModelPremium = isPremium;
+          const resolved = resolveCloudModelConfig(preferred.id);
+          if (resolved.ok) {
+            customModelConfig = resolved.config;
+          } else {
+            console.warn("[chat] preferredModel sem rota/chave:", preferred.id, resolved.error);
+          }
+        }
+      }
+    }
+
+    // 4. Rate limits check
+    if (planDef.cloudMessagesPerDay !== null && currentUsage.messages >= planDef.cloudMessagesPerDay) {
+      const limitMsg = `Sua sonda atingiu o limite da ${planDef.label} (${planDef.cloudMessagesPerDay} mensagens em nuvem hoje). As transmissões renovam amanhã — ou conheça Caronte para ir além.`;
+      return NextResponse.json(
+        {
+          limit: true,
+          plan: planDef.id,
+          used: currentUsage.messages,
+          max: planDef.cloudMessagesPerDay,
+          renews: "amanhã",
+          error: limitMsg,
+          message: limitMsg,
+        },
+        { status: 429 }
+      );
+    }
+
+    if (isTargetModelPremium && planDef.premiumPerDay !== null && currentUsage.premiumMessages >= planDef.premiumPerDay) {
+      const limitMsg = `Sua cota diária de modelos premium para o plano ${planDef.label} foi atingida (${planDef.premiumPerDay} mensagens). As transmissões renovam amanhã.`;
+      return NextResponse.json(
+        {
+          limit: true,
+          plan: planDef.id,
+          used: currentUsage.premiumMessages,
+          max: planDef.premiumPerDay,
+          renews: "amanhã",
+          error: limitMsg,
+          message: limitMsg,
+        },
+        { status: 429 }
+      );
+    }
+
+    let rawArtifactIds: string[] = [];
+    if (Array.isArray(body.artifactIds)) {
+      rawArtifactIds = body.artifactIds.filter(
+        (id: unknown): id is string => typeof id === "string" && id.trim().length > 0
+      );
+    }
+
+    let validatedArtifacts: AttachedArtifactMeta[] = [];
+
+    if (rawArtifactIds.length > 0) {
+      try {
+        const found = await db
+          .select({
+            id: artifactsTable.id,
+            name: artifactsTable.name,
+            type: artifactsTable.type,
+            size: artifactsTable.size,
+            content: artifactsTable.content,
+            metadata: artifactsTable.metadata,
+          })
+          .from(artifactsTable)
+          .where(
+            and(eq(artifactsTable.userId, user.id), inArray(artifactsTable.id, rawArtifactIds))
+          );
+        validatedArtifacts = found.map((r) => ({
+          id: r.id,
+          name: r.name,
+          type: r.type,
+          size: r.size,
+          content: r.content,
+          metadata: (r.metadata as Record<string, unknown>) || {},
+        }));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // Identidade do agente — perfil de Configurações > Agente.
+    // Antes: os valores eram carregados e DESCARTADOS (só o nome aparecia na
+    // mensagem de fallback sem chave de API), então personalizar identidade ou
+    // personalidade não tinha efeito algum no comportamento do agente.
+    const agentProfile = await loadAgentIdentity(user.id);
+    const agentName = agentProfile.name;
+
+    const MAX_INJECT_CHARS = 12000;
+    let artifactBlocks = "";
+    if (validatedArtifacts.length > 0) {
+      const parts: string[] = [];
+      let used = 0;
+      for (const a of validatedArtifacts) {
+        const header = `--- Arquivo: ${a.name} (${formatFileSize(a.size)}, ${a.type}) ---\n`;
+        const budget = MAX_INJECT_CHARS - used - header.length;
+        if (budget <= 0) break;
+        const bodyText =
+          a.content.length > budget
+            ? a.content.slice(0, budget) + "\n[...conteúdo truncado...]"
+            : a.content;
+        parts.push(header + bodyText);
+        used += header.length + bodyText.length;
+      }
+      artifactBlocks = parts.join("\n\n");
+    }
+
+    const systemPrompt = `${buildIdentityBlock(agentProfile)}
+
+ESTILO DE RESPOSTA (estilo Manus — obrigatório):
+- NÃO use tags <raciocinio>, <resposta> nem qualquer bloco XML de raciocínio visível.
+- NÃO despeje um monólogo de "leitura / intenção / contexto / decisão" no chat.
+- Fale de forma natural, curta e progressiva: uma ou duas frases entre ações.
+- Cada chamada de ferramenta já aparece como card separado na UI — não narre a chamada em texto salvo se o usuário pedir detalhes.
+- Quando for só conversa (sem tool): responda direto, humano, em português.
+- Quando usar tools: texto curto de alinhamento → cards de ação (automáticos) → texto final com o resultado útil.
+- Se faltar dado essencial, pergunte em uma frase objetiva. Não faça checklist mental em voz alta.
+
+IDENTIDADE DO SISTEMA:
+Você é o Núcleo do Plutão (sistema de trabalho):
+conversa → descobre intenção → alinha caminho → executa de verdade → entrega artefato + evidência.
+
+CAPACIDADES DE RUNTIME (reais):
+- Tools locais: note, filesystem (na execução da missão).
+${connectorSnap.systemBlock}
+
+QUANDO FOR PROJETO OU MISSÃO:
+1. Resuma o que entendeu em 2–4 linhas.
+2. Faça só as perguntas essenciais que faltam (máx. 3).
+3. Proponha 1 caminho recomendado (+ 1 alternativa se fizer diferença), com motivo objetivo.
+4. Sugira um plano em passos numerados curtos (3–7 passos), um por linha, no formato:
+   1. Título do passo
+   2. Título do passo
+5. Peça confirmação explícita antes de "começar a executar".
+Nunca invente capacidades que o runtime ainda não tem. Seja objetivo e competente.
+
+FALHAS E QUALIDADE:
+Se algo falhar na execução, o sistema exige: Falha → Causa → Inspecionar → Corrigir → Testar → Passed.
+Não incentive pular erros.
+
+${OPERATOR_GOLDEN_RULE}
+
+Após listar projetos/repositórios com tool de conector: em 1–2 frases, destaque o item mais relevante (ex.: plutao-os ou o mais recente) e convide o usuário a ir a fundo — sem listas genéricas de 'próximos passos'.
+
+Tom: sênior, profissional e direto. Sem emojis decorativos nem linguagem genérica de assistente. Responda primeiro ao que foi perguntado e use Markdown com hierarquia visual apenas quando ajudar a leitura. Em análises com um achado objetivo, pode começar com **Resultado final:** seguido de uma conclusão curta; depois apresente critério, evidência e limitações somente quando forem relevantes. Não narre cada chamada de ferramenta salvo se o usuário pedir; os detalhes operacionais ficam nos cartões de atividade. Em listas (ex.: repositórios, projetos), use itens numerados: 1. **nome** — visibilidade/status, detalhes curtos (uma linha por item).
+
+INTEGRIDADE DE RESULTADOS:
+- Não invente contagens, logs, timestamps, IDs de requisição, fontes ou ações executadas. Só descreva como evidência aquilo que veio de resultados reais das ferramentas ou de artefatos disponíveis.
+- Respeite a janela temporal pedida: totais históricos não comprovam atividade em um período. Se a ferramenta não permite filtrar o período, declare essa limitação e não apresente o total como resposta temporal.
+- Não some métricas diferentes como se fossem equivalentes sem declarar e justificar o critério; prefira a métrica diretamente ligada à pergunta.
+- Se os dados não bastarem para determinar um vencedor/conclusão, diga o que foi possível confirmar e o que falta, sem preencher lacunas com exemplos apresentados como reais.
+
+SEGURANCA DE CREDENCIAIS:
+- Tokens e API keys de conectores (GitHub, Vercel, Neon, Render, Stripe, Exa) sao dados sensiveis. Nunca peca para colar secret no chat; oriente a usar Configuracoes > Conectores.
+- Se o usuario colar uma chave no chat, o sistema ja mascara (ex.: sk_live_****abcd). Nao repita o valor completo, nao grave em artefatos, nao ecoe na resposta.
+- Ao concluir tarefa em que credencial pode ter vazado no historico, lembre em uma frase: revogue a chave no painel do provedor se foi exposta em texto claro.
+- Prefira o token ja conectado no runtime em vez de qualquer string colada pelo usuario.
+${
+  artifactBlocks
+    ? `O usuário pode anexar arquivos. Texto e planilhas chegam como conteúdo textual no contexto; imagens chegam como partes visuais quando processadas por um modelo multimodal. Se um anexo estiver visível no contexto, analise-o normalmente. Se por alguma falha técnica o conteúdo de um anexo não tiver chegado, seja honesto, diga que não recebeu o conteúdo e peça para tentar novamente — não finja ter visto.\n\nConteúdo dos anexos em texto:\n${artifactBlocks}`
+    : ""
+}`;
+
+    const systemPromptFinal = secretsExposed
+      ? systemPrompt +
+        "\n\nAVISO RUNTIME: " +
+        secretExposureNotice([{ kind: "exposta_no_chat", masked: "****", start: 0, end: 0 }])
+      : systemPrompt;
+
+    const hasImageOrBinary = validatedArtifacts.some((a) => {
+      const meta = a.metadata || {};
+      return (
+        Boolean(meta.isImage) ||
+        Boolean(meta.isBinary) ||
+        a.type.startsWith("image/") ||
+        a.type === "application/pdf" ||
+        a.type.includes("excel") ||
+        a.type.includes("spreadsheet")
+      );
+    });
+
+    const geminiKey = process.env.GEMINI_API_KEY?.trim();
+    let effectiveModelConfig: ModelConfig | null = null;
+
+    if (hasImageOrBinary && geminiKey) {
+      effectiveModelConfig = {
+        provider: "gemini",
+        apiKey: geminiKey,
+        model: "gemini-3.1-flash-lite",
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      };
+    } else {
+      effectiveModelConfig = customModelConfig || getModelConfig();
+    }
+
+    if (!effectiveModelConfig) {
+      const artNotice =
+        validatedArtifacts.length > 0
+          ? ` (com ${validatedArtifacts.length} arquivo(s) anexado(s))`
+          : "";
+      const replyContent = `[${agentName}] Recebi sua mensagem: "${lastUserText}"${artNotice}. O ambiente atual não possui MODEL_API_KEY / GEMINI_API_KEY configurada. Configure a chave de API nas variáveis de ambiente do Vercel.`;
+
+      const suggestedConnectors = detectSuggestedConnectors({
+        lastUserText,
+        assistantText: replyContent,
+        githubConnected: connectorSnap.githubConnected,
+        vercelConnected: connectorSnap.vercelConnected,
+      });
+
+      return NextResponse.json({
+        message: { role: "assistant", content: replyContent },
+        readArtifacts: [],
+        modelConfigured: false,
+        suggestedPlan: null,
+        suggestedConnectors,
+        missionId,
+        connectors: {
+          github: connectorSnap.githubConnected,
+          vercel: connectorSnap.vercelConnected,
+        },
+      });
+    }
+
+    const reasoningSteps = buildReasoningSteps({
+      userMessage: lastUserText,
+      snapshot: connectorSnap,
+      artifactsCount: validatedArtifacts.length,
+      hasActiveMission: Boolean(missionId),
+    });
+
+    const isStreamRequested =
+      Boolean(body.stream) ||
+      req.headers.get("accept")?.includes("text/event-stream");
+
+    if (isStreamRequested) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          function emit(event: string, data: Record<string, unknown>) {
+            try {
+              controller.enqueue(
+                encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+              );
+            } catch {
+              /* ignore controller closed */
+            }
+          }
+
+          try {
+            // Build base payload for the model
+            const payloadMessages: ModelMessage[] = [
+              { role: "system", content: systemPromptFinal },
+              ...history.slice(-10).map((m) => ({
+                role: m.role,
+                content: m.content,
+              })),
+            ];
+
+            if (
+              VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig!.provider) &&
+              validatedArtifacts.length > 0
+            ) {
+              const imageParts = buildImageParts(validatedArtifacts);
+              if (imageParts.length > 0 && payloadMessages.length > 0) {
+                const lastIdx = payloadMessages.length - 1;
+                const existingContent =
+                  typeof payloadMessages[lastIdx].content === "string"
+                    ? (payloadMessages[lastIdx].content as string)
+                    : "";
+                payloadMessages[lastIdx] = {
+                  role: payloadMessages[lastIdx].role,
+                  content: [{ type: "text", text: existingContent }, ...imageParts],
+                };
+              }
+            }
+
+            // ==========================================
+            // FASE 1 — RACIOCÍNIO (token a token via LLM stream)
+            // ==========================================
+            const dynamicReasoningSteps: Array<{ id: string; index: number; text: string }> = [];
+            let inReasoningBlock = false;
+            let inAnswerBlock = false;
+            let reasoningBuffer = "";
+            let rawFullOutput = "";
+            let streamModelConfig = effectiveModelConfig!;
+            let modelFallback = false;
+
+            try {
+              const generator = streamChatCompletion(streamModelConfig, payloadMessages);
+              for await (const chunk of generator) {
+                rawFullOutput += chunk;
+
+                if (!inReasoningBlock && !inAnswerBlock) {
+                  if (rawFullOutput.includes("<raciocinio>")) {
+                    inReasoningBlock = true;
+                    const idx = rawFullOutput.indexOf("<raciocinio>");
+                    reasoningBuffer = rawFullOutput.slice(idx + "<raciocinio>".length);
+                  } else if (rawFullOutput.includes("<resposta>")) {
+                    inAnswerBlock = true;
+                  }
+                } else if (inReasoningBlock) {
+                  reasoningBuffer += chunk;
+                  if (reasoningBuffer.includes("</raciocinio>")) {
+                    const [reasoningPart] = reasoningBuffer.split("</raciocinio>");
+                    const lines = reasoningPart.split("\n");
+                    for (const rawLine of lines) {
+                      const line = rawLine.trim();
+                      if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                        const stepIndex = dynamicReasoningSteps.length + 1;
+                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
+                        dynamicReasoningSteps.push(stepItem);
+                        emit("reasoning_step", stepItem);
+                      }
+                    }
+                    inReasoningBlock = false;
+                    inAnswerBlock = true;
+                  } else {
+                    const lines = reasoningBuffer.split("\n");
+                    reasoningBuffer = lines.pop() ?? "";
+                    for (const rawLine of lines) {
+                      const line = rawLine.trim();
+                      if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                        const stepIndex = dynamicReasoningSteps.length + 1;
+                        const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
+                        dynamicReasoningSteps.push(stepItem);
+                        emit("reasoning_step", stepItem);
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              const isGemini = streamModelConfig.provider === "gemini";
+              const fallbackConfig = isGemini ? getModelConfig() : null;
+              if (isGemini && fallbackConfig) {
+                streamModelConfig = fallbackConfig;
+                modelFallback = true;
+                rawFullOutput = "";
+                reasoningBuffer = "";
+                const generator = streamChatCompletion(streamModelConfig, payloadMessages);
+                for await (const chunk of generator) {
+                  rawFullOutput += chunk;
+                  if (!inReasoningBlock && !inAnswerBlock) {
+                    if (rawFullOutput.includes("<raciocinio>")) {
+                      inReasoningBlock = true;
+                      const idx = rawFullOutput.indexOf("<raciocinio>");
+                      reasoningBuffer = rawFullOutput.slice(idx + "<raciocinio>".length);
+                    } else if (rawFullOutput.includes("<resposta>")) {
+                      inAnswerBlock = true;
+                    }
+                  } else if (inReasoningBlock) {
+                    reasoningBuffer += chunk;
+                    if (reasoningBuffer.includes("</raciocinio>")) {
+                      const [reasoningPart] = reasoningBuffer.split("</raciocinio>");
+                      const lines = reasoningPart.split("\n");
+                      for (const rawLine of lines) {
+                        const line = rawLine.trim();
+                        if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                          const stepIndex = dynamicReasoningSteps.length + 1;
+                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
+                          dynamicReasoningSteps.push(stepItem);
+                          emit("reasoning_step", stepItem);
+                        }
+                      }
+                      inReasoningBlock = false;
+                      inAnswerBlock = true;
+                    } else {
+                      const lines = reasoningBuffer.split("\n");
+                      reasoningBuffer = lines.pop() ?? "";
+                      for (const rawLine of lines) {
+                        const line = rawLine.trim();
+                        if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                          const stepIndex = dynamicReasoningSteps.length + 1;
+                          const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
+                          dynamicReasoningSteps.push(stepItem);
+                          emit("reasoning_step", stepItem);
+                        }
+                      }
+                    }
+                  }
+                }
+              } else {
+                throw err;
+              }
+            }
+
+            // Flush remaining reasoning lines if present
+            if (reasoningBuffer.trim()) {
+              const lines = reasoningBuffer.replace("</raciocinio>", "").split("\n");
+              for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (line && !dynamicReasoningSteps.some((s) => s.text === line)) {
+                  const stepIndex = dynamicReasoningSteps.length + 1;
+                  const stepItem = { id: `step-${stepIndex}`, index: stepIndex, text: sanitizeText(line) };
+                  dynamicReasoningSteps.push(stepItem);
+                  emit("reasoning_step", stepItem);
+                }
+              }
+            }
+
+            // Fallback reasoning steps if LLM did not generate <raciocinio> tags
+            const finalReasoningSteps = (
+              dynamicReasoningSteps.length > 0 ? dynamicReasoningSteps : reasoningSteps
+            ).map((step) => ({ ...step, text: sanitizeText(step.text) }));
+
+            // ==========================================
+            // FASE 2 — EXECUÇÃO (Tools de conectores - APÓS RACIOCÍNIO)
+            // ==========================================
+            const toolRunRes = await runConnectedConnectorTools({
+              userId: user.id,
+              userText: lastUserText,
+              missionId,
+              snapshot: connectorSnap,
+            });
+
+            if (toolRunRes.github.executed && toolRunRes.github.capability) {
+              const toolId = crypto.randomUUID();
+              emit("tool_start", {
+                id: toolId,
+                provider: "github",
+                capability: toolRunRes.github.capability,
+                summaryInput: safeTraceInput(toolRunRes.github.trace?.input),
+              });
+
+              if (toolRunRes.github.trace) {
+                emit("tool_result", {
+                  id: toolId,
+                  status: toolRunRes.github.trace.status,
+                  summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.github.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
+                  durationMs: toolRunRes.github.trace.durationMs,
+                });
+              }
+            }
+
+            if (toolRunRes.vercel.executed && toolRunRes.vercel.capability) {
+              const toolId = crypto.randomUUID();
+              emit("tool_start", {
+                id: toolId,
+                provider: "vercel",
+                capability: toolRunRes.vercel.capability,
+                summaryInput: safeTraceInput(toolRunRes.vercel.trace?.input),
+              });
+
+              if (toolRunRes.vercel.trace) {
+                emit("tool_result", {
+                  id: toolId,
+                  status: toolRunRes.vercel.trace.status,
+                  summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
+                  durationMs: toolRunRes.vercel.trace.durationMs,
+                });
+              }
+            }
+
+            // ==========================================
+            // FASE 3 — RESPOSTA (Content Delta & Done)
+            // ==========================================
+            let assistantContent = "";
+
+            if (toolRunRes.contextBlocks.length > 0) {
+              // Re-run LLM streaming with tool context blocks included so final answer uses real tool results
+              const responsePayloadMessages: ModelMessage[] = [
+                ...payloadMessages,
+                ...toolRunRes.contextBlocks.map((cb) => ({
+                  role: "system" as const,
+                  content: cb,
+                })),
+                {
+                  role: "user" as const,
+                  content: "Gere agora a resposta final para o usuário com base nos resultados obtidos das ferramentas e no raciocínio prévio.",
+                },
+              ];
+
+              let rawStreamOutput = "";
+
+              try {
+                const answerGenerator = streamChatCompletion(streamModelConfig, responsePayloadMessages);
+                for await (const chunk of answerGenerator) {
+                  rawStreamOutput += chunk;
+                }
+              } catch (err) {
+                console.error("[chat streaming FASE 3 error]", err);
+                const errDetail = sanitizeError(err, "erro no modelo");
+                if (missionId) {
+                  await recordModelError({
+                    missionId,
+                    userId: user.id,
+                    error: errDetail,
+                  });
+                }
+                const errorMsg = `Não foi possível gerar a resposta final com o modelo: ${errDetail}. Verifique suas configurações de modelo.`;
+                rawStreamOutput = errorMsg;
+              }
+
+              let cleaned = rawStreamOutput;
+              if (cleaned.includes("<resposta>")) {
+                cleaned = cleaned.split("<resposta>")[1] || "";
+              }
+              assistantContent = sanitizeText(cleaned.replace(/<\/?resposta>/g, "").trim());
+              if (assistantContent) {
+                for (const word of assistantContent.split(" ")) {
+                  if (word) emit("content_delta", { text: `${word} ` });
+                }
+              }
+            }
+
+            if (!assistantContent) {
+              let cleanedAnswer = rawFullOutput
+                .replace(/<raciocinio>[\s\S]*?<\/raciocinio>/gi, "")
+                .replace(/<resposta>([\s\S]*?)<\/resposta>/gi, "$1")
+                .replace(/<\/?raciocinio>/gi, "")
+                .replace(/<\/?resposta>/gi, "")
+                .trim();
+
+              if (!cleanedAnswer) {
+                cleanedAnswer = "Não consegui gerar uma resposta agora. Tente novamente.";
+              }
+              cleanedAnswer = sanitizeText(cleanedAnswer);
+
+              const words = cleanedAnswer.split(" ");
+              let chunk = "";
+              for (let i = 0; i < words.length; i++) {
+                chunk += (i === 0 ? "" : " ") + words[i];
+                if (chunk.length >= 20 || i === words.length - 1) {
+                  emit("content_delta", { text: chunk });
+                  chunk = "";
+                }
+              }
+              assistantContent = cleanedAnswer;
+            }
+
+            assistantContent = sanitizeText(assistantContent);
+
+            const suggestedPlan = extractSuggestedPlan(assistantContent);
+            const suggestedConnectors = detectSuggestedConnectors({
+              lastUserText,
+              assistantText: assistantContent,
+              githubConnected: connectorSnap.githubConnected,
+              vercelConnected: connectorSnap.vercelConnected,
+            });
+
+            const baseFollowUps = buildFollowUps({
+              lastUserText,
+              assistantText: assistantContent,
+              tools: [
+                toolRunRes.github.executed && toolRunRes.github.trace
+                  ? {
+                      provider: "github",
+                      capability: toolRunRes.github.capability,
+                      status: toolRunRes.github.trace.status,
+                      outputSnippet: safeTraceOutput(toolRunRes.github.trace.output),
+                    }
+                  : null,
+                toolRunRes.vercel.executed && toolRunRes.vercel.trace
+                  ? {
+                      provider: "vercel",
+                      capability: toolRunRes.vercel.capability,
+                      status: toolRunRes.vercel.trace.status,
+                      outputSnippet: safeTraceOutput(toolRunRes.vercel.trace.output),
+                    }
+                  : null,
+              ].filter(Boolean) as Array<{
+                provider: string;
+                capability?: string;
+                status?: string;
+                outputSnippet?: string;
+              }>,
+            });
+
+            const suggestedFollowUps = [
+              ...(toolRunRes.suggestedFollowUps || []),
+              ...baseFollowUps,
+            ].filter((f, idx, self) => idx === self.findIndex((x) => x.prompt === f.prompt));
+
+            const toolTraces = [];
+            if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);
+            if (toolRunRes.vercel.trace) toolTraces.push(toolRunRes.vercel.trace);
+
+            // H3 — sanitização central do trace antes de sair no SSE.
+            const trace =
+              toolTraces.length > 0
+                ? {
+                    toolCalls: sanitizeValue(toolTraces, {
+                      extraSensitiveKeys: ["value"],
+                    }),
+                  }
+                : undefined;
+
+            const steps: Array<
+              | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
+              | { type: "tool_call"; toolCall: Record<string, unknown> }
+            > = finalReasoningSteps.map((step) => ({
+              type: "reasoning" as const,
+              reasoning: step,
+            }));
+
+            if (toolRunRes.github.executed && toolRunRes.github.trace) {
+              steps.push({
+                type: "tool_call" as const,
+                toolCall: {
+                  id: toolRunRes.github.trace.id,
+                  provider: "github",
+                  capability: toolRunRes.github.trace.capability,
+                  status: toolRunRes.github.trace.status,
+                  summaryInput:
+                    typeof toolRunRes.github.trace.input === "string"
+                      ? safeTraceOutput(toolRunRes.github.trace.input)
+                      : JSON.stringify(safeTraceInput(toolRunRes.github.trace.input)),
+                  summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.github.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
+                  durationMs: toolRunRes.github.trace.durationMs,
+                },
+              });
+            }
+
+            if (toolRunRes.vercel.executed && toolRunRes.vercel.trace) {
+              steps.push({
+                type: "tool_call" as const,
+                toolCall: {
+                  id: toolRunRes.vercel.trace.id,
+                  provider: "vercel",
+                  capability: toolRunRes.vercel.trace.capability,
+                  status: toolRunRes.vercel.trace.status,
+                  summaryInput:
+                    typeof toolRunRes.vercel.trace.input === "string"
+                      ? safeTraceOutput(toolRunRes.vercel.trace.input)
+                      : JSON.stringify(safeTraceInput(toolRunRes.vercel.trace.input)),
+                  summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+                  fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+                  fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
+                  durationMs: toolRunRes.vercel.trace.durationMs,
+                },
+              });
+            }
+
+            let updatedGuestSession = user.guestSession;
+            if (user.isGuest && user.guestSession) {
+              const updated = await incrementGuestMessageCount(user.guestSession.id);
+              if (updated) {
+                updatedGuestSession = updated;
+              }
+            } else {
+              await incrementUsageCounter(db, user.id, isTargetModelPremium);
+            }
+
+            await persistMessagePair(db, activeConversationId, lastUserText, assistantContent);
+            await emitConnectorToolEvents(activeConversationId, toolRunRes);
+
+            emit("done", {
+              full: assistantContent,
+              provider: streamModelConfig.provider,
+              model: streamModelConfig.model,
+              modelFallback,
+              guestSession: updatedGuestSession,
+              conversationId: activeConversationId,
+              suggestedPlan: suggestedPlan
+                ? { stepTitles: suggestedPlan.stepTitles }
+                : null,
+              suggestedConnectors,
+              suggestedFollowUps,
+              missionId,
+              connectors: {
+                github: connectorSnap.githubConnected,
+                vercel: connectorSnap.vercelConnected,
+              },
+              steps: steps.length > 0 ? steps : undefined,
+              trace,
+            });
+          } catch (err) {
+            // H3 — erro para o cliente sem stack/segredo, com ref de correlação.
+            const safeError = sanitizeErrorForClient(err, {
+              fallback: "Erro no streaming de resposta",
+            });
+            console.error("[api/chat] stream error", { ref: safeError.ref, error: sanitizeError(err) });
+            emit("error", { error: safeError.error, ref: safeError.ref });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    // Non-streamed JSON handling
+    const toolRunRes = await runConnectedConnectorTools({
+      userId: user.id,
+      userText: lastUserText,
+      missionId,
+      snapshot: connectorSnap,
+    });
+
+    const payloadMessages: ModelMessage[] = [
+      { role: "system", content: systemPromptFinal },
+      ...history.slice(-10).map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    ];
+
+    for (const contextBlock of toolRunRes.contextBlocks) {
+      payloadMessages.push({
+        role: "system",
+        content: contextBlock,
+      });
+    }
+
+    if (VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig.provider) && validatedArtifacts.length > 0) {
+      const imageParts = buildImageParts(validatedArtifacts);
+
+      if (imageParts.length > 0 && payloadMessages.length > 0) {
+        const lastIdx = payloadMessages.length - 1;
+        const existingContent =
+          typeof payloadMessages[lastIdx].content === "string"
+            ? (payloadMessages[lastIdx].content as string)
+            : "";
+        payloadMessages[lastIdx] = {
+          role: payloadMessages[lastIdx].role,
+          content: [{ type: "text", text: existingContent }, ...imageParts],
+        };
+      }
+    }
+
+    let result;
+    let modelFallback = false;
+
+    try {
+      result = await chatCompletion(effectiveModelConfig, payloadMessages);
+    } catch (err) {
+      const isGemini = effectiveModelConfig.provider === "gemini";
+      const fallbackConfig = isGemini ? getModelConfig() : null;
+
+      const errMsg = sanitizeError(err);
+      const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
+
+      if (isGemini && fallbackConfig && !isClient4xx) {
+        console.warn("[chat] Gemini indisponível, fallback para", fallbackConfig.model, "-", errMsg);
+
+        if (VISION_CAPABLE_PROVIDERS.includes(fallbackConfig.provider) && validatedArtifacts.length > 0) {
+          const imageParts = buildImageParts(validatedArtifacts);
+          if (imageParts.length > 0 && payloadMessages.length > 0) {
+            const lastIdx = payloadMessages.length - 1;
+            const existingContent =
+              typeof payloadMessages[lastIdx].content === "string"
+                ? (payloadMessages[lastIdx].content as string)
+                : Array.isArray(payloadMessages[lastIdx].content)
+                  ? (payloadMessages[lastIdx].content as MultimodalContentPart[]).find((p) => p.type === "text")?.text || ""
+                  : "";
+            payloadMessages[lastIdx] = {
+              role: payloadMessages[lastIdx].role,
+              content: [{ type: "text", text: existingContent }, ...imageParts],
+            };
+          }
+        }
+
+        try {
+          result = await chatCompletion(fallbackConfig, payloadMessages);
+          modelFallback = true;
+        } catch (fallbackErr) {
+          console.error("[chat] Fallback provider também falhou:", fallbackErr);
+          throw fallbackErr;
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    const readArtifactIds = validatedArtifacts.map((a) => a.id);
+
+    const rawOutput = result.content || "";
+    let extractedReasoningSteps: Array<{ id: string; index: number; text: string }> = [];
+
+    if (rawOutput.includes("<raciocinio>")) {
+      const match = rawOutput.match(/<raciocinio>([\s\S]*?)<\/raciocinio>/);
+      if (match && match[1]) {
+        const lines = match[1].split("\n").map((l) => l.trim()).filter(Boolean);
+        extractedReasoningSteps = lines.map((l, idx) => ({
+          id: `step-${idx + 1}`,
+          index: idx + 1,
+          text: l,
+        }));
+      }
+    }
+
+    let cleanedNonStreamAnswer = rawOutput
+      .replace(/<raciocinio>[\s\S]*?<\/raciocinio>/gi, "")
+      .replace(/<resposta>([\s\S]*?)<\/resposta>/gi, "$1")
+      .replace(/<\/?raciocinio>/gi, "")
+      .replace(/<\/?resposta>/gi, "")
+      .trim();
+
+    const assistantContent = sanitizeText(
+      cleanedNonStreamAnswer ||
+        (validatedArtifacts.length > 0
+          ? `Recebi o arquivo anexado (${validatedArtifacts.map((a) => a.name).join(", ")}). Não consegui gerar um resumo completo agora — tente de novo em instantes.`
+          : "Não consegui gerar uma resposta agora. Tente novamente.")
+    );
+
+    const suggestedPlan = extractSuggestedPlan(assistantContent);
+    const suggestedConnectors = detectSuggestedConnectors({
+      lastUserText,
+      assistantText: assistantContent,
+      githubConnected: connectorSnap.githubConnected,
+      vercelConnected: connectorSnap.vercelConnected,
+    });
+
+    const baseFollowUps = buildFollowUps({
+      lastUserText,
+      assistantText: assistantContent,
+      tools: [
+        toolRunRes.github.executed && toolRunRes.github.trace
+          ? {
+              provider: "github",
+              capability: toolRunRes.github.capability,
+              status: toolRunRes.github.trace.status,
+              outputSnippet: safeTraceOutput(toolRunRes.github.trace.output),
+            }
+          : null,
+        toolRunRes.vercel.executed && toolRunRes.vercel.trace
+          ? {
+              provider: "vercel",
+              capability: toolRunRes.vercel.capability,
+              status: toolRunRes.vercel.trace.status,
+              outputSnippet: safeTraceOutput(toolRunRes.vercel.trace.output),
+            }
+          : null,
+      ].filter(Boolean) as Array<{
+        provider: string;
+        capability?: string;
+        status?: string;
+        outputSnippet?: string;
+      }>,
+    });
+
+    const suggestedFollowUps = [
+      ...(toolRunRes.suggestedFollowUps || []),
+      ...baseFollowUps,
+    ].filter((f, idx, self) => idx === self.findIndex((x) => x.prompt === f.prompt));
+
+    const toolTraces = [];
+    if (toolRunRes.github.trace) toolTraces.push(toolRunRes.github.trace);
+    if (toolRunRes.vercel.trace) toolTraces.push(toolRunRes.vercel.trace);
+
+    // H3 — sanitização central do trace antes de sair no SSE.
+            const trace =
+              toolTraces.length > 0
+                ? {
+                    toolCalls: sanitizeValue(toolTraces, {
+                      extraSensitiveKeys: ["value"],
+                    }),
+                  }
+                : undefined;
+
+    const activeReasoningSteps = (
+      extractedReasoningSteps.length > 0 ? extractedReasoningSteps : reasoningSteps
+    ).map((step) => ({ ...step, text: sanitizeText(step.text) }));
+
+    const steps: Array<
+      | { type: "reasoning"; reasoning: { id: string; index: number; text: string } }
+      | { type: "tool_call"; toolCall: Record<string, unknown> }
+    > = activeReasoningSteps.map((step) => ({
+      type: "reasoning" as const,
+      reasoning: step,
+    }));
+
+    if (toolRunRes.github.executed && toolRunRes.github.trace) {
+      steps.push({
+        type: "tool_call" as const,
+        toolCall: {
+          id: toolRunRes.github.trace.id,
+          provider: "github",
+          capability: toolRunRes.github.trace.capability,
+          status: toolRunRes.github.trace.status,
+          summaryInput:
+            typeof toolRunRes.github.trace.input === "string"
+              ? safeTraceOutput(toolRunRes.github.trace.input)
+              : JSON.stringify(safeTraceInput(toolRunRes.github.trace.input)),
+          summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
+          fullInput: safeTraceInput(toolRunRes.github.trace.input),
+          fullOutput: safeTraceOutput(toolRunRes.github.trace.output),
+          durationMs: toolRunRes.github.trace.durationMs,
+        },
+      });
+    }
+
+    if (toolRunRes.vercel.executed && toolRunRes.vercel.trace) {
+      steps.push({
+        type: "tool_call" as const,
+        toolCall: {
+          id: toolRunRes.vercel.trace.id,
+          provider: "vercel",
+          capability: toolRunRes.vercel.trace.capability,
+          status: toolRunRes.vercel.trace.status,
+          summaryInput:
+            typeof toolRunRes.vercel.trace.input === "string"
+              ? safeTraceOutput(toolRunRes.vercel.trace.input)
+              : JSON.stringify(safeTraceInput(toolRunRes.vercel.trace.input)),
+          summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
+          fullInput: safeTraceInput(toolRunRes.vercel.trace.input),
+          fullOutput: safeTraceOutput(toolRunRes.vercel.trace.output),
+          durationMs: toolRunRes.vercel.trace.durationMs,
+        },
+      });
+    }
+
+    let updatedGuestSession = user.guestSession;
+    if (user.isGuest && user.guestSession) {
+      const updated = await incrementGuestMessageCount(user.guestSession.id);
+      if (updated) {
+        updatedGuestSession = updated;
+      }
+    } else {
+      await incrementUsageCounter(db, user.id, isTargetModelPremium);
+    }
+
+    await persistMessagePair(db, activeConversationId, lastUserText, assistantContent);
+    await emitConnectorToolEvents(activeConversationId, toolRunRes);
+
+    return NextResponse.json({
+      message: { role: "assistant", content: assistantContent },
+      readArtifacts: readArtifactIds,
+      modelConfigured: true,
+      provider: result.provider,
+      model: result.model,
+      modelFallback,
+      guestSession: updatedGuestSession,
+      conversationId: activeConversationId,
+      suggestedPlan: suggestedPlan
+        ? { stepTitles: suggestedPlan.stepTitles }
+        : null,
+      suggestedConnectors,
+      suggestedFollowUps,
+      missionId,
+      connectors: {
+        github: connectorSnap.githubConnected,
+        vercel: connectorSnap.vercelConnected,
+      },
+      steps: steps.length > 0 ? steps : undefined,
+      trace,
+    });
+  } catch (e) {
+    console.error("[chat POST]", e);
+    const detail = e instanceof Error ? e.message : "erro desconhecido";
+    return NextResponse.json(
+      {
+        error: "Não foi possível processar a mensagem no momento.",
+        detail: process.env.NODE_ENV === "development" ? detail : undefined,
+      },
+      { status: 500 }
+    );
+  }
+}
