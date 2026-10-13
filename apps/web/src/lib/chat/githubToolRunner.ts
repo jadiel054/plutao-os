@@ -502,6 +502,28 @@ Para escritas (repo_create / push_files / github.files.write / github.branches.c
 
   const isGatePending = Boolean(res.ok && res.output?.includes("GATE_PENDING"));
 
+  let extraContext = "";
+  if (res.ok && action === "repo_get" && owner && repo) {
+    const t = opts.text.toLowerCase();
+    const wantsGrowthOrAnalysis =
+      /\b(crescimento|expans[aã]o|expandir|analis|an[aá]lise|ideias?|auditoria|overview|fala\s+sobre|como\s+(melhorar|evoluir))\b/.test(
+        t
+      );
+    if (wantsGrowthOrAnalysis) {
+      try {
+        const treeRes = await runGithub(
+          JSON.stringify({ action: "github.tree", owner, repo, recursive: true }),
+          opts.userId
+        );
+        if (treeRes.ok && treeRes.output) {
+          extraContext = `\n\n[ESTRUTURA DE ARQUIVOS DO REPOSITÓRIO (github.tree)]\n${treeRes.output.slice(0, 2500)}`;
+        }
+      } catch {
+        /* ignore optional tree fetch failure */
+      }
+    }
+  }
+
   const contextText = res.ok
     ? isGatePending
       ? `[WRITE GATE — APROVAÇÃO HUMANA PENDENTE]
@@ -517,7 +539,7 @@ Após aprovação no card, o runtime executa a escrita.`
 Capability executada: ${action}
 Status: Sucesso (${res.durationMs}ms)
 Dados retornados da API do GitHub:
-${res.output}`
+${res.output}${extraContext}`
     : `[EXECUÇÃO DE FERRAMENTA DO CONECTOR GITHUB]
 Capability executada: ${action}
 Status: Erro (${res.durationMs}ms)

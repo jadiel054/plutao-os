@@ -30,7 +30,7 @@ vi.mock("@/lib/db", () => {
 vi.mock("@/lib/chat/connectorRuntime", () => ({
   loadConnectorRuntime: vi.fn().mockResolvedValue({
     connectors: ["github"],
-    systemBlock: "github: CONNECTED\n  write (gated): repo_create, push_files",
+    systemBlock: "github: CONNECTED\n  read: repo_get\n  write (gated): repo_create, push_files",
     githubConnected: true,
     githubLogin: "octocat",
     vercelConnected: false,
@@ -41,8 +41,7 @@ vi.mock("@/lib/chat/connectorRuntime", () => ({
     cloudflareConnected: false,
     renderConnected: false,
   }),
-  runConnectedConnectorTools: vi.fn().mockImplementation(async ({ userId, userText }) => {
-    // Simulate intent recognition for write action
+  runConnectedConnectorTools: vi.fn().mockImplementation(async ({ userText }) => {
     if (userText.includes("criar repositorio") || userText.includes("create repo")) {
       return {
         contextBlocks: [
@@ -65,6 +64,28 @@ vi.mock("@/lib/chat/connectorRuntime", () => ({
         suggestedFollowUps: [],
       };
     }
+    if (userText.includes("ideias de crescimento para o bugmeme")) {
+      return {
+        contextBlocks: [
+          "[EXECUÇÃO DE FERRAMENTA DO CONECTOR GITHUB]\nCapability executada: repo_get\nStatus: Sucesso (45ms)\nDados retornados da API do GitHub:\nrepo: jadiel054/bugmeme\ndescription: Site de memes para devs",
+        ],
+        github: {
+          executed: true,
+          capability: "repo_get",
+          trace: {
+            id: "trace-repo-get-1",
+            provider: "github",
+            capability: "repo_get",
+            status: "ok",
+            input: { owner: "jadiel054", repo: "bugmeme" },
+            output: "repo: jadiel054/bugmeme\ndescription: Site de memes para devs",
+            durationMs: 45,
+          },
+        },
+        vercel: { executed: false },
+        suggestedFollowUps: [],
+      };
+    }
     return {
       contextBlocks: [],
       github: { executed: false },
@@ -75,10 +96,22 @@ vi.mock("@/lib/chat/connectorRuntime", () => ({
 }));
 
 vi.mock("@/lib/runtime/model/client", () => ({
-  chatCompletion: vi.fn().mockResolvedValue({
-    provider: "groq",
-    model: "openai/gpt-oss-120b",
-    content: "<raciocinio>\n- Intencao: criar repositorio\n- Decisao: criar write gate\n</raciocinio>\n<resposta>\nCriei a solicitação para criar o repositório 'novo-projeto'. Confirme a execução.\n</resposta>",
+  chatCompletion: vi.fn().mockImplementation(async (_config, messages) => {
+    const isRepoGet = messages.some(
+      (m: { content: string }) => typeof m.content === "string" && m.content.includes("Capability executada: repo_get")
+    );
+    if (isRepoGet) {
+      return {
+        provider: "groq",
+        model: "openai/gpt-oss-120b",
+        content: "**Resultado final:** Aqui estão 3 ideias de crescimento para o **bugmeme** baseadas nos dados do repositório:\n1. Adicionar feed interativo de memes.\n2. Integrar exportação automática para redes sociais.",
+      };
+    }
+    return {
+      provider: "groq",
+      model: "openai/gpt-oss-120b",
+      content: "<raciocinio>\n- Intencao: criar repositorio\n- Decisao: criar write gate\n</raciocinio>\n<resposta>\nCriei a solicitação para criar o repositório 'novo-projeto'. Confirme a execução.\n</resposta>",
+    };
   }),
   streamChatCompletion: vi.fn(),
 }));
@@ -93,8 +126,9 @@ vi.mock("@/lib/runtime/model/config", () => ({
 
 import { POST } from "../route";
 import { NextRequest } from "next/server";
+import { chatCompletion } from "@/lib/runtime/model/client";
 
-describe("Chat Path Regression Test (Write Intent & Write Gate)", () => {
+describe("Chat Path Regression Test (Write Intent & Analysis Intent)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -126,5 +160,44 @@ describe("Chat Path Regression Test (Write Intent & Write Gate)", () => {
     expect(toolStep.toolCall.provider).toBe("github");
     expect(toolStep.toolCall.capability).toBe("repo_create");
     expect(toolStep.toolCall.status).toBe("GATE_PENDING");
+  });
+
+  it("executes repo_get tool for growth analysis and returns direct value without opening with a 3-question questionnaire", async () => {
+    const req = new NextRequest("http://localhost:3000/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: "ideias de crescimento para o bugmeme",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json).toBeDefined();
+
+    // Verify tool_call step was returned for repo_get
+    expect(json.steps).toBeDefined();
+    const toolStep = json.steps.find((s: { type: string }) => s.type === "tool_call");
+    expect(toolStep).toBeDefined();
+    expect(toolStep.toolCall.provider).toBe("github");
+    expect(toolStep.toolCall.capability).toBe("repo_get");
+    expect(toolStep.toolCall.status).toBe("ok");
+
+    // Verify answer contains direct ideas and no business intake questionnaire
+    expect(json.message.content).toContain("ideias de crescimento para o **bugmeme**");
+    expect(json.message.content).not.toContain("Qual é o foco principal");
+    expect(json.message.content).not.toContain("Em que estágio ele está hoje");
+
+    // Verify system prompt passed to model forbade discovery questionnaires when repo data exists
+    const mockChatCompletion = vi.mocked(chatCompletion);
+    expect(mockChatCompletion).toHaveBeenCalled();
+    const passedMessages = mockChatCompletion.mock.calls[0][1];
+    const systemPromptMsg = passedMessages.find((m) => m.role === "system")?.content || "";
+    expect(systemPromptMsg).toContain("NÃO abra com questionário de descoberta");
+    expect(systemPromptMsg).toContain("NUNCA faça o questionário de negócio de 3 itens");
   });
 });
