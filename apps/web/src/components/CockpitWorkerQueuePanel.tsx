@@ -183,7 +183,7 @@ export function CockpitWorkerQueuePanel({ onNotify }: Props) {
 
           {(c?.pending ?? 0) > 0 && (
             <p className="text-[11px] text-amber-400/90">
-              Há {c!.pending} job(s) pendente(s). Use "Processar fila agora" ou aguarde o cron (~2 min).
+              Há {c!.pending} job(s) pendente(s). Use &quot;Processar fila agora&quot; ou aguarde o cron (~2 min).
             </p>
           )}
           {(c?.waitingApproval ?? 0) > 0 && (
