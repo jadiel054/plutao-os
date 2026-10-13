@@ -49,6 +49,11 @@ jobs:
         working-directory: apps/android
         run: ./node_modules/.bin/cap sync android
 
+      - name: Checkout llama.cpp vendor
+        run: |
+          mkdir -p apps/android/native/cpp/vendor
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git apps/android/native/cpp/vendor/llama.cpp
+
       - name: Apply Plutão Android branding
         working-directory: apps/android
         run: node scripts/apply-branding.mjs
