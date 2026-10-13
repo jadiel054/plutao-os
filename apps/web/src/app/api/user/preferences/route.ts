@@ -18,8 +18,8 @@ type VoicePrefs = {
 type PreferencesShape = {
   voice?: VoicePrefs;
   onboarding_seen?: boolean;
-  /** standard (default) | elevated — auto-approves allowlisted writes */
-  autonomyMode?: "standard" | "elevated";
+  /** standard | elevated | full — write-gate auto-approval level */
+  autonomyMode?: "standard" | "elevated" | "full";
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -85,11 +85,11 @@ export async function PATCH(req: NextRequest) {
       }
     }
     if ("autonomyMode" in body) {
-      if (body.autonomyMode === "standard" || body.autonomyMode === "elevated") {
+      if (body.autonomyMode === "standard" || body.autonomyMode === "elevated" || body.autonomyMode === "full") {
         patch.autonomyMode = body.autonomyMode;
       } else {
         return NextResponse.json(
-          { error: "autonomyMode deve ser 'standard' ou 'elevated'" },
+          { error: "autonomyMode deve ser 'standard', 'elevated' ou 'full'" },
           { status: 400 }
         );
       }
