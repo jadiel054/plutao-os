@@ -4,7 +4,7 @@
 #include <vector>
 #include <cstring>
 #include <algorithm>
-#include <llama.h>
+#include "llama.h"
 
 #define LOG_TAG "GGUFEngine"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
