@@ -24,6 +24,13 @@ import { formatFileSize } from "@/lib/artifacts";
 import { BrandMark } from "@/components/BrandMark";
 import { SendMessageButton } from "@/components/SendMessageButton";
 import { createMissionIntake } from "@/lib/missions/intakeClient";
+import {
+  listInstalledModels,
+  getSelectedLocalModel,
+  setSelectedLocalModel,
+  runLocalChatCompletion,
+  type InstalledModel,
+} from "@/lib/models/localModelManager";
 
 type PendingWriteGate = {
   id: string;
@@ -67,6 +74,7 @@ type Message = {
   steps?: StructuredStep[];
   trace?: { toolCalls?: ToolCallItem[] };
   isEdited?: boolean;
+  localModelBadge?: string;
 };
 
 type QueuedMessage = {
@@ -148,6 +156,10 @@ function ChatPageInner() {
   const isManualCancelRef = useRef(false);
   const prevSendingRef = useRef(false);
   const activeControllerRef = useRef<AbortController | null>(null);
+
+  // Local Models State
+  const [installedLocalModels, setInstalledLocalModels] = useState<InstalledModel[]>([]);
+  const [selectedLocalModel, setSelectedLocalModelChoice] = useState<string>("cloud");
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -316,9 +328,28 @@ function ChatPageInner() {
     await refreshConversations();
   };
 
+  const refreshLocalModelsList = useCallback(async () => {
+    const list = await listInstalledModels();
+    setInstalledLocalModels(list);
+    const pref = getSelectedLocalModel();
+    if (pref) {
+      setSelectedLocalModelChoice(pref);
+    }
+  }, []);
+
+  const handleSelectModelChoice = (val: string) => {
+    setSelectedLocalModelChoice(val);
+    if (val === "cloud") {
+      setSelectedLocalModel(null);
+    } else {
+      setSelectedLocalModel(val);
+    }
+  };
+
   const init = useCallback(async () => {
     setError(null);
     try {
+      void refreshLocalModelsList();
       const me = await fetch("/api/auth/me", { cache: "no-store" });
       if (!me.ok) { router.replace("/login"); return; }
       const meData = await me.json();
@@ -430,7 +461,7 @@ function ChatPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [router, searchParams, refreshMissions, refreshConversations, selectConversation]);
+  }, [router, searchParams, refreshMissions, refreshConversations, selectConversation, refreshLocalModelsList]);
 
   useEffect(() => { void init(); }, [init]);
 
@@ -448,6 +479,7 @@ function ChatPageInner() {
     }, 1000);
     return () => clearInterval(timer);
   }, [isGuest, guestSecondsRemaining, guestLimitReached]);
+
   useEffect(() => {
     if (userEmail && messages.length > 0) {
       localStorage.setItem(`plutao_chat_${userEmail}`, JSON.stringify(messages));
@@ -579,6 +611,7 @@ function ChatPageInner() {
       addToast("O stream foi interrompido, mas não foi possível confirmar o cancelamento da missão.", "warning");
     }
   }
+
   async function executeSend(
     text: string,
     activeArtifacts: ArtifactRef[],
@@ -623,6 +656,67 @@ function ChatPageInner() {
 
     setInputMessage("");
     setPendingArtifacts([]);
+
+    // Check if local model execution is selected
+    if (selectedLocalModel && selectedLocalModel !== "cloud") {
+      const isInstalled = installedLocalModels.some(
+        (m) => m.id === selectedLocalModel || m.id === selectedLocalModel.replaceAll(/[^a-zA-Z0-9._-]/g, "_")
+      );
+
+      if (!isInstalled) {
+        addToast("Modelo local não instalado. Instale na vitrine ou selecione Nuvem.", "error");
+        setError("Modelo local selecionado não está instalado no dispositivo.");
+        return;
+      }
+
+      setSending(true);
+      const assistantId = crypto.randomUUID();
+      const localModelName =
+        installedLocalModels.find((m) => m.id === selectedLocalModel)?.name || selectedLocalModel;
+
+      const initialAssistantMsg: Message = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        localModelBadge: `Local · ${localModelName}`,
+      };
+
+      setMessages((prev) => [...prev, initialAssistantMsg]);
+
+      try {
+        const localResponse = await runLocalChatCompletion(
+          {
+            messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+            modelId: selectedLocalModel,
+          },
+          (token, accumulated) => {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantId) return m;
+                return { ...m, content: accumulated };
+              })
+            );
+          }
+        );
+
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== assistantId) return m;
+            return { ...m, content: localResponse };
+          })
+        );
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Erro na inferência local";
+        setError(`Falha na inferência local: ${errMsg}`);
+        addToast(`Erro no modelo local: ${errMsg}`, "error");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // Cloud Execution via /api/chat
     setSending(true);
 
     const controller = new AbortController();
@@ -943,7 +1037,6 @@ function ChatPageInner() {
         setAbortController(null);
         activeControllerRef.current = null;
       }
-      // no auto-focus after send (mobile keyboard)
     }
   }
 
@@ -1043,7 +1136,6 @@ function ChatPageInner() {
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
-    // Truncate history after this user message
     const truncatedHistory = messages.slice(0, targetIdx);
     setMessages([...truncatedHistory, updatedUserMsg]);
 
@@ -1051,14 +1143,12 @@ function ChatPageInner() {
     setInputMessage("");
     setPendingArtifacts([]);
 
-    // Call backend patch endpoint to persist edit
     fetch(`/api/chat/messages/${editingMessageId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: editedText }),
-    }).catch(() => {/* ignore if table not present */});
+    }).catch(() => {/* ignore */});
 
-    // Trigger regeneration from this truncated point
     await executeSend(editedText, activeArtifacts, [...truncatedHistory, updatedUserMsg]);
   }
 
@@ -1137,7 +1227,6 @@ function ChatPageInner() {
           }]);
           addToast(`Arquivo "${data.artifact.name}" anexado`, "success");
         } else {
-          // Binary files (PDF, Excel) and Images via FormData
           const formData = new FormData();
           formData.append("file", file);
           if (activeMissionId) formData.append("missionId", activeMissionId);
@@ -1189,59 +1278,95 @@ function ChatPageInner() {
   return (
     <div className="h-[100dvh] min-h-0 flex flex-col overflow-hidden bg-[var(--base)] text-[var(--text-primary)] pb-20 sm:pb-4">
       <>
-      <ChatHistoryDrawer
-        open={isChatMenuOpen}
-        onClose={() => setIsChatMenuOpen(false)}
-        userEmail={userEmail}
-        userInitial={(userEmail?.[0] || "P").toUpperCase()}
-        history={serverConversations.map((c) => ({
-          id: c.id,
-          title: c.title || "Nova conversa",
-          subtitle: c.updatedAt
-            ? new Date(c.updatedAt).toLocaleDateString([], { day: "2-digit", month: "2-digit" })
-            : undefined,
-          isPinned: c.isPinned,
-          projectId: c.projectId,
-          projectName: c.projectName,
-          shareToken: c.shareToken,
-        }))}
-        onNewChat={() => {
-          void selectConversation(null);
-          setSuggestedPlan(null);
-          setSuggestedConnectors([]);
-          setError(null);
-        }}
-        onSelectHistory={(id) => void selectConversation(id)}
-        onRename={handleRenameConversation}
-        onPin={handlePinConversation}
-        onMoveProject={handleMoveProjectConversation}
-        onShare={handleShareConversation}
-        onDelete={handleDeleteConversation}
-        projectsList={projectsList}
-        onNotify={(msg, type) => addToast(msg, type ?? "info")}
-      />
-      <Header
-        userEmail={userEmail}
-        onNotify={(msg, type) => addToast(msg, type)}
-        variant="chat"
-        onOpenMenu={() => setIsChatMenuOpen(true)}
-        onNewChat={() => {
-          void selectConversation(null);
-          setSuggestedPlan(null);
-          setSuggestedConnectors([]);
-          setError(null);
-          if (userEmail) localStorage.removeItem(`plutao_chat_${userEmail}`);
-        }}
-      />
-    </>
+        <ChatHistoryDrawer
+          open={isChatMenuOpen}
+          onClose={() => setIsChatMenuOpen(false)}
+          userEmail={userEmail}
+          userInitial={(userEmail?.[0] || "P").toUpperCase()}
+          history={serverConversations.map((c) => ({
+            id: c.id,
+            title: c.title || "Nova conversa",
+            subtitle: c.updatedAt
+              ? new Date(c.updatedAt).toLocaleDateString([], { day: "2-digit", month: "2-digit" })
+              : undefined,
+            isPinned: c.isPinned,
+            projectId: c.projectId,
+            projectName: c.projectName,
+            shareToken: c.shareToken,
+          }))}
+          onNewChat={() => {
+            void selectConversation(null);
+            setSuggestedPlan(null);
+            setSuggestedConnectors([]);
+            setError(null);
+          }}
+          onSelectHistory={(id) => void selectConversation(id)}
+          onRename={handleRenameConversation}
+          onPin={handlePinConversation}
+          onMoveProject={handleMoveProjectConversation}
+          onShare={handleShareConversation}
+          onDelete={handleDeleteConversation}
+          projectsList={projectsList}
+          onNotify={(msg, type) => addToast(msg, type ?? "info")}
+        />
+        <Header
+          userEmail={userEmail}
+          onNotify={(msg, type) => addToast(msg, type)}
+          variant="chat"
+          onOpenMenu={() => setIsChatMenuOpen(true)}
+          onNewChat={() => {
+            void selectConversation(null);
+            setSuggestedPlan(null);
+            setSuggestedConnectors([]);
+            setError(null);
+            if (userEmail) localStorage.removeItem(`plutao_chat_${userEmail}`);
+          }}
+        />
+      </>
+
+      {/* Model Selector Bar */}
+      <div className="border-b border-[var(--border)] bg-[var(--surface)]/70 px-4 py-2 text-xs font-mono flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-[var(--text-muted)] font-semibold uppercase text-[10px]">Modelo:</span>
+          <select
+            value={selectedLocalModel || "cloud"}
+            onChange={(e) => handleSelectModelChoice(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--base)] px-2.5 py-1 text-xs outline-none text-[var(--text-primary)] cursor-pointer focus:border-[var(--selo)]"
+          >
+            <option value="cloud">Nuvem (AUTO cloud)</option>
+            {installedLocalModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                Local · {m.name}
+              </option>
+            ))}
+          </select>
+          {selectedLocalModel && selectedLocalModel !== "cloud" && (
+            <span className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+              Execução On-Device
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => router.push("/modelos")}
+          className="text-[10px] text-[var(--selo)] hover:underline cursor-pointer font-semibold"
+        >
+          {installedLocalModels.length === 0 ? "+ Instalar modelo local na vitrine" : "Gerenciar vitrine"}
+        </button>
+      </div>
+
       <main className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden p-4">
         {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center py-12 text-center space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-sm font-bold text-[var(--selo)]">P</div>
+            <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-sm font-bold text-[var(--selo)]">
+              P
+            </div>
             <h2 className="text-xl font-semibold">Conversar com {agentName}</h2>
             <p className="text-xs text-[var(--text-secondary)] max-w-md">{agentIdentity}</p>
             <p className="text-[11px] text-[var(--text-muted)] max-w-sm">
-              Conversa livre ou projeto: o Núcleo descobre a intenção, alinha o caminho e só então executa.
+              {selectedLocalModel && selectedLocalModel !== "cloud"
+                ? "Modo Local Ativo: as respostas serão geradas diretamente no seu dispositivo."
+                : "Conversa livre ou projeto: o Núcleo descobre a intenção, alinha o caminho e só então executa."}
             </p>
           </div>
         ) : (
@@ -1263,6 +1388,11 @@ function ChatPageInner() {
                       : "rounded-bl-md border border-[var(--agent-border)] bg-[var(--agent-surface)] backdrop-blur-sm"
                   }`}
                 >
+                  {m.localModelBadge && (
+                    <div className="mb-1 text-[9px] font-mono font-bold text-emerald-400 tracking-wide uppercase">
+                      {m.localModelBadge}
+                    </div>
+                  )}
                   {m.role === "user" && !sending && (
                     <button
                       type="button"
@@ -1320,7 +1450,11 @@ function ChatPageInner() {
             {sending && (
               <div className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 px-3 py-2 text-xs text-[var(--text-muted)]">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--selo)]" aria-hidden />
-                <span>{agentName} trabalhando…</span>
+                <span>
+                  {selectedLocalModel && selectedLocalModel !== "cloud"
+                    ? "Modelo local executando no dispositivo…"
+                    : `${agentName} trabalhando…`}
+                </span>
                 {abortController && (
                   <button
                     type="button"
@@ -1430,13 +1564,22 @@ function ChatPageInner() {
         {error && (
           <div className="mb-2 p-3 rounded-xl border border-[var(--danger)]/50 text-[var(--danger)] text-xs flex items-center justify-between gap-2 bg-[var(--surface)] font-mono">
             <span>{error}</span>
-            <button
-              type="button"
-              onClick={() => void regenerateLast()}
-              className="px-2.5 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] font-bold text-[11px] shrink-0 cursor-pointer font-sans"
-            >
-              Tentar com outro modelo
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => handleSelectModelChoice("cloud")}
+                className="px-2.5 py-1 rounded-lg border border-[var(--border)] text-[var(--text-primary)] font-semibold text-[11px] shrink-0 cursor-pointer"
+              >
+                Usar Nuvem
+              </button>
+              <button
+                type="button"
+                onClick={() => void regenerateLast()}
+                className="px-2.5 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] font-bold text-[11px] shrink-0 cursor-pointer font-sans"
+              >
+                Tentar novamente
+              </button>
+            </div>
           </div>
         )}
 
