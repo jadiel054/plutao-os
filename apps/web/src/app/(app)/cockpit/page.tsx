@@ -1,20 +1,12 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/Header";
 import { MobileNav } from "@/components/MobileNav";
 import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
-import { ConfirmModal } from "@/components/ConfirmModal";
-import {
-  MissionTimeline,
-  buildMissionTimeline,
-} from "@/components/MissionTimeline";
-import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
-import { MissionDoDPanel } from "@/components/MissionDoDPanel";
 import { CockpitAgentFab } from "@/components/CockpitAgentFab";
 import { runAutonomousMission } from "@/lib/cockpit/runAutonomousMission";
-import { usePendingIntents } from "@/hooks/usePendingIntents";
 import { formatModelLabel } from "@/lib/runtime/model/label";
 import { createMissionIntake } from "@/lib/missions/intakeClient";
 
@@ -24,94 +16,19 @@ type MissionRow = {
   status: string;
   definitionOfDone: string | null;
   createdAt: string;
-  isPendingIntent?: boolean;
-  intentStatus?: string;
-  intentError?: string | null;
 };
-
-type TaskRow = { id: string; title: string; status: string };
-
-type EvidenceItem = {
-  id: string;
-  type: string;
-  content: string;
-  source: string;
-  createdAt?: string;
-  taskId?: string | null;
-};
-
-type ExecutionRow = {
-  id: string;
-  status: string;
-  checkpoint: Record<string, unknown> | null;
-  checkpointAt: string | null;
-  jobId?: string;
-  jobStatus?: string;
-  jobAttempts?: number;
-  jobMaxAttempts?: number;
-  jobLastError?: string | null;
-};
-
-function networkErrorMessage(action: string): string {
-  return `Sem conexão: não foi possível ${action}. Reconecte e tente novamente.`;
-}
 
 export default function CockpitPage() {
   const router = useRouter();
-  const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
   const [missions, setMissions] = useState<MissionRow[]>([]);
-  const { intents, reconcile, createOfflineMissionIntent } = usePendingIntents(userId);
   const [objective, setObjective] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const [taskTitle, setTaskTitle] = useState("");
-  const [taskError, setTaskError] = useState<string | null>(null);
-  const [execution, setExecution] = useState<ExecutionRow | null>(null);
-  const [missionEvidence, setMissionEvidence] = useState<EvidenceItem[]>([]);
-  const [allowedTransitions, setAllowedTransitions] = useState<string[]>([]);
-  const [openMissionMeta, setOpenMissionMeta] = useState<{
-    createdAt?: string;
-    status: string;
-    objective: string;
-  } | null>(null);
-  const [panelErrors, setPanelErrors] = useState<{
-    mission?: boolean;
-    tasks?: boolean;
-    executions?: boolean;
-    evidence?: boolean;
-  }>({});
-  const [cpNote, setCpNote] = useState("");
   const [modelConfigured, setModelConfigured] = useState(false);
   const [modelInfo, setModelInfo] = useState("");
-  const [agentName, setAgentName] = useState("Nix");
-  const [agentIdentity, setAgentIdentity] = useState("operador do Plutão OS, assistente pessoal do usuário");
-
-  const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
-  const missionIntakeKeyRef = useRef<{ objective: string; key: string } | null>(null);
-
-  const [dodResult, setDodResult] = useState<{
-    passed: boolean;
-    summary: string;
-    checks: { id: string; label: string; passed: boolean; detail?: string }[];
-  } | null>(null);
-  const [dodLoading, setDodLoading] = useState(false);
-
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [confirmModalState, setConfirmModalState] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    onConfirm: () => void;
-  }>({
-    isOpen: false,
-    title: "",
-    message: "",
-    onConfirm: () => {},
-  });
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -120,7 +37,6 @@ export default function CockpitPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // NOTE: full page body restored from commit d244462; worker queue panel is in layout.tsx
   useEffect(() => {
     void (async () => {
       try {
@@ -130,7 +46,6 @@ export default function CockpitPage() {
           return;
         }
         const meData = await me.json();
-        setUserId(meData.user?.id ?? null);
         setUserEmail(meData.user?.email ?? "");
         const res = await fetch("/api/missions", { cache: "no-store" });
         if (res.ok) {
@@ -150,14 +65,6 @@ export default function CockpitPage() {
           const d = await s.json();
           setModelConfigured(!!d.configured);
           if (d.configured) setModelInfo(d.label ?? formatModelLabel(d.provider, d.model));
-        }
-        const a = await fetch("/api/agent", { cache: "no-store" });
-        if (a.ok) {
-          const d = await a.json();
-          if (d.agent) {
-            setAgentName(d.agent.name || "Plutão");
-            setAgentIdentity(d.agent.identity || "");
-          }
         }
       } catch {
         /* ignore */
@@ -181,7 +88,7 @@ export default function CockpitPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Cockpit de Operações</h1>
             <p className="text-xs text-[var(--text-muted)]">
-              Timeline, evidências, ciclo de vida e runtime da missão
+              Fila do worker, missões e execução autônoma
             </p>
           </div>
           <div className="px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs font-mono text-[var(--selo)] self-start sm:self-auto">
@@ -265,18 +172,20 @@ export default function CockpitPage() {
                     <button
                       type="button"
                       className="text-xs px-2 py-1 rounded-lg border border-[var(--border)]"
-                      onClick={() => void runAutonomousMission({
-                        missionId: m.id,
-                        status: m.status,
-                        execution: null,
-                        taskId: null,
-                        modelConfigured,
-                        onStatus: () => {},
-                        onExecution: () => {},
-                        onEvidence: () => {},
-                        onError: (msg) => addToast(msg, "error"),
-                        onToast: addToast,
-                      })}
+                      onClick={() =>
+                        void runAutonomousMission({
+                          missionId: m.id,
+                          status: m.status,
+                          execution: null,
+                          taskId: null,
+                          modelConfigured,
+                          onStatus: () => {},
+                          onExecution: () => {},
+                          onEvidence: () => {},
+                          onError: (msg) => addToast(msg, "error"),
+                          onToast: addToast,
+                        })
+                      }
                     >
                       ▶ Executar
                     </button>
@@ -292,15 +201,6 @@ export default function CockpitPage() {
       <MobileNav />
       <CockpitAgentFab />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-      <ConfirmModal
-        isOpen={confirmModalState.isOpen}
-        title={confirmModalState.title}
-        message={confirmModalState.message}
-        confirmLabel="Confirmar"
-        cancelLabel="Cancelar"
-        onConfirm={confirmModalState.onConfirm}
-        onCancel={() => setConfirmModalState((p) => ({ ...p, isOpen: false }))}
-      />
     </div>
   );
 }
