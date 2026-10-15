@@ -873,6 +873,16 @@ function ChatPageInner() {
                   })
                 );
               } else if (eventName === "tool_result") {
+                const toolOutText =
+                  (typeof parsed.fullOutput === "string" ? parsed.fullOutput : "") ||
+                  (typeof parsed.summaryOutput === "string" ? parsed.summaryOutput : "");
+                const detectedGate = parseGatePendingFromOutput(toolOutText);
+                if (detectedGate) {
+                  setPendingGates((prev) =>
+                    prev.some((g) => g.id === detectedGate.id) ? prev : [...prev, detectedGate]
+                  );
+                }
+
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== assistantId) return m;
@@ -887,6 +897,7 @@ function ChatPageInner() {
                             fullInput: parsed.fullInput,
                             fullOutput: parsed.fullOutput,
                             durationMs: parsed.durationMs,
+                            ...(detectedGate ? { gateId: detectedGate.id } : {}),
                           },
                         };
                       }
@@ -1569,6 +1580,102 @@ function ChatPageInner() {
                       summary={g.summary}
                       contentPreview={g.contentPreview}
                       onResolved={(result) => {
+                        // Atualiza timeline de mensagens/cards quando o estado do gate muda
+                        setMessages((prevMessages) =>
+                          prevMessages.map((msg) => {
+                            if (!msg.steps && !msg.trace) return msg;
+
+                            let updatedSteps = msg.steps;
+                            if (updatedSteps) {
+                              updatedSteps = updatedSteps.map((step) => {
+                                if (step.type === "tool_call") {
+                                  const matchesGate =
+                                    step.toolCall.gateId === g.id ||
+                                    step.toolCall.summaryOutput?.includes(g.id) ||
+                                    (typeof step.toolCall.fullOutput === "string" && step.toolCall.fullOutput.includes(g.id));
+                                  if (matchesGate) {
+                                    if (result.status === "approved") {
+                                      return {
+                                        ...step,
+                                        toolCall: {
+                                          ...step.toolCall,
+                                          status: "approved",
+                                          summaryOutput: "Gate aprovado. Executando...",
+                                          gateId: g.id,
+                                        },
+                                      };
+                                    }
+                                    if (result.status === "executed") {
+                                      return {
+                                        ...step,
+                                        toolCall: {
+                                          ...step.toolCall,
+                                          status: "executed",
+                                          summaryOutput: result.output ? result.output.slice(0, 300) : "Executado com sucesso.",
+                                          fullOutput: result.output ?? step.toolCall.fullOutput,
+                                          gateId: g.id,
+                                        },
+                                      };
+                                    }
+                                    if (result.status === "rejected") {
+                                      return {
+                                        ...step,
+                                        toolCall: {
+                                          ...step.toolCall,
+                                          status: "rejected",
+                                          summaryOutput: "Recusado pelo usuário.",
+                                          fullOutput: "Operação de escrita recusada pelo usuário.",
+                                          gateId: g.id,
+                                        },
+                                      };
+                                    }
+                                    if (result.status === "failed") {
+                                      return {
+                                        ...step,
+                                        toolCall: {
+                                          ...step.toolCall,
+                                          status: "failed",
+                                          summaryOutput: result.error || "Execução falhou.",
+                                          fullOutput: result.error || "Execução falhou.",
+                                          gateId: g.id,
+                                        },
+                                      };
+                                    }
+                                  }
+                                }
+                                return step;
+                              });
+                            }
+
+                            let updatedTrace = msg.trace;
+                            if (updatedTrace?.toolCalls) {
+                              updatedTrace = {
+                                ...updatedTrace,
+                                toolCalls: updatedTrace.toolCalls.map((tc) => {
+                                  const matchesGate =
+                                    tc.gateId === g.id ||
+                                    tc.summaryOutput?.includes(g.id) ||
+                                    (typeof tc.fullOutput === "string" && tc.fullOutput.includes(g.id));
+                                  if (matchesGate) {
+                                    if (result.status === "approved") return { ...tc, status: "approved", gateId: g.id };
+                                    if (result.status === "executed") return { ...tc, status: "executed", summaryOutput: result.output ? result.output.slice(0, 300) : tc.summaryOutput, fullOutput: result.output ?? tc.fullOutput, gateId: g.id };
+                                    if (result.status === "rejected") return { ...tc, status: "rejected", summaryOutput: "Recusado pelo usuário.", gateId: g.id };
+                                    if (result.status === "failed") return { ...tc, status: "failed", summaryOutput: result.error || "Execução falhou.", gateId: g.id };
+                                  }
+                                  return tc;
+                                }),
+                              };
+                            }
+
+                            return { ...msg, steps: updatedSteps, trace: updatedTrace };
+                          })
+                        );
+
+                        if (result.status === "approved") {
+                          // Gate está sendo executado no servidor
+                          return;
+                        }
+
                         setPendingGates((prev) => prev.filter((x) => x.id !== g.id));
                         if (result.status === "executed") {
                           addToast("Escrita aprovada e executada.", "success");

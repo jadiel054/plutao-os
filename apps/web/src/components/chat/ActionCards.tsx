@@ -6,12 +6,13 @@ export type ToolCallItem = {
   id: string;
   provider: string;
   capability: string;
-  status: "executing" | "ok" | "error";
+  status: "executing" | "ok" | "error" | "GATE_PENDING" | "approved" | "executed" | "rejected" | "failed";
   summaryInput?: string;
   summaryOutput?: string;
   fullInput?: unknown;
   fullOutput?: unknown;
   durationMs?: number;
+  gateId?: string;
 };
 
 type ActionCardsProps = {
@@ -132,9 +133,11 @@ export function ActionCards({ toolCalls }: ActionCardsProps) {
   return (
     <div className="my-3 space-y-3">
       {toolCalls.map((tc) => {
-        const isOk = tc.status === "ok";
-        const isExecuting = tc.status === "executing";
-        const isError = tc.status === "error";
+        const isOk = tc.status === "ok" || tc.status === "executed";
+        const isExecuting = tc.status === "executing" || tc.status === "approved";
+        const isGatePending = tc.status === "GATE_PENDING";
+        const isRejected = tc.status === "rejected";
+        const isError = tc.status === "error" || tc.status === "failed";
 
         const requestText =
           formatPayload(tc.fullInput) ||
@@ -155,8 +158,12 @@ export function ActionCards({ toolCalls }: ActionCardsProps) {
                 <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--border)]/40 text-[11px] shrink-0">
                   {isExecuting ? (
                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  ) : isGatePending ? (
+                    <span className="text-amber-400 text-xs font-bold">🔒</span>
                   ) : isOk ? (
                     <span className="text-emerald-400 text-sm">✓</span>
+                  ) : isRejected ? (
+                    <span className="text-zinc-400 text-xs font-bold">🚫</span>
                   ) : (
                     <span className="text-rose-400 text-sm">✕</span>
                   )}
@@ -181,14 +188,24 @@ export function ActionCards({ toolCalls }: ActionCardsProps) {
               </div>
 
               <div className="shrink-0">
+                {isGatePending && (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    Aprovação necessária
+                  </span>
+                )}
                 {isExecuting && (
                   <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400">
-                    Executando
+                    {tc.status === "approved" ? "Aprovado, executando…" : "Executando"}
                   </span>
                 )}
                 {isOk && (
                   <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400">
                     Concluído
+                  </span>
+                )}
+                {isRejected && (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-zinc-500/15 text-zinc-400">
+                    Recusado
                   </span>
                 )}
                 {isError && (
