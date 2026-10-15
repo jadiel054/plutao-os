@@ -29,6 +29,7 @@ import {
   getSelectedLocalModel,
   setSelectedLocalModel,
   runLocalChatCompletion,
+  stopLocalChatCompletion,
   type InstalledModel,
 } from "@/lib/models/localModelManager";
 
@@ -160,6 +161,10 @@ function ChatPageInner() {
   // Local Models State
   const [installedLocalModels, setInstalledLocalModels] = useState<InstalledModel[]>([]);
   const [selectedLocalModel, setSelectedLocalModelChoice] = useState<string>("cloud");
+  const [localTokenReceived, setLocalTokenReceived] = useState(false);
+  const lastUiUpdateRef = useRef<number>(0);
+  const pendingUiTextRef = useRef<string>("");
+  const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const addToast = (message: string, type: ToastType = "info", title?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
@@ -595,6 +600,11 @@ function ChatPageInner() {
 
   async function stopAgentExecution() {
     isManualCancelRef.current = true;
+    if (selectedLocalModel && selectedLocalModel !== "cloud") {
+      await stopLocalChatCompletion();
+      setSending(false);
+      return;
+    }
     activeControllerRef.current?.abort();
     abortController?.abort();
     if (!activeMissionId) return;
@@ -670,6 +680,14 @@ function ChatPageInner() {
       }
 
       setSending(true);
+      setLocalTokenReceived(false);
+      lastUiUpdateRef.current = 0;
+      pendingUiTextRef.current = "";
+      if (updateTimerRef.current) {
+        clearTimeout(updateTimerRef.current);
+        updateTimerRef.current = null;
+      }
+
       const assistantId = crypto.randomUUID();
       const localModelName =
         installedLocalModels.find((m) => m.id === selectedLocalModel)?.name || selectedLocalModel;
@@ -689,16 +707,41 @@ function ChatPageInner() {
           {
             messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
             modelId: selectedLocalModel,
+            maxTokens: 96,
           },
           (token, accumulated) => {
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (m.id !== assistantId) return m;
-                return { ...m, content: accumulated };
-              })
-            );
+            setLocalTokenReceived(true);
+            pendingUiTextRef.current = accumulated;
+
+            const now = Date.now();
+            if (now - lastUiUpdateRef.current >= 60) {
+              lastUiUpdateRef.current = now;
+              setMessages((prev) =>
+                prev.map((m) => {
+                  if (m.id !== assistantId) return m;
+                  return { ...m, content: accumulated };
+                })
+              );
+            } else if (!updateTimerRef.current) {
+              updateTimerRef.current = setTimeout(() => {
+                updateTimerRef.current = null;
+                lastUiUpdateRef.current = Date.now();
+                const latestText = pendingUiTextRef.current;
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    return { ...m, content: latestText };
+                  })
+                );
+              }, 60);
+            }
           }
         );
+
+        if (updateTimerRef.current) {
+          clearTimeout(updateTimerRef.current);
+          updateTimerRef.current = null;
+        }
 
         setMessages((prev) =>
           prev.map((m) => {
@@ -1447,7 +1490,7 @@ function ChatPageInner() {
                 </div>
               </div>
             ))}
-            {sending && (
+            {sending && (!selectedLocalModel || selectedLocalModel === "cloud" || !localTokenReceived) && (
               <div className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 px-3 py-2 text-xs text-[var(--text-muted)]">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--selo)]" aria-hidden />
                 <span>
@@ -1455,7 +1498,7 @@ function ChatPageInner() {
                     ? "Modelo local executando no dispositivo…"
                     : `${agentName} trabalhando…`}
                 </span>
-                {abortController && (
+                {(abortController || (selectedLocalModel && selectedLocalModel !== "cloud")) && (
                   <button
                     type="button"
                     onClick={() => void stopAgentExecution()}

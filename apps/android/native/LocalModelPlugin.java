@@ -29,6 +29,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 @CapacitorPlugin(name = "LocalModelPlugin")
 public class LocalModelPlugin extends Plugin {
@@ -431,10 +433,62 @@ public class LocalModelPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void stopChatCompletion(PluginCall call) {
+        if (loadedEngine != null) {
+            loadedEngine.cancel();
+            call.resolve(new JSObject().put("stopped", true));
+        } else {
+            call.resolve(new JSObject().put("stopped", false).put("reason", "No engine running"));
+        }
+    }
+
+    private String buildChatMLPrompt(JSArray messages) {
+        StringBuilder sb = new StringBuilder();
+        boolean hasSystemPrompt = false;
+
+        if (messages != null && messages.length() > 0) {
+            for (int i = 0; i < messages.length(); i++) {
+                try {
+                    JSONObject msg = messages.getJSONObject(i);
+                    if (msg != null) {
+                        String role = msg.optString("role", "user");
+                        if ("system".equals(role)) {
+                            hasSystemPrompt = true;
+                            break;
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (!hasSystemPrompt) {
+            sb.append("<|im_start|>system\nVocê é o Nix, assistente do Plutão OS. Responda em português, de forma clara e objetiva.<|im_end|>\n");
+        }
+
+        if (messages != null && messages.length() > 0) {
+            for (int i = 0; i < messages.length(); i++) {
+                try {
+                    JSONObject msg = messages.getJSONObject(i);
+                    if (msg != null) {
+                        String role = msg.optString("role", "user");
+                        String content = msg.optString("content", "");
+                        if (!content.isEmpty()) {
+                            sb.append("<|im_start|>").append(role).append("\n").append(content).append("<|im_end|>\n");
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
+        sb.append("<|im_start|>assistant\n");
+        return sb.toString();
+    }
+
+    @PluginMethod
     public void chatCompletion(PluginCall call) {
         JSArray messages = call.getArray("messages");
         String rawId = call.getString("modelId", loadedModelId);
-        int maxTokens = call.getInt("maxTokens", 1024);
+        int maxTokens = call.getInt("maxTokens", 96);
 
         if (rawId == null) {
             call.reject("No model loaded or specified");
@@ -461,32 +515,26 @@ public class LocalModelPlugin extends Plugin {
                     this.loadedModelId = id;
                 }
 
-                String promptText = "";
-                if (messages != null && messages.length() > 0) {
-                    for (int i = 0; i < messages.length(); i++) {
-                        JSONObject msg = messages.getJSONObject(i);
-                        if (msg != null) {
-                            String role = msg.optString("role", "user");
-                            String content = msg.optString("content", "");
-                            if ("user".equals(role)) {
-                                promptText = content;
-                            }
-                        }
-                    }
-                }
-
-                if (promptText.isEmpty()) {
-                    promptText = "Olá!";
-                }
-
+                String promptText = buildChatMLPrompt(messages);
                 final String finalModelId = id;
+
+                AtomicInteger tokenCount = new AtomicInteger(0);
+                AtomicLong lastEmitTime = new AtomicLong(System.currentTimeMillis());
+
                 String responseText = loadedEngine.generateResponse(promptText, maxTokens, (token, accumulated, done) -> {
-                    JSObject tokenEvent = new JSObject();
-                    tokenEvent.put("token", token);
-                    tokenEvent.put("text", accumulated);
-                    tokenEvent.put("done", done);
-                    tokenEvent.put("modelId", finalModelId);
-                    notifyListeners("localTokenStream", tokenEvent);
+                    int count = tokenCount.incrementAndGet();
+                    long now = System.currentTimeMillis();
+                    long elapsed = now - lastEmitTime.get();
+
+                    if (done || count % 8 == 0 || elapsed >= 50) {
+                        lastEmitTime.set(now);
+                        JSObject tokenEvent = new JSObject();
+                        tokenEvent.put("token", token);
+                        tokenEvent.put("text", accumulated);
+                        tokenEvent.put("done", done);
+                        tokenEvent.put("modelId", finalModelId);
+                        notifyListeners("localTokenStream", tokenEvent);
+                    }
                 });
 
                 JSObject result = new JSObject();

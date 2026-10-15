@@ -4,6 +4,8 @@
 #include <vector>
 #include <cstring>
 #include <algorithm>
+#include <thread>
+#include <atomic>
 #include "llama.h"
 
 #define LOG_TAG "GGUFEngine"
@@ -15,6 +17,7 @@ struct NativeEngineState {
     llama_context* ctx = nullptr;
     const llama_vocab* vocab = nullptr;
     llama_sampler* sampler = nullptr;
+    std::atomic<bool> canceled{false};
 };
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -36,7 +39,16 @@ Java_app_plutao_os_GGUFEngine_nativeLoadModel(JNIEnv *env, jobject thiz, jstring
         return 0;
     }
 
+    uint32_t hwThreads = std::thread::hardware_concurrency();
+    int32_t targetThreads = std::min((int32_t)4, (int32_t)(hwThreads > 0 ? hwThreads : 4));
+
     llama_context_params cparams = llama_context_default_params();
+    cparams.n_ctx = 2048;
+    cparams.n_threads = targetThreads;
+    cparams.n_threads_batch = targetThreads;
+
+    LOGI("nativeLoadModel: configured n_ctx=%u, n_threads=%d (hwThreads=%u)", cparams.n_ctx, targetThreads, hwThreads);
+
     llama_context* ctx = llama_init_from_model(model, cparams);
 
     if (!ctx) {
@@ -46,7 +58,14 @@ Java_app_plutao_os_GGUFEngine_nativeLoadModel(JNIEnv *env, jobject thiz, jstring
     }
 
     const llama_vocab* vocab = llama_model_get_vocab(model);
-    llama_sampler* sampler = llama_sampler_init_greedy();
+
+    // Sampler chain: Top-K, Top-P, Temp, Dist
+    auto sparams = llama_sampler_chain_default_params();
+    llama_sampler* sampler = llama_sampler_chain_init(sparams);
+    llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40));
+    llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.9f, 1));
+    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.7f));
+    llama_sampler_chain_add(sampler, llama_sampler_init_dist(1234));
 
     auto state = new NativeEngineState();
     state->model = model;
@@ -58,6 +77,15 @@ Java_app_plutao_os_GGUFEngine_nativeLoadModel(JNIEnv *env, jobject thiz, jstring
     return reinterpret_cast<jlong>(state);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_app_plutao_os_GGUFEngine_nativeCancel(JNIEnv *env, jobject thiz, jlong handle) {
+    NativeEngineState *state = reinterpret_cast<NativeEngineState*>(handle);
+    if (state) {
+        state->canceled.store(true);
+        LOGI("nativeCancel: generation cancel flag set");
+    }
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_app_plutao_os_GGUFEngine_nativeGenerate(JNIEnv *env, jobject thiz, jlong handle, jstring promptObj, jint maxTokens, jobject callbackObj) {
     NativeEngineState *state = reinterpret_cast<NativeEngineState*>(handle);
@@ -65,6 +93,12 @@ Java_app_plutao_os_GGUFEngine_nativeGenerate(JNIEnv *env, jobject thiz, jlong ha
         LOGE("nativeGenerate: invalid native state or model context uninitialized");
         return env->NewStringUTF("Error: Native GGUF llama context is uninitialized or unloaded");
     }
+
+    state->canceled.store(false);
+
+    // Clear KV cache/memory before each new turn
+    llama_memory_t mem = llama_get_memory(state->ctx);
+    llama_memory_clear(mem, true);
 
     const char *promptCStr = env->GetStringUTFChars(promptObj, nullptr);
     std::string prompt = promptCStr ? promptCStr : "Olá!";
@@ -98,14 +132,30 @@ Java_app_plutao_os_GGUFEngine_nativeGenerate(JNIEnv *env, jobject thiz, jlong ha
     }
 
     std::string fullAccumulatedText;
-    int limit = std::min((int)maxTokens, 256);
+    int limit = maxTokens > 0 ? (int)maxTokens : 96;
 
     for (int i = 0; i < limit; ++i) {
+        if (state->canceled.load()) {
+            LOGI("nativeGenerate: generation loop canceled by user");
+            break;
+        }
+
         llama_token sampledTok = llama_sampler_sample(state->sampler, state->ctx, -1);
+        llama_sampler_accept(state->sampler, sampledTok);
+
+        if (llama_vocab_is_eog(state->vocab, sampledTok)) {
+            LOGI("nativeGenerate: hit EOG / EOS token");
+            break;
+        }
 
         char pieceBuf[256];
         int pieceLen = llama_token_to_piece(state->vocab, sampledTok, pieceBuf, sizeof(pieceBuf), 0, false);
         std::string pieceStr(pieceBuf, pieceLen > 0 ? pieceLen : 0);
+
+        if (pieceStr.find("<|im_end|>") != std::string::npos) {
+            LOGI("nativeGenerate: hit <|im_end|> stop sequence");
+            break;
+        }
 
         fullAccumulatedText += pieceStr;
         bool isDone = (i == limit - 1);
@@ -128,7 +178,12 @@ Java_app_plutao_os_GGUFEngine_nativeGenerate(JNIEnv *env, jobject thiz, jlong ha
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_app_plutao_os_GGUFEngine_nativeFreeModel(JNIEnv *env, jobject thiz, jlong handle) {
+Java_app_plutao_os_GGUFEngine_nativeFreeModel(JNIEnv *env, jobject thiz, jstring handle) {
+    // Unused overload signature if any
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_plutao_os_GGUFEngine_nativeFreeModel__J(JNIEnv *env, jobject thiz, jlong handle) {
     NativeEngineState *state = reinterpret_cast<NativeEngineState*>(handle);
     if (state) {
         if (state->sampler) {

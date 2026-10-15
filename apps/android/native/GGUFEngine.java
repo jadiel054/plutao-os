@@ -67,6 +67,12 @@ public class GGUFEngine {
         return nativeGenerate(this.nativeHandle, promptText, maxTokens, callback);
     }
 
+    public void cancel() {
+        if (isNativeLoaded && this.nativeHandle != 0) {
+            nativeCancel(this.nativeHandle);
+        }
+    }
+
     public void unload() {
         if (isNativeLoaded && this.nativeHandle != 0) {
             nativeFreeModel(this.nativeHandle);
@@ -75,6 +81,7 @@ public class GGUFEngine {
     }
 
     private native long nativeLoadModel(String path);
+    private native void nativeCancel(long handle);
     private native String nativeGenerate(long handle, String prompt, int maxTokens, TokenCallback callback);
     private native void nativeFreeModel(long handle);
 }
