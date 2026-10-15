@@ -28,7 +28,7 @@ export interface LocalModelPluginInterface {
   listModels(): Promise<{ models: InstalledModel[] }>;
   downloadModel(options: { url: string; id: string; name?: string }): Promise<{ status: string; id: string }>;
   cancelDownload(options: { id: string }): Promise<{ cancelled: boolean; id: string }>;
-  importModel(options: { uri: string; name?: string }): Promise<InstalledModel>;
+  importModel(options: { uri?: string; name?: string }): Promise<InstalledModel>;
   deleteModel(options: { id: string }): Promise<{ success: boolean; id: string }>;
   loadModel(options: { id: string }): Promise<{ loaded: boolean; modelId: string }>;
   unloadModel(): Promise<{ unloaded: boolean }>;
@@ -179,33 +179,28 @@ export async function cancelDownload(id: string): Promise<boolean> {
 }
 
 export async function importModelFile(
-  fileOrUri: File | string,
+  fileOrUri?: File | string,
   name?: string
 ): Promise<InstalledModel> {
   if (isNativeLocalSupported()) {
-    let uri: string;
+    let uri = "";
     let importName = name;
 
     if (typeof fileOrUri === "string") {
       uri = fileOrUri;
-    } else {
+    } else if (fileOrUri) {
       importName = name || fileOrUri.name;
-      uri = URL.createObjectURL(fileOrUri);
     }
 
-    try {
-      return await LocalModelNative.importModel({ uri, name: importName });
-    } catch {
-      // Fallback if URL object isn't reachable by Java ContentResolver
-    }
+    return await LocalModelNative.importModel({ uri, name: importName });
   }
 
-  const fileName = typeof fileOrUri === "string" ? name || "imported_model" : fileOrUri.name;
+  const fileName = typeof fileOrUri === "string" ? name || "imported_model" : fileOrUri?.name || name || "imported_model";
   const id = (fileName.endsWith(".gguf") ? fileName.substring(0, fileName.length - 5) : fileName).replaceAll(
     /[^a-zA-Z0-9._-]/g,
     "_"
   );
-  const sizeBytes = typeof fileOrUri === "string" ? 1_000_000 : fileOrUri.size;
+  const sizeBytes = typeof fileOrUri === "string" ? 1_000_000 : fileOrUri?.size || 1_000_000;
 
   const imported: InstalledModel = {
     id,

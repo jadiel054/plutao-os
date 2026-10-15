@@ -184,6 +184,13 @@ function ModelCard({
         </div>
       )}
 
+      {currentProgress && currentProgress.status === "error" && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 space-y-1 text-xs text-rose-300">
+          <p className="font-semibold">Erro no download:</p>
+          <p className="font-mono text-[11px] break-words">{currentProgress.error || "Falha ao baixar arquivo do modelo."}</p>
+        </div>
+      )}
+
       {estimate.band === "red" && expanded && (
         <div className="rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 space-y-3 text-xs text-rose-100">
           <p>
@@ -363,14 +370,24 @@ export default function ModelosPage() {
     router.push("/chat");
   };
 
-  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      await importModelFile(file);
+  const handleImport = async (e?: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      if (e?.target?.files && e.target.files.length > 0) {
+        for (const file of Array.from(e.target.files)) {
+          await importModelFile(file);
+        }
+        if (e.target) e.target.value = "";
+      } else {
+        await importModelFile();
+      }
+      await refreshInstalled();
+      setNotice("");
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (!errMsg.includes("cancelad")) {
+        setNotice(`Falha na importação do modelo: ${errMsg}`);
+      }
     }
-    await refreshInstalled();
-    if (e.target) e.target.value = "";
   };
 
   const signalSummary = useMemo(
@@ -392,9 +409,19 @@ export default function ModelosPage() {
             <span className="text-[10px] font-mono uppercase tracking-[0.22em] text-[var(--selo)]">
               CATÁLOGO · RECOMENDAÇÃO HONESTA {isApk ? "(APK NATIVO)" : ""}
             </span>
-            {isApk && (
+            {isApk ? (
               <div>
-                <input ref={fileInputRef} type="file" accept=".gguf" onChange={(e) => void handleFileImport(e)} className="hidden" />
+                <button
+                  type="button"
+                  onClick={() => void handleImport()}
+                  className="rounded-xl border border-[var(--selo)]/50 bg-[var(--selo)]/10 px-3 py-1.5 text-xs font-mono font-semibold text-[var(--selo)] hover:bg-[var(--selo)]/20 cursor-pointer"
+                >
+                  + Importar GGUF de Transferências
+                </button>
+              </div>
+            ) : (
+              <div>
+                <input ref={fileInputRef} type="file" accept=".gguf" onChange={(e) => void handleImport(e)} className="hidden" />
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
