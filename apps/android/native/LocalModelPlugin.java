@@ -1,11 +1,19 @@
 package app.plutao.os;
 
+import android.app.Activity;
+import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
+import android.provider.OpenableColumns;
+
+import androidx.activity.result.ActivityResult;
+
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONObject;
@@ -102,16 +110,41 @@ public class LocalModelPlugin extends Plugin {
             OutputStream output = null;
 
             try {
-                URL url = new URL(urlStr);
-                connection = (HttpURLConnection) url.openConnection();
-                connection.setConnectTimeout(15000);
-                connection.setReadTimeout(30000);
-                connection.setInstanceFollowRedirects(true);
-                connection.connect();
+                URL currentUrl = new URL(urlStr);
+                int redirects = 0;
+                boolean connected = false;
 
-                int responseCode = connection.getResponseCode();
-                if (responseCode != HttpURLConnection.HTTP_OK) {
-                    notifyError(id, "HTTP error code: " + responseCode);
+                while (redirects < 10 && !connected) {
+                    connection = (HttpURLConnection) currentUrl.openConnection();
+                    connection.setConnectTimeout(15000);
+                    connection.setReadTimeout(30000);
+                    connection.setInstanceFollowRedirects(true);
+                    connection.setRequestProperty("User-Agent", "PlutaoOS/1.0 (Android Native)");
+
+                    int responseCode = connection.getResponseCode();
+                    if (responseCode == HttpURLConnection.HTTP_MOVED_PERM
+                            || responseCode == HttpURLConnection.HTTP_MOVED_TEMP
+                            || responseCode == HttpURLConnection.HTTP_SEE_OTHER
+                            || responseCode == 307
+                            || responseCode == 308) {
+                        String newUrl = connection.getHeaderField("Location");
+                        if (newUrl == null) {
+                            notifyError(id, "HTTP redirect with missing Location header");
+                            return;
+                        }
+                        currentUrl = new URL(currentUrl, newUrl);
+                        connection.disconnect();
+                        redirects++;
+                    } else if (responseCode == HttpURLConnection.HTTP_OK) {
+                        connected = true;
+                    } else {
+                        notifyError(id, "HTTP error code: " + responseCode);
+                        return;
+                    }
+                }
+
+                if (!connected || connection == null) {
+                    notifyError(id, "Failed to connect after redirects");
                     return;
                 }
 
@@ -207,14 +240,67 @@ public class LocalModelPlugin extends Plugin {
     @PluginMethod
     public void importModel(PluginCall call) {
         String uriStr = call.getString("uri");
-        String rawName = call.getString("name", "imported_model");
+        String rawName = call.getString("name");
 
-        if (uriStr == null) {
-            call.reject("uri is required");
+        if (uriStr != null && !uriStr.isEmpty() && !uriStr.startsWith("blob:")) {
+            processImportUri(call, uriStr, rawName);
             return;
         }
 
-        String id = sanitizeId(rawName.endsWith(".gguf") ? rawName.substring(0, rawName.length() - 5) : rawName);
+        saveCall(call);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(call, intent, "handleImportPickerResult");
+    }
+
+    @ActivityCallback
+    private void handleImportPickerResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+            call.reject("Importação cancelada pelo usuário");
+            return;
+        }
+
+        Uri uri = result.getData().getData();
+        if (uri == null) {
+            call.reject("Nenhum arquivo foi selecionado");
+            return;
+        }
+
+        String displayName = getFileNameFromUri(uri);
+        String name = call.getString("name", displayName);
+        processImportUri(call, uri.toString(), name);
+    }
+
+    private String getFileNameFromUri(Uri uri) {
+        String result = null;
+        if ("content".equals(uri.getScheme())) {
+            try (Cursor cursor = getContext().getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (nameIndex != -1) {
+                        result = cursor.getString(nameIndex);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        if (result == null) {
+            result = uri.getPath();
+            if (result != null) {
+                int cut = result.lastIndexOf('/');
+                if (cut != -1) {
+                    result = result.substring(cut + 1);
+                }
+            }
+        }
+        return result != null ? result : "imported_model";
+    }
+
+    private void processImportUri(PluginCall call, String uriStr, String rawName) {
+        String nameToUse = (rawName != null && !rawName.isEmpty()) ? rawName : "imported_model";
+        String id = sanitizeId(nameToUse.endsWith(".gguf") ? nameToUse.substring(0, nameToUse.length() - 5) : nameToUse);
         File targetFile = new File(getModelsDir(), id + ".gguf");
 
         executorService.execute(() -> {
@@ -248,7 +334,7 @@ public class LocalModelPlugin extends Plugin {
 
                 if (!GGUFEngine.validateGGUFHeader(targetFile)) {
                     targetFile.delete();
-                    call.reject("Imported file is not a valid GGUF model");
+                    call.reject("Arquivo importado não é um formato GGUF válido");
                     return;
                 }
 
@@ -262,6 +348,9 @@ public class LocalModelPlugin extends Plugin {
                 call.resolve(result);
 
             } catch (Exception e) {
+                if (targetFile.exists()) {
+                    targetFile.delete();
+                }
                 call.reject("Failed to import model file: " + e.getMessage());
             }
         });

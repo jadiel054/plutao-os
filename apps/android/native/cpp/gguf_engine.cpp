@@ -24,6 +24,8 @@ Java_app_plutao_os_GGUFEngine_nativeLoadModel(JNIEnv *env, jobject thiz, jstring
 
     LOGI("nativeLoadModel: Loading official llama.cpp model weights from %s", path);
 
+    llama_backend_init();
+
     llama_model_params mparams = llama_model_default_params();
     llama_model* model = llama_model_load_from_file(path, mparams);
 
@@ -39,7 +41,7 @@ Java_app_plutao_os_GGUFEngine_nativeLoadModel(JNIEnv *env, jobject thiz, jstring
 
     if (!ctx) {
         LOGE("nativeLoadModel: llama_init_from_model failed");
-        llama_free_model(model);
+        llama_model_free(model);
         return 0;
     }
 
@@ -136,7 +138,7 @@ Java_app_plutao_os_GGUFEngine_nativeFreeModel(JNIEnv *env, jobject thiz, jlong h
             llama_free(state->ctx);
         }
         if (state->model) {
-            llama_free_model(state->model);
+            llama_model_free(state->model);
         }
         delete state;
         LOGI("nativeFreeModel: official llama context and model memory freed");
