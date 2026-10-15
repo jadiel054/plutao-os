@@ -61,7 +61,7 @@ export async function GET(
       }
       const meta = msg.metadata as Record<string, unknown>;
       let steps = Array.isArray(meta.steps) ? [...meta.steps] : undefined;
-      let trace = meta.trace && typeof meta.trace === "object" ? { ...(meta.trace as Record<string, unknown>) } : undefined;
+      const trace = meta.trace && typeof meta.trace === "object" ? { ...(meta.trace as Record<string, unknown>) } : undefined;
 
       let changed = false;
 
