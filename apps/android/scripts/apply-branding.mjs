@@ -61,8 +61,14 @@ try {
     if (!buildGradle.includes("externalNativeBuild")) {
       const cmakeBlock = `    externalNativeBuild {\n        cmake {\n            path "src/main/cpp/CMakeLists.txt"\n            version "3.22.1"\n        }\n    }\n`;
       buildGradle = buildGradle.replace("android {", `android {\n${cmakeBlock}`);
-      await writeFile(buildGradlePath, buildGradle);
     }
+    if (!buildGradle.includes("abiFilters")) {
+      buildGradle = buildGradle.replace(
+        "defaultConfig {",
+        `defaultConfig {\n        ndk {\n            abiFilters "arm64-v8a", "x86_64"\n        }`
+      );
+    }
+    await writeFile(buildGradlePath, buildGradle);
   } catch {
     // build.gradle might not exist yet if cap add android hasn't run locally
   }
