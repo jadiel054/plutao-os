@@ -172,9 +172,14 @@ export async function processUserRuntimeJobs(userId: string, maxJobs = 3) {
 
       if (waitingApproval) {
         const waiting = await waitRuntimeJobForApproval(job.id, job.lockToken ?? "");
+        if (!waiting) {
+          const continued = await continueRuntimeJob(job.id, job.lockToken ?? "");
+          processed.push({ id: job.id, status: continued?.status ?? "PENDING", executionStatus: finalExecution?.status });
+          continue;
+        }
         processed.push({
           id: job.id,
-          status: waiting?.status ?? "WAITING_APPROVAL",
+          status: waiting.status,
           executionStatus: finalExecution?.status,
         });
         continue;
