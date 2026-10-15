@@ -32,6 +32,7 @@ export interface LocalModelPluginInterface {
   deleteModel(options: { id: string }): Promise<{ success: boolean; id: string }>;
   loadModel(options: { id: string }): Promise<{ loaded: boolean; modelId: string }>;
   unloadModel(): Promise<{ unloaded: boolean }>;
+  stopChatCompletion(): Promise<{ stopped: boolean; reason?: string }>;
   chatCompletion(options: {
     messages: ChatMessage[];
     maxTokens?: number;
@@ -251,6 +252,14 @@ export async function unloadModel(): Promise<boolean> {
   return true;
 }
 
+export async function stopLocalChatCompletion(): Promise<boolean> {
+  if (isNativeLocalSupported()) {
+    const res = await LocalModelNative.stopChatCompletion();
+    return res.stopped;
+  }
+  return true;
+}
+
 export async function runLocalChatCompletion(
   options: {
     messages: ChatMessage[];
@@ -260,6 +269,11 @@ export async function runLocalChatCompletion(
   },
   onToken?: (token: string, fullText: string) => void
 ): Promise<string> {
+  const reqOptions = {
+    maxTokens: options.maxTokens ?? 96,
+    ...options,
+  };
+
   if (isNativeLocalSupported()) {
     let listenerHandle: { remove: () => Promise<void> } | null = null;
     if (onToken) {
@@ -271,7 +285,7 @@ export async function runLocalChatCompletion(
       });
     }
 
-    const res = await LocalModelNative.chatCompletion(options);
+    const res = await LocalModelNative.chatCompletion(reqOptions);
     return res.text;
   }
 
