@@ -4,7 +4,7 @@
 
 **Plutão é um cockpit pessoal para executar missões com estado persistente, ferramentas controladas e operação híbrida online/offline.** O agente **Nix** opera como o assistente pessoal e operador do Plutão OS. O projeto organiza uma intenção em uma missão acompanhável, executa etapas por meio do runtime do agente e mantém o histórico necessário para inspeção e retomada.
 
-> **Estado do projeto:** base funcional em evolução. O núcleo de missões, runtime, ferramentas locais, modelos híbridos, autenticação e o primeiro ciclo de conectores estão implementados. A Browser Capability, o Tool Broker dedicado e os mecanismos próprios de permissão, aprovação e evidência ainda fazem parte do trabalho futuro.
+> **Estado do projeto:** base funcional em evolução. O núcleo de missões, runtime, ferramentas locais, modelos híbridos (cloud + GGUF no APK), autenticação e o ciclo de conectores estão implementados. A Browser Capability, o Tool Broker dedicado e os mecanismos próprios de permissão, aprovação e evidência ainda fazem parte do trabalho futuro.
 
 **Produção:** [plutao-os.vercel.app](https://plutao-os.vercel.app)
 **Repositório:** [github.com/jadiel054/plutao-os](https://github.com/jadiel054/plutao-os)
@@ -26,10 +26,11 @@ O cockpit web permite criar e acompanhar missões, consultar o histórico, inter
 | Runtime de agentes | Implementado para o fluxo atual de execução, checkpoints e etapas persistidas. |
 | Ferramentas locais | Implementado: dispatcher atual e sandbox de filesystem com `list`, `read`, `write`, `mkdir` e `stat`, incluindo proteção contra traversal. |
 | Verificação | Implementada no fluxo atual por meio de estados de missão, eventos e critérios de Definition of Done. Isso não corresponde ainda a uma Evidence Engine independente. |
-| Modelos | Implementado o plano híbrido: provedor online configurado e inferência local com Transformers.js, WebGPU e fallback para CPU. |
+| Modelos | Plano híbrido: provedores online configurados; no **APK Android**, GGUF on-device via llama.cpp (vitrine + chat local). No browser, Transformers.js/WebGPU permanece o caminho experimental legado. |
 | Operação offline | Implementada a fila local de intenções pendentes e a reconciliação online do fluxo atual. A execução contínua com o navegador totalmente fechado ainda não está pronta. |
 | Autenticação e dados | Implementados login, registro, sessão e isolamento por `userId`; RLS nativo do Postgres ainda está em configuração. |
-| Conectores | M1–M3 implementados para GitHub: domínio, schema, OAuth e painel. A ponte dos conectores para ferramentas do dispatcher e a missão de fumaça continuam pendentes. |
+| Conectores | GitHub, Vercel e demais no catálogo com OAuth/tools no chat; write gate em escritas. Smokes formais de alguns provedores e missão ponta a ponta ainda pendentes — ver `docs/CURRENT_STATE.md`. |
+| APK Android | Shell Capacitor + CI `android-debug.yml` com artifact debug; modelos GGUF locais no aparelho. |
 
 A matriz detalhada e atualizada está em [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
 
@@ -42,8 +43,8 @@ Para evitar ambiguidade, os itens abaixo não devem ser interpretados como capac
 - Permission Engine e Approval Engine como módulos próprios;
 - Evidence Engine independente por classe de evidência;
 - execução de missões depois que o navegador é completamente fechado;
-- ponte operacional entre GitHub OAuth e ferramentas do dispatcher;
-- exportação completa de dados, exclusão de conta e sincronização multi-dispositivo.
+- exportação completa de dados, exclusão de conta e sincronização multi-dispositivo;
+- publicação do APK em lojas de aplicativos (o build debug já existe no CI).
 
 As especificações dessas capacidades pertencem à arquitetura e à visão de produto. Consulte [`docs/BROWSER_CAPABILITY.md`](docs/BROWSER_CAPABILITY.md) e [`docs/PLATAFORMA_VISAO.md`](docs/PLATAFORMA_VISAO.md) para distingui-las do estado implementado.
 
@@ -52,7 +53,7 @@ As especificações dessas capacidades pertencem à arquitetura e à visão de p
 ```text
 Usuário
   ↓
-Cockpit PWA (Next.js)
+Cockpit PWA (Next.js) / APK Capacitor
   ↓
 APIs de missões, tarefas, execuções e conectores
   ↓
@@ -62,11 +63,11 @@ Runtime de agentes + checkpoints
   ↓
 Dispatcher atual de ferramentas
   ├─ Sandbox de filesystem
-  └─ Nota e armazenamento do fluxo atual
+  └─ Conectores (GitHub, Vercel, …)
   ↓
 Plano de modelos
-  ├─ Inferência online
-  └─ Inferência local (WebGPU/CPU)
+  ├─ Inferência online (provedores cloud)
+  └─ Inferência local no APK (GGUF / llama.cpp); browser: WebGPU/CPU experimental
 ```
 
 A arquitetura de browser, permissões, aprovações, evidências avançadas e integrações adicionais está documentada como evolução planejada; ela não é representada acima como se já estivesse disponível.
@@ -75,10 +76,10 @@ A arquitetura de browser, permissões, aprovações, evidências avançadas e in
 
 - **Aplicação:** Next.js 15, React 19 e App Router;
 - **Interface:** Tailwind CSS, PWA shell e design system dark-first;
-- **Monorepo:** npm workspaces com `apps/web`, `packages/domain` e `packages/db`;
+- **Monorepo:** npm workspaces com `apps/web`, `apps/android` (Capacitor), `packages/domain` e `packages/db`;
 - **Persistência:** PostgreSQL/Neon com Drizzle ORM;
-- **Modelos locais:** `@huggingface/transformers`, WebGPU com fallback para CPU;
-- **Deploy de referência:** Vercel.
+- **Modelos locais:** no APK, GGUF via llama.cpp (NDK); no browser, `@huggingface/transformers` (WebGPU/CPU) experimental;
+- **Deploy de referência:** Vercel; APK debug via GitHub Actions.
 
 ## Executar localmente
 
