@@ -26,45 +26,58 @@ const mockGraphV2 = {
   ],
 };
 
-function getTableName(table: any): string {
-  if (!table) return "";
-  if (typeof table._?.name === "string") return table._.name;
-  if (typeof table.tableName === "string") return table.tableName;
-  for (const sym of Object.getOwnPropertySymbols(table)) {
-    const val = table[sym];
+function getTableName(table: unknown): string {
+  if (!table || typeof table !== "object") return "";
+  const record = table as Record<string | symbol, unknown>;
+  const underscore = record._;
+  if (underscore && typeof underscore === "object") {
+    const name = (underscore as Record<string, unknown>).name;
+    if (typeof name === "string") return name;
+  }
+  if (typeof record.tableName === "string") return record.tableName;
+  for (const sym of Object.getOwnPropertySymbols(record)) {
+    const val = record[sym];
     if (typeof val === "string") return val;
-    if (val && typeof val === "object" && typeof val.name === "string") return val.name;
+    if (val && typeof val === "object" && typeof (val as Record<string, unknown>).name === "string") {
+      return (val as Record<string, unknown>).name as string;
+    }
   }
   return String(table);
 }
 
-function parseSqlCheckpoint(patchCheckpoint: any, existingCheckpoint: any) {
+function parseSqlCheckpoint(
+  patchCheckpoint: unknown,
+  existingCheckpoint: unknown
+): Record<string, unknown> {
   const base =
     existingCheckpoint && typeof existingCheckpoint === "object" && !("queryChunks" in existingCheckpoint)
-      ? existingCheckpoint
+      ? (existingCheckpoint as Record<string, unknown>)
       : {};
   if (!patchCheckpoint || typeof patchCheckpoint !== "object") return base;
-  if ("queryChunks" in patchCheckpoint && Array.isArray(patchCheckpoint.queryChunks)) {
-    for (const chunk of patchCheckpoint.queryChunks) {
+  const rawPatch = patchCheckpoint as Record<string, unknown>;
+  if ("queryChunks" in rawPatch && Array.isArray(rawPatch.queryChunks)) {
+    for (const chunk of rawPatch.queryChunks) {
       if (typeof chunk === "string") {
         const trimmed = chunk.trim();
         if (trimmed.startsWith("{")) {
           try {
-            const parsed = JSON.parse(trimmed);
+            const parsed = JSON.parse(trimmed) as Record<string, unknown>;
             return { ...base, ...parsed };
-          } catch {}
+          } catch {
+            /* ignore */
+          }
         }
       }
     }
     return base;
   }
-  return { ...base, ...patchCheckpoint };
+  return { ...base, ...rawPatch };
 }
 
 describe("Serial Worker Pipeline End-to-End Integration", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(ensureModule, "ensureExecutionsTable").mockResolvedValue(undefined as any);
+    vi.spyOn(ensureModule, "ensureExecutionsTable").mockResolvedValue(undefined as unknown as void);
     vi.spyOn(gatesModule, "listWriteGatesForExecution").mockResolvedValue([]);
   });
 
@@ -103,7 +116,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
         .mockResolvedValueOnce({
           provider: "openai",
           model: "gpt-4o",
-          content: "Nota registrada com sucesso e DoD do nó satisfeita.",
+          content: "Nota registrada com sucesso e DoD do nó satisfied.",
           toolProposal: null,
           usage: { promptTokens: 10, completionTokens: 10 },
           latencyMs: 100,
@@ -114,7 +127,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
         userId: "u1",
         objective: "Registrar nota explicativa",
         definitionOfDone: null,
-        evidence: [] as any[],
+        evidence: [] as unknown[],
         status: "EXECUTING",
         graphVersion: 2,
         missionGraph: mockGraphV2,
@@ -159,7 +172,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
       const mockDb = {
         select: vi.fn().mockImplementation(() => {
           return {
-            from: vi.fn().mockImplementation((table: any) => {
+            from: vi.fn().mockImplementation((table: unknown) => {
               const name = getTableName(table);
               const getResult = () => {
                 if (name === "missions") return [storedMission];
@@ -184,11 +197,11 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
             }),
           };
         }),
-        update: vi.fn().mockImplementation((table: any) => {
+        update: vi.fn().mockImplementation((table: unknown) => {
           const name = getTableName(table);
           return {
-            set: (patch: any) => ({
-              where: (cond: any) => {
+            set: (patch: Record<string, unknown>) => ({
+              where: (_cond: unknown) => {
                 if (name === "executions") {
                   const nextCheckpoint = parseSqlCheckpoint(patch.checkpoint, storedExecution.checkpoint);
                   storedExecution = { ...storedExecution, ...patch, checkpoint: nextCheckpoint };
@@ -209,7 +222,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
         }),
       };
 
-      vi.spyOn(dbModule, "getDb").mockReturnValue(mockDb as any);
+      vi.spyOn(dbModule, "getDb").mockReturnValue(mockDb as unknown as ReturnType<typeof dbModule.getDb>);
 
       const runResult = await runAutonomousMissionServer({
         missionId: "m1",
@@ -223,9 +236,12 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
 
       // Verify node checkpoint was persisted with graph runtime
       expect(storedExecution.checkpoint).toHaveProperty("missionGraphRuntime");
-      const runtime = (storedExecution.checkpoint as any).missionGraphRuntime;
+      const runtime = (storedExecution.checkpoint as Record<string, unknown>).missionGraphRuntime as {
+        version: number;
+        nodes: Record<string, { status: string }>;
+      };
       expect(runtime.version).toBe(2);
-      expect(runtime.nodes["node-1"].status).toBe("PASSED");
+      expect(runtime.nodes["node-1"]?.status).toBe("PASSED");
 
       // Now run processUserRuntimeJobs to verify the complete claim -> outcome pipeline
       const processResult = await processUserRuntimeJobs("u1", 1);
@@ -245,7 +261,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
         userId: "u1",
         objective: "Registrar nota explicativa",
         definitionOfDone: null,
-        evidence: [] as any[],
+        evidence: [] as unknown[],
         status: "EXECUTING",
         graphVersion: 2,
         missionGraph: mockGraphV2,
@@ -290,7 +306,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
       const mockDb = {
         select: vi.fn().mockImplementation(() => {
           return {
-            from: vi.fn().mockImplementation((table: any) => {
+            from: vi.fn().mockImplementation((table: unknown) => {
               const name = getTableName(table);
               const getResult = () => {
                 if (name === "missions") return [storedMission];
@@ -315,11 +331,11 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
             }),
           };
         }),
-        update: vi.fn().mockImplementation((table: any) => {
+        update: vi.fn().mockImplementation((table: unknown) => {
           const name = getTableName(table);
           return {
-            set: (patch: any) => ({
-              where: (cond: any) => {
+            set: (patch: Record<string, unknown>) => ({
+              where: (_cond: unknown) => {
                 if (name === "executions") {
                   const nextCheckpoint = parseSqlCheckpoint(patch.checkpoint, storedExecution.checkpoint);
                   storedExecution = { ...storedExecution, ...patch, checkpoint: nextCheckpoint };
@@ -340,7 +356,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
         }),
       };
 
-      vi.spyOn(dbModule, "getDb").mockReturnValue(mockDb as any);
+      vi.spyOn(dbModule, "getDb").mockReturnValue(mockDb as unknown as ReturnType<typeof dbModule.getDb>);
 
       const runResult = await runAutonomousMissionServer({
         missionId: "m1",
@@ -354,8 +370,11 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
       expect(storedMission.status).toBe("FAILED");
 
       // Verify node checkpoint recorded failure
-      const runtime = (storedExecution.checkpoint as any).missionGraphRuntime;
-      expect(runtime.nodes["node-1"].status).toBe("FAILED");
+      const runtime = (storedExecution.checkpoint as Record<string, unknown>).missionGraphRuntime as {
+        version: number;
+        nodes: Record<string, { status: string }>;
+      };
+      expect(runtime.nodes["node-1"]?.status).toBe("FAILED");
 
       // Process job and ensure outcome is FAILED (without requeue loop)
       const processResult = await processUserRuntimeJobs("u1", 1);
@@ -385,7 +404,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
         })),
       };
 
-      vi.spyOn(dbModule, "getDb").mockReturnValue(mockDb as any);
+      vi.spyOn(dbModule, "getDb").mockReturnValue(mockDb as unknown as ReturnType<typeof dbModule.getDb>);
 
       const processResult = await processUserRuntimeJobs("u-unknown", 1);
       expect(processResult.processed).toHaveLength(0);
