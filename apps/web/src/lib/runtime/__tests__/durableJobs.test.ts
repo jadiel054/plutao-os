@@ -10,9 +10,9 @@ describe("runtime job state machine", () => {
     });
   });
 
-  it("não transforma retorno ok em sucesso quando a execution está FAILED", () => {
+  it("marca FAILED quando a execution está FAILED sem re-enfileirar desnecessariamente", () => {
     expect(resolveRuntimeJobOutcome({ ok: true }, "FAILED")).toEqual({
-      action: "retry",
+      action: "fail",
       status: "FAILED",
       reason: "EXECUTION_FAILED",
     });
