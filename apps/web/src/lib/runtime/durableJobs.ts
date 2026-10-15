@@ -52,7 +52,7 @@ export function resolveRuntimeJobOutcome(
   if (mission === "CANCELLED") {
     return { action: "cancel", status: "CANCELLED", reason: result?.error ?? "MISSION_CANCELLED" };
   }
-  if (["FAILED", "INCONCLUSIVE"].includes(mission) && status === "FAILED") {
+  if (["FAILED", "INCONCLUSIVE"].includes(mission)) {
     return { action: "fail", status: "FAILED", reason: result?.error ?? "MISSION_FAILED" };
   }
   if (status === "COMPLETED") {
@@ -62,7 +62,7 @@ export function resolveRuntimeJobOutcome(
     return { action: "cancel", status: "CANCELLED", reason: result?.error ?? "EXECUTION_CANCELLED" };
   }
   if (status === "FAILED") {
-    return { action: "retry", status: "FAILED", reason: result?.error ?? "EXECUTION_FAILED" };
+    return { action: "fail", status: "FAILED", reason: result?.error ?? "EXECUTION_FAILED" };
   }
   if (["PENDING", "RUNNING", "PAUSED", "INTERRUPTED"].includes(status)) {
     return { action: "retry", status: "PENDING", reason: "EXECUTION_NOT_TERMINAL" };
