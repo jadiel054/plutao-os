@@ -28,6 +28,9 @@ export function WriteGateCard({
   const act = async (decision: "approve" | "reject") => {
     setBusy(decision);
     setError(null);
+    if (decision === "approve") {
+      onResolved?.({ status: "approved" });
+    }
     try {
       const res = await fetch(`/api/gates/${gateId}`, {
         method: "POST",

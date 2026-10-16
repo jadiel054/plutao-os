@@ -744,6 +744,7 @@ ${
               if (toolRunRes.github.trace) {
                 emit("tool_result", {
                   id: toolId,
+                  provider: "github",
                   status: toolRunRes.github.trace.status,
                   summaryOutput: safeTraceOutput(toolRunRes.github.trace.output).slice(0, 300),
                   fullInput: safeTraceInput(toolRunRes.github.trace.input),
@@ -765,6 +766,7 @@ ${
               if (toolRunRes.vercel.trace) {
                 emit("tool_result", {
                   id: toolId,
+                  provider: "vercel",
                   status: toolRunRes.vercel.trace.status,
                   summaryOutput: safeTraceOutput(toolRunRes.vercel.trace.output).slice(0, 300),
                   fullInput: safeTraceInput(toolRunRes.vercel.trace.input),

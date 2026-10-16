@@ -3,6 +3,7 @@ import { eq, asc } from "drizzle-orm";
 import { conversations, messages } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
+import { extractGateIdsFromMessages, lookupGatesForUser, reconstructMessagesGateStatus } from "@/lib/chat/gateLookup";
 
 export const runtime = "nodejs";
 
@@ -44,7 +45,15 @@ export async function GET(
       .where(eq(messages.conversationId, id))
       .orderBy(asc(messages.createdAt));
 
-    return NextResponse.json({ messages: msgRows });
+    const gateIds = extractGateIdsFromMessages(msgRows);
+    if (gateIds.length === 0) {
+      return NextResponse.json({ messages: msgRows });
+    }
+
+    const gateMap = await lookupGatesForUser(user.id, gateIds);
+    const updatedMsgRows = reconstructMessagesGateStatus(msgRows, gateMap);
+
+    return NextResponse.json({ messages: updatedMsgRows });
   } catch (err) {
     console.error("[GET /api/conversations/[id]/messages]", err);
     return NextResponse.json({ error: "Erro ao buscar mensagens" }, { status: 500 });
