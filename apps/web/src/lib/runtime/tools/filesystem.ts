@@ -122,7 +122,8 @@ async function listDirectory(
   executionId: string,
   input: FilesystemListInput
 ): Promise<FilesystemListOutput> {
-  const normalizedPath = validatePath(input.path);
+  const path = input?.path ?? "";
+  const normalizedPath = validatePath(path);
   
   const result = await storageList(executionId, { path: normalizedPath });
   
@@ -141,12 +142,17 @@ async function readFileContent(
   executionId: string,
   input: FilesystemReadInput
 ): Promise<FilesystemReadOutput> {
-  const normalizedPath = validatePath(input.path);
+  const targetPath = input?.path;
+  if (typeof targetPath !== "string") {
+    throw new SandboxSecurityError("INVALID_INPUT", "Caminho do arquivo é obrigatório");
+  }
+
+  const normalizedPath = validatePath(targetPath);
 
   const result = await storageRead(executionId, { path: normalizedPath });
   
   if (!result) {
-    throw new SandboxSecurityError("FILE_NOT_FOUND", `Arquivo não encontrado: ${input.path}`);
+    throw new SandboxSecurityError("FILE_NOT_FOUND", `Arquivo não encontrado: ${targetPath}`);
   }
 
   // Verifica limite de tamanho
@@ -155,7 +161,7 @@ async function readFileContent(
   }
 
   return {
-    path: input.path,
+    path: targetPath,
     content: typeof result.content === "string" ? result.content : result.content.toString("utf-8"),
     size: result.size,
   };
@@ -168,21 +174,27 @@ async function writeFileContent(
   executionId: string,
   input: FilesystemWriteInput
 ): Promise<FilesystemWriteOutput> {
-  const normalizedPath = validatePath(input.path);
+  const targetPath = input?.path;
+  if (typeof targetPath !== "string") {
+    throw new SandboxSecurityError("INVALID_INPUT", "Caminho do arquivo é obrigatório");
+  }
+
+  const content = typeof input?.content === "string" ? input.content : String(input?.content ?? "");
+  const normalizedPath = validatePath(targetPath);
 
   // Verifica limite de tamanho do conteúdo
-  const contentSize = Buffer.byteLength(input.content, "utf-8");
+  const contentSize = Buffer.byteLength(content, "utf-8");
   if (contentSize > MAX_FILE_SIZE) {
     throw new SandboxSecurityError("WRITE_TOO_LARGE", `Conteúdo excede limite de ${MAX_FILE_SIZE} bytes`);
   }
 
   const result = await storageWrite(executionId, { 
     path: normalizedPath,
-    content: input.content,
+    content,
   });
 
   return {
-    path: input.path,
+    path: targetPath,
     size: result.size,
   };
 }
@@ -194,12 +206,17 @@ async function makeDirectory(
   executionId: string,
   input: FilesystemMkdirInput
 ): Promise<FilesystemMkdirOutput> {
-  const normalizedPath = validatePath(input.path);
+  const targetPath = input?.path;
+  if (typeof targetPath !== "string") {
+    throw new SandboxSecurityError("INVALID_INPUT", "Caminho do diretório é obrigatório");
+  }
+
+  const normalizedPath = validatePath(targetPath);
 
   const result = await storageMkdir(executionId, { path: normalizedPath });
 
   return {
-    path: input.path,
+    path: targetPath,
     created: result.created,
   };
 }
@@ -211,12 +228,13 @@ async function statPath(
   executionId: string,
   input: FilesystemStatInput
 ): Promise<FilesystemStatOutput> {
-  const normalizedPath = validatePath(input.path);
+  const targetPath = input?.path ?? "";
+  const normalizedPath = validatePath(targetPath);
 
   const result = await storageStat(executionId, { path: normalizedPath });
 
   return {
-    path: input.path,
+    path: targetPath,
     exists: result.exists,
     type: result.type,
   };
@@ -268,11 +286,15 @@ export async function runFilesystem(
     }
 
     const action = parsedInput.action;
-    const payload = parsedInput.payload;
+    const payload = (
+      parsedInput.payload && typeof parsedInput.payload === "object"
+        ? parsedInput.payload
+        : parsedInput
+    ) as Record<string, unknown>;
 
     switch (action) {
       case "list": {
-        const result = await listDirectory(effectiveExecutionId, payload as FilesystemListInput);
+        const result = await listDirectory(effectiveExecutionId, payload as unknown as FilesystemListInput);
         return {
           ok: true,
           tool: "filesystem",
