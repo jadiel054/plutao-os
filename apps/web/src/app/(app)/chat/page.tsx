@@ -32,6 +32,7 @@ import {
   stopLocalChatCompletion,
   type InstalledModel,
 } from "@/lib/models/localModelManager";
+import { normalizeToolCallGate } from "@/lib/chat/gateStatus";
 
 type PendingWriteGate = {
   id: string;
@@ -45,19 +46,24 @@ type PendingWriteGate = {
   createdAt?: string;
 };
 
-function parseGatePendingFromOutput(output: string | undefined | null): PendingWriteGate | null {
+function parseGatePendingFromOutput(
+  output: string | undefined | null,
+  providerFallback = "github"
+): PendingWriteGate | null {
   if (!output || !output.includes("GATE_PENDING")) return null;
   const idMatch = output.match(
     /gate_id:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
   );
   if (!idMatch?.[1]) return null;
+  const providerMatch = output.match(/provider:\s*(.+)/i)?.[1]?.trim();
+  const provider = providerMatch ?? providerFallback;
   const capability = output.match(/capability:\s*(.+)/i)?.[1]?.trim() ?? "write";
   const target = output.match(/target:\s*(.+)/i)?.[1]?.trim() ?? "";
   const summary =
     output.match(/summary:\s*(.+)/i)?.[1]?.trim() ?? "Escrita pendente de aprovação";
   return {
     id: idMatch[1],
-    provider: "github",
+    provider,
     capability,
     target,
     summary,
@@ -876,7 +882,7 @@ function ChatPageInner() {
                 const toolOutText =
                   (typeof parsed.fullOutput === "string" ? parsed.fullOutput : "") ||
                   (typeof parsed.summaryOutput === "string" ? parsed.summaryOutput : "");
-                const detectedGate = parseGatePendingFromOutput(toolOutText);
+                const detectedGate = parseGatePendingFromOutput(toolOutText, parsed.provider);
                 if (detectedGate) {
                   setPendingGates((prev) =>
                     prev.some((g) => g.id === detectedGate.id) ? prev : [...prev, detectedGate]
@@ -888,11 +894,13 @@ function ChatPageInner() {
                     if (m.id !== assistantId) return m;
                     const prevSteps = (m.steps ?? []).map((s) => {
                       if (s.type === "tool_call" && s.toolCall.id === parsed.id) {
+                        const tcStatus = detectedGate ? "GATE_PENDING" : parsed.status;
                         return {
                           ...s,
                           toolCall: {
                             ...s.toolCall,
-                            status: parsed.status,
+                            provider: parsed.provider || s.toolCall.provider,
+                            status: tcStatus,
                             summaryOutput: parsed.summaryOutput,
                             fullInput: parsed.fullInput,
                             fullOutput: parsed.fullOutput,
@@ -931,11 +939,32 @@ function ChatPageInner() {
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== assistantId) return m;
+                    const normalizedSteps = Array.isArray(parsed.steps)
+                      ? parsed.steps.map((step: StructuredStep) => {
+                          if (step.type === "tool_call") {
+                            return {
+                              ...step,
+                              toolCall: normalizeToolCallGate(step.toolCall),
+                            };
+                          }
+                          return step;
+                        })
+                      : m.steps;
+
+                    const normalizedTrace = parsed.trace?.toolCalls
+                      ? {
+                          ...parsed.trace,
+                          toolCalls: parsed.trace.toolCalls.map((tc: ToolCallItem) =>
+                            normalizeToolCallGate(tc)
+                          ),
+                        }
+                      : m.trace;
+
                     return {
                       ...m,
                       content: parsed.full || m.content,
-                      steps: parsed.steps ?? m.steps,
-                      trace: parsed.trace ?? m.trace,
+                      steps: normalizedSteps,
+                      trace: normalizedTrace,
                     };
                   })
                 );

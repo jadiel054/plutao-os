@@ -159,11 +159,17 @@ export function ActionCards({ toolCalls }: ActionCardsProps) {
                   {isExecuting ? (
                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
                   ) : isGatePending ? (
-                    <span className="text-amber-400 text-xs font-bold">🔒</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
                   ) : isOk ? (
                     <span className="text-emerald-400 text-sm">✓</span>
                   ) : isRejected ? (
-                    <span className="text-zinc-400 text-xs font-bold">🚫</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-400">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                    </svg>
                   ) : (
                     <span className="text-rose-400 text-sm">✕</span>
                   )}
@@ -187,7 +193,7 @@ export function ActionCards({ toolCalls }: ActionCardsProps) {
                 </div>
               </div>
 
-              <div className="shrink-0">
+              <div className="shrink-0" role="status" aria-live="polite">
                 {isGatePending && (
                   <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
                     Aprovação necessária
