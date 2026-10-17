@@ -1803,7 +1803,6 @@ function ChatPageInner() {
           <AgentComputerPanel
             conversationId={activeConversationId}
             missionId={activeMissionId}
-            preferOpen={sending || queue.length > 0}
           />
         </div>
 

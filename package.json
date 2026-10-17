@@ -2,7 +2,7 @@
   "name": "plutao",
   "version": "0.1.0",
   "private": true,
-  "description": "Plut\u00e3o \u2014 Personal Autonomous AI Operating System",
+  "description": "Plutão — Personal Autonomous AI Operating System",
   "scripts": {
     "dev": "npm run dev -w apps/web",
     "build": "npm run build -w apps/web",
@@ -29,6 +29,8 @@
     "shell-quote": "1.11.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "jsdom": "^29.1.1",
     "typescript": "^5",
     "vitest": "^3.0.0"
   }
