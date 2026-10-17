@@ -493,7 +493,7 @@ describe("Filesystem Tool - Security Tests", () => {
       expect(result.error).toBe("UNSUPPORTED_OPERATION");
     });
 
-    it("should reject missing payload", async () => {
+    it("should reject missing payload or path", async () => {
       const result = await runFilesystem(
         JSON.stringify({ action: "read" }),
         TEST_EXECUTION_ID,
@@ -502,7 +502,7 @@ describe("Filesystem Tool - Security Tests", () => {
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error).toBe("PERMISSION_DENIED");
+      expect(result.error).toBe("INVALID_INPUT");
     });
   });
 });
@@ -577,6 +577,28 @@ describe("Filesystem Tool - Size Limit Tests", () => {
 
       // Should be close to the limit
       expect(result.ok).toBe(true);
+    });
+
+    it("should support flat payloads where action and arguments are at root level", async () => {
+      const result = await runFilesystem(
+        JSON.stringify({ action: "write", path: "flat.txt", content: "flat content" }),
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
+      );
+
+      expect(result.ok).toBe(true);
+
+      const readResult = await runFilesystem(
+        JSON.stringify({ action: "read", path: "flat.txt" }),
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
+      );
+
+      expect(readResult.ok).toBe(true);
+      if (readResult.ok) {
+        const output = JSON.parse(readResult.output) as { content: string };
+        expect(output.content).toBe("flat content");
+      }
     });
   });
 });
