@@ -20,7 +20,6 @@ export type AgentEvent = {
 type Props = {
   conversationId: string | null;
   missionId?: string | null;
-  preferOpen?: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -76,7 +75,7 @@ function focusEvent(events: AgentEvent[]): AgentEvent | null {
  * G3 — Computador do agente: só trabalho (action/observation/plan/state_update).
  * Chat messages ficam fora. SSE retoma via ?cursor= / Last-Event-ID no server.
  */
-export function AgentComputerPanel({ conversationId, missionId, preferOpen }: Props) {
+export function AgentComputerPanel({ conversationId, missionId }: Props) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [missionGraph, setMissionGraph] = useState<unknown>(null);
@@ -90,10 +89,6 @@ export function AgentComputerPanel({ conversationId, missionId, preferOpen }: Pr
   const esRef = useRef<EventSource | null>(null);
   const lastSeqRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (preferOpen) setOpen(true);
-  }, [preferOpen]);
 
   useEffect(() => {
     if (!missionId) {

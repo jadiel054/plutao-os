@@ -1,5 +1,32 @@
-import { describe, expect, it } from "vitest";
-import type { AgentEvent } from "@/components/AgentComputerPanel";
+// @vitest-environment jsdom
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import React from "react";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { AgentComputerPanel, type AgentEvent } from "@/components/AgentComputerPanel";
+
+(globalThis as unknown as { React: typeof React }).React = React;
+
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ events: [] }),
+    }))
+  );
+  vi.stubGlobal(
+    "EventSource",
+    vi.fn(() => ({
+      addEventListener: vi.fn(),
+      close: vi.fn(),
+    }))
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 function focusEvent(events: AgentEvent[]): AgentEvent | null {
   if (events.length === 0) return null;
@@ -39,6 +66,34 @@ function base(
     ...partial,
   };
 }
+
+describe("AgentComputerPanel component rendering and state behavior", () => {
+  it("renders closed by default (open = false) and does not have preferOpen prop", () => {
+    render(<AgentComputerPanel conversationId="c1" missionId="m1" />);
+
+    // Painel inicia fechado por padrão: a tela e o conteúdo expansível não aparecem
+    expect(screen.queryByText("Tela")).toBeNull();
+    expect(screen.getByText(/Computador ·/i)).toBeDefined();
+    expect(screen.getByText("Aguardando trabalho do agente")).toBeDefined();
+  });
+
+  it("toggles open state to true when header button is clicked", () => {
+    render(<AgentComputerPanel conversationId="c1" missionId="m1" />);
+
+    expect(screen.queryByText("Tela")).toBeNull();
+
+    const headerButton = screen.getByRole("button", { name: /Computador ·/i });
+    fireEvent.click(headerButton);
+
+    // Painel expandido após o clique
+    expect(screen.getByText("Tela")).toBeDefined();
+    expect(screen.getByText("Atividade")).toBeDefined();
+
+    // Clique novamente fecha o painel
+    fireEvent.click(headerButton);
+    expect(screen.queryByText("Tela")).toBeNull();
+  });
+});
 
 describe("AgentComputerPanel feed helpers", () => {
   it("focus prefers last observation", () => {
