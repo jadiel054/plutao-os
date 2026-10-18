@@ -6,7 +6,7 @@ import {
   requestNativeNotificationPermissions,
   CATEGORY_CHANNELS,
 } from "../capacitorNotifications";
-import { LocalNotifications } from "@capacitor/local-notifications";
+import { LocalNotifications, PermissionStatus } from "@capacitor/local-notifications";
 import { Capacitor } from "@capacitor/core";
 
 vi.mock("@capacitor/core", () => ({
@@ -66,7 +66,7 @@ describe("Capacitor Native Notifications", () => {
 
   it("retorna 'granted' diretamente quando a permissão já foi concedida", async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-    vi.mocked(LocalNotifications.checkPermissions).mockResolvedValueOnce({ display: "granted" } as any);
+    vi.mocked(LocalNotifications.checkPermissions).mockResolvedValueOnce({ display: "granted" } as PermissionStatus);
 
     const status = await ensureNotificationPermissionWithStatus();
     expect(status).toBe("granted");
@@ -75,17 +75,20 @@ describe("Capacitor Native Notifications", () => {
 
   it("solicita permissão nativa se o status atual for prompt", async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-    vi.mocked(LocalNotifications.checkPermissions).mockResolvedValueOnce({ display: "prompt" } as any);
-    vi.mocked(LocalNotifications.requestPermissions).mockResolvedValueOnce({ display: "granted" } as any);
+    vi.mocked(LocalNotifications.checkPermissions).mockResolvedValueOnce({ display: "prompt" } as PermissionStatus);
+    vi.mocked(LocalNotifications.requestPermissions).mockResolvedValueOnce({ display: "granted" } as PermissionStatus);
 
     const status = await ensureNotificationPermissionWithStatus();
     expect(status).toBe("granted");
     expect(LocalNotifications.requestPermissions).toHaveBeenCalledTimes(1);
+
+    const reqGranted = await requestNativeNotificationPermissions();
+    expect(reqGranted).toBe(true);
   });
 
   it("retorna 'denied' quando a permissão for negada pelo usuário", async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-    vi.mocked(LocalNotifications.checkPermissions).mockResolvedValueOnce({ display: "denied" } as any);
+    vi.mocked(LocalNotifications.checkPermissions).mockResolvedValueOnce({ display: "denied" } as PermissionStatus);
 
     const status = await ensureNotificationPermissionWithStatus();
     expect(status).toBe("denied");

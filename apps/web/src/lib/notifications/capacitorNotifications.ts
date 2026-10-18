@@ -22,12 +22,12 @@ export const CATEGORY_CHANNELS: Record<NotificationCategory, { name: string; des
   tasks: {
     name: "Tarefas",
     description: "Lembretes e mudanças de status de tarefas",
-    defaultSound: "plutao_pulse",
+    defaultSound: "task_nudge",
   },
   alerts: {
     name: "Alertas Críticos",
     description: "Alertas críticos, falhas e aprovações de segurança",
-    defaultSound: "plutao_radar",
+    defaultSound: "alert_critical",
   },
 };
 
@@ -159,7 +159,7 @@ export async function scheduleNativeNotification(options: {
           body: options.body,
           channelId: channelId,
           extra: options.extra ?? {},
-          smallIcon: "ic_stat_icon_config_sample", // ou ícone padrão
+          smallIcon: "ic_stat_icon_config_sample",
           iconColor: "#6366F1",
         },
       ],
@@ -167,4 +167,28 @@ export async function scheduleNativeNotification(options: {
   } catch (error) {
     console.error(`[CapacitorNotifications] Erro ao agendar notificação em ${options.category}:`, error);
   }
+}
+
+/**
+ * Dispara uma notificação para a categoria dada com canal e som garantidos no Android.
+ */
+export async function triggerCategoryNotification(options: {
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  soundId?: string;
+  extra?: Record<string, unknown>;
+}): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+
+  if (options.soundId) {
+    await setupCategoryChannel(options.category, options.soundId);
+  }
+
+  await scheduleNativeNotification({
+    category: options.category,
+    title: options.title,
+    body: options.body,
+    extra: options.extra,
+  });
 }
