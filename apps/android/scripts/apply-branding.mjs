@@ -4,6 +4,23 @@ import { fileURLToPath } from "node:url";
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(scriptsDir, "..");
+const repoRootDir = path.resolve(appDir, "..", "..");
+const soundsSource = path.join(repoRootDir, "apps", "web", "public", "sounds");
+const rawBrandingTarget = path.join(appDir, "branding", "res", "raw");
+
+// Sync sounds from web public directory to Android branding res/raw
+try {
+  await mkdir(rawBrandingTarget, { recursive: true });
+  const soundEntries = await readdir(soundsSource, { withFileTypes: true });
+  for (const entry of soundEntries) {
+    if (entry.isFile() && (entry.name.endsWith(".wav") || entry.name.endsWith(".ogg") || entry.name.endsWith(".mp3"))) {
+      await cp(path.join(soundsSource, entry.name), path.join(rawBrandingTarget, entry.name), { force: true });
+    }
+  }
+} catch {
+  // ignore if web sounds directory is not present
+}
+
 const source = path.join(appDir, "branding", "res");
 const target = path.join(appDir, "android", "app", "src", "main", "res");
 const manifestPath = path.join(appDir, "android", "app", "src", "main", "AndroidManifest.xml");
@@ -76,13 +93,24 @@ try {
   // Ignore if nativeSourceDir not found
 }
 
-const manifest = await readFile(manifestPath, "utf8");
-const oauthIntentFilter = `            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n                <data android:scheme="plutao" android:host="oauth" />\n            </intent-filter>`;
-if (!manifest.includes('android:scheme="plutao"')) {
-  const updatedManifest = manifest.replace(
-    `                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>`,
-    `                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>\n${oauthIntentFilter}`
-  );
-  await writeFile(manifestPath, updatedManifest);
+try {
+  let manifest = await readFile(manifestPath, "utf8");
+  const oauthIntentFilter = `            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n                <data android:scheme="plutao" android:host="oauth" />\n            </intent-filter>`;
+  if (!manifest.includes('android:scheme="plutao"')) {
+    manifest = manifest.replace(
+      `                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>`,
+      `                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>\n${oauthIntentFilter}`
+    );
+  }
+
+  // Ensure POST_NOTIFICATIONS permission for Android 13+
+  const postNotifPermission = `    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />`;
+  if (!manifest.includes("android.permission.POST_NOTIFICATIONS")) {
+    manifest = manifest.replace("<application", `${postNotifPermission}\n    <application`);
+  }
+
+  await writeFile(manifestPath, manifest);
+} catch {
+  // Manifest might not exist yet if cap add android hasn't run locally
 }
 console.log(`Applied Plutão Android branding and native C++ plugins from ${source}`);
