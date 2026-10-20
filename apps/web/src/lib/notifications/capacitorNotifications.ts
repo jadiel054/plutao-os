@@ -159,7 +159,7 @@ export async function scheduleNativeNotification(options: {
           body: options.body,
           channelId: channelId,
           extra: options.extra ?? {},
-          smallIcon: "ic_stat_icon_config_sample",
+          smallIcon: "ic_launcher",
           iconColor: "#6366F1",
         },
       ],

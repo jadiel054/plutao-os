@@ -33,6 +33,7 @@ import {
   type InstalledModel,
 } from "@/lib/models/localModelManager";
 import { normalizeToolCallGate } from "@/lib/chat/gateStatus";
+import { dispatchAppNotification } from "@/lib/notifications/notifyService";
 
 type PendingWriteGate = {
   id: string;
@@ -919,9 +920,18 @@ function ChatPageInner() {
                   (typeof parsed.summaryOutput === "string" ? parsed.summaryOutput : "");
                 const gate = parseGatePendingFromOutput(outText);
                 if (gate) {
-                  setPendingGates((prev) =>
-                    prev.some((g) => g.id === gate.id) ? prev : [...prev, gate]
-                  );
+                  setPendingGates((prev) => {
+                    const exists = prev.some((g) => g.id === gate.id);
+                    if (!exists) {
+                      void dispatchAppNotification({
+                        category: "alerts",
+                        title: "Aprovação necessária",
+                        body: `${gate.provider}: ${gate.summary}`,
+                        data: { gateId: gate.id, conversationId: activeConversationId },
+                      });
+                    }
+                    return exists ? prev : [...prev, gate];
+                  });
                 }
               } else if (eventName === "content_delta") {
                 setMessages((prev) =>
@@ -968,6 +978,18 @@ function ChatPageInner() {
                     };
                   })
                 );
+
+                const finalMessage = parsed.full || "";
+                const shortBody = finalMessage.slice(0, 80) + (finalMessage.length > 80 ? "…" : "");
+                void dispatchAppNotification({
+                  category: activeMissionId ? "missions" : "tasks",
+                  title: `${agentName} respondeu`,
+                  body: shortBody || "Resposta final do assistente disponível.",
+                  data: {
+                    conversationId: activeConversationId,
+                    missionId: activeMissionId,
+                  },
+                });
 
                 if (parsed.guestSession) {
                   setGuestMessagesRemaining(parsed.guestSession.messagesRemaining);
