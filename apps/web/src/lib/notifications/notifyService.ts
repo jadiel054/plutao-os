@@ -41,10 +41,10 @@ export function getLocalNotificationPrefs(): LocalNotificationPrefs {
     if (!raw) return DEFAULT_PREFS;
     const parsed = JSON.parse(raw);
     return {
-      notifyMissions: parsed.notifyMissions ?? DEFAULT_PREFS.notifyMissions,
-      notifyTasks: parsed.notifyTasks ?? DEFAULT_PREFS.notifyTasks,
-      notifyAlerts: parsed.notifyAlerts ?? DEFAULT_PREFS.notifyAlerts,
-      notifySounds: parsed.notifySounds ?? DEFAULT_PREFS.notifySounds,
+      notifyMissions: typeof parsed.notifyMissions === "boolean" ? parsed.notifyMissions : DEFAULT_PREFS.notifyMissions,
+      notifyTasks: typeof parsed.notifyTasks === "boolean" ? parsed.notifyTasks : DEFAULT_PREFS.notifyTasks,
+      notifyAlerts: typeof parsed.notifyAlerts === "boolean" ? parsed.notifyAlerts : DEFAULT_PREFS.notifyAlerts,
+      notifySounds: typeof parsed.notifySounds === "boolean" ? parsed.notifySounds : DEFAULT_PREFS.notifySounds,
       soundGlobal: parsed.soundGlobal || DEFAULT_PREFS.soundGlobal,
       soundMissions: parsed.soundMissions || parsed.soundGlobal || DEFAULT_PREFS.soundMissions,
       soundTasks: parsed.soundTasks || parsed.soundGlobal || DEFAULT_PREFS.soundTasks,
@@ -55,6 +55,42 @@ export function getLocalNotificationPrefs(): LocalNotificationPrefs {
   }
 }
 
+const recentNotificationsCache = new Map<string, number>();
+const DEDUPE_WINDOW_MS = 30_000;
+
+export function clearNotificationDedupeCache(): void {
+  recentNotificationsCache.clear();
+}
+
+function isDuplicateNotification(options: DispatchNotificationOptions): boolean {
+  const entityId =
+    (options.data?.missionId as string) ||
+    (options.data?.conversationId as string) ||
+    (options.data?.gateId as string) ||
+    (options.data?.status as string) ||
+    "";
+  const key = `${options.category}:${entityId}:${options.title}:${options.body}`;
+  const now = Date.now();
+  const lastTime = recentNotificationsCache.get(key);
+
+  if (lastTime && now - lastTime < DEDUPE_WINDOW_MS) {
+    return true;
+  }
+
+  recentNotificationsCache.set(key, now);
+
+  // Clean stale keys periodically
+  if (recentNotificationsCache.size > 100) {
+    for (const [k, t] of recentNotificationsCache.entries()) {
+      if (now - t >= DEDUPE_WINDOW_MS) {
+        recentNotificationsCache.delete(k);
+      }
+    }
+  }
+
+  return false;
+}
+
 export async function dispatchAppNotification(options: DispatchNotificationOptions): Promise<void> {
   const prefs = getLocalNotificationPrefs();
 
@@ -62,6 +98,11 @@ export async function dispatchAppNotification(options: DispatchNotificationOptio
   if (options.category === "missions" && !prefs.notifyMissions) return;
   if (options.category === "tasks" && !prefs.notifyTasks) return;
   if (options.category === "alerts" && !prefs.notifyAlerts) return;
+
+  // Deduplicação em janela curta (~30s)
+  if (isDuplicateNotification(options)) {
+    return;
+  }
 
   // Determinar toque escolhido para a categoria
   let tone = options.soundId;

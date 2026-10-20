@@ -51,6 +51,8 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
   const [speaking, setSpeaking] = useState(false);
+  const [speakLoading, setSpeakLoading] = useState(false);
+  const [speakError, setSpeakError] = useState<string | null>(null);
   const [playElapsed, setPlayElapsed] = useState(0);
   const [playTotal, setPlayTotal] = useState<number | null>(null);
 
@@ -77,26 +79,41 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
   }
 
   async function handleSpeak() {
-    if (speaking) {
+    if (speaking || speakLoading) {
       stopSpeaking();
       setSpeaking(false);
+      setSpeakLoading(false);
       setPlayElapsed(0);
       setPlayTotal(null);
       return;
     }
-    setSpeaking(true);
+    setSpeakError(null);
+    setSpeakLoading(true);
     setPlayElapsed(0);
     setPlayTotal(null);
+
     try {
       const prefs = await loadVoicePrefs();
-      await speakText(content, prefs, {
+      setSpeaking(true);
+      setSpeakLoading(false);
+
+      const res = await speakText(content, prefs, {
         onPlaybackTick: (elapsedMs, totalMs) => {
           setPlayElapsed(elapsedMs);
           setPlayTotal(totalMs);
         },
       });
+
+      if (res.engine === "native" && typeof window !== "undefined" && !("speechSynthesis" in window)) {
+        setSpeakError("Síntese de voz indisponível no navegador.");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Falha ao reproduzir áudio";
+      setSpeakError(msg);
+      setTimeout(() => setSpeakError(null), 4000);
     } finally {
       setSpeaking(false);
+      setSpeakLoading(false);
       setPlayElapsed(0);
       setPlayTotal(null);
     }
@@ -117,17 +134,29 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
       <button type="button" className={btn} onClick={() => void handleShare()} title="Compartilhar" aria-label="Compartilhar">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" strokeLinecap="round" /></svg>
       </button>
-      <button type="button" className={btn} onClick={() => void handleSpeak()} title={speaking ? "Parar" : "Ouvir"} aria-label="Ouvir">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M11 5L6 9H2v6h4l5 4V5z" strokeLinejoin="round" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" strokeLinecap="round" /></svg>
+      <button
+        type="button"
+        className={`${btn} ${speaking ? "text-[var(--selo)]" : ""} ${speakError ? "text-rose-400" : ""}`}
+        onClick={() => void handleSpeak()}
+        title={speaking ? "Parar" : speakLoading ? "Iniciando…" : "Ouvir"}
+        aria-label="Ouvir"
+      >
+        {speakLoading ? (
+          <span className="w-3.5 h-3.5 border-2 border-[var(--selo)] border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M11 5L6 9H2v6h4l5 4V5z" strokeLinejoin="round" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" strokeLinecap="round" /></svg>
+        )}
       </button>
-      {speaking ? (
+      {(speaking || speakLoading) ? (
         <span className="inline-flex items-center gap-1.5 ml-0.5 min-w-0" aria-live="polite">
           <span className="text-[10px] font-mono tabular-nums text-[var(--text-muted)] whitespace-nowrap">
-            {playTotal != null
-              ? `${formatPlaybackClock(playElapsed)} / ${formatPlaybackClock(playTotal)}`
-              : "Reproduzindo…"}
+            {speakLoading
+              ? "Iniciando áudio…"
+              : playTotal != null
+                ? `${formatPlaybackClock(playElapsed)} / ${formatPlaybackClock(playTotal)}`
+                : "Reproduzindo…"}
           </span>
-          {playTotal != null && playTotal > 0 ? (
+          {speaking && playTotal != null && playTotal > 0 ? (
             <span
               className="h-1 w-12 rounded-full bg-[var(--border)] overflow-hidden"
               role="progressbar"
@@ -141,6 +170,10 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
               />
             </span>
           ) : null}
+        </span>
+      ) : speakError ? (
+        <span className="text-[10px] font-mono text-rose-400 ml-1 truncate max-w-[180px]" title={speakError}>
+          {speakError}
         </span>
       ) : null}
       {onRegenerate ? (
