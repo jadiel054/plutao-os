@@ -189,6 +189,13 @@ export default function CockpitPage() {
                     >
                       ▶ Executar
                     </button>
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 rounded-lg border border-[var(--selo)]/50 text-[var(--selo)]"
+                      onClick={() => router.push(`/cockpit/missions/${m.id}`)}
+                    >
+                      Abrir console
+                    </button>
                   </div>
                 </li>
               ))}
