@@ -579,7 +579,7 @@ ${
               VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig!.provider) &&
               validatedArtifacts.length > 0
             ) {
-              const imageParts = buildImageParts(validatedArtifacts);
+              const imageParts = await buildImageParts(validatedArtifacts);
               if (imageParts.length > 0 && payloadMessages.length > 0) {
                 const lastIdx = payloadMessages.length - 1;
                 const existingContent =
@@ -1044,7 +1044,7 @@ ${
     }
 
     if (VISION_CAPABLE_PROVIDERS.includes(effectiveModelConfig.provider) && validatedArtifacts.length > 0) {
-      const imageParts = buildImageParts(validatedArtifacts);
+      const imageParts = await buildImageParts(validatedArtifacts);
 
       if (imageParts.length > 0 && payloadMessages.length > 0) {
         const lastIdx = payloadMessages.length - 1;
@@ -1075,7 +1075,7 @@ ${
         console.warn("[chat] Gemini indisponível, fallback para", fallbackConfig.model, "-", errMsg);
 
         if (VISION_CAPABLE_PROVIDERS.includes(fallbackConfig.provider) && validatedArtifacts.length > 0) {
-          const imageParts = buildImageParts(validatedArtifacts);
+          const imageParts = await buildImageParts(validatedArtifacts);
           if (imageParts.length > 0 && payloadMessages.length > 0) {
             const lastIdx = payloadMessages.length - 1;
             const existingContent =
