@@ -4,6 +4,7 @@ import { getAccessToken, getConnectorRow } from "@/lib/connectors/service";
 import { getOwnedExecution } from "@/lib/runtime/service";
 import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
 import { KNOWN_TOOLS } from "@/lib/runtime/tools/types";
+import { isArtemisEnabled } from "@/lib/artemis/client";
 
 export const runtime = "nodejs";
 
@@ -60,6 +61,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
           "pulls_list",
           "actions_list",
         ],
+      },
+      {
+        name: "artemis",
+        requiresConnector: "artemis",
+        available: isArtemisEnabled() && Boolean(process.env.ARTEMIS_GH_PAT),
+        description: "Executar uma instrução Android assíncrona em device autorizado; exige Write Gate.",
+        connectorStatus: isArtemisEnabled() ? "configured" : "disabled",
+        actions: ["device_execute"],
       },
     ],
     known: [...KNOWN_TOOLS],

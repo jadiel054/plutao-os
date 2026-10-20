@@ -12,6 +12,8 @@ import { runCloudflare } from "@/lib/runtime/tools/cloudflare";
 import { runRender } from "@/lib/runtime/tools/render";
 import { runSupabase } from "@/lib/runtime/tools/supabase";
 import { runTelegram } from "@/lib/runtime/tools/telegram";
+import { runArtemis } from "@/lib/runtime/tools/artemis";
+import { runAutomationExecutor } from "@/lib/runtime/tools/automation";
 import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
 import { getDb } from "@/lib/db";
 import { missions } from "@plutao/db";
@@ -116,6 +118,17 @@ async function executeApprovedGate(
     }
     case "telegram": {
       const r = await runTelegram(execInput, userId, executionId ?? undefined);
+      return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
+    }
+    case "artemis": {
+      const r = await runArtemis(execInput, userId, executionId ?? undefined);
+      return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
+    }
+    case "maestro":
+    case "appium":
+    case "playwright":
+    case "androidworld": {
+      const r = await runAutomationExecutor(provider as "maestro" | "appium" | "playwright" | "androidworld", execInput, userId, executionId ?? undefined);
       return r.ok ? { ok: true, output: r.output } : { ok: false, error: r.error };
     }
     default:

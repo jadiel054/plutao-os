@@ -51,7 +51,7 @@ export type ConnectorManifest = {
   description: string;
   category: ConnectorCategory;
   featured?: boolean;
-  authMode: "oauth" | "token";
+  authMode: "oauth" | "token" | "internal";
   baseUrl: string;
   headers?: (token: string) => Record<string, string>;
   oauth?: OAuthManifestConfig;
@@ -59,4 +59,6 @@ export type ConnectorManifest = {
   capabilities: CapabilityManifest[];
   defaultScopes?: string[];
   defaultServerUrl?: string;
+  /** Internal server integration; never render as a user connector. */
+  runtimeOnly?: boolean;
 };

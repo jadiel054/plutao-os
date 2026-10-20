@@ -1,0 +1,58 @@
+name: Maestro mobile regression
+on:
+  workflow_dispatch:
+    inputs:
+      flow:
+        description: Maestro YAML flow (prefer versioned flow from Plutão)
+        required: true
+        type: string
+      nonce:
+        required: true
+        type: string
+      device_serial:
+        required: true
+        type: string
+      device_tailnet_name:
+        required: true
+        type: string
+run-name: Maestro ${{ inputs.nonce }}
+permissions: { contents: read }
+concurrency:
+  group: mobile-device-${{ inputs.device_serial }}
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FLOW: ${{ inputs.flow }}
+      DEVICE_SERIAL: ${{ inputs.device_serial }}
+      DEVICE_TAILNET: ${{ inputs.device_tailnet_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+      - name: Install Android and Maestro
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y adb
+          curl -Ls https://get.maestro.mobile.dev | bash
+      - name: Connect device
+        run: |
+          adb start-server
+          adb connect "$DEVICE_TAILNET:5555"
+          for i in $(seq 1 10); do adb -s "$DEVICE_SERIAL" get-state 2>/dev/null | grep -q device && break || sleep 2; done
+          adb -s "$DEVICE_SERIAL" get-state | grep -q device
+      - name: Run deterministic flow
+        run: |
+          mkdir -p out
+          printf '%s' "$FLOW" > out/flow.yaml
+          maestro test out/flow.yaml --format junit --output out/results.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-${{ inputs.nonce }}
+          path: out
+          if-no-files-found: warn
+          retention-days: 7

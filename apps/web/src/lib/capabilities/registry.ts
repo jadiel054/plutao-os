@@ -206,6 +206,22 @@ const DECLARATIONS: Record<ConnectorProviderId, Declaration[]> = {
     { capability: "deploy_trigger", mode: "write" },
     { capability: "env_set", mode: "write", notes: "Valor nunca é exposto em trace/preview." },
   ],
+  artemis: [
+    {
+      capability: "device_execute",
+      mode: "write",
+      notes: "Executa em device Android físico; nunca entra na allowlist de auto-aprovação elevated.",
+      evidence: [
+        "lib/runtime/tools/artemis.ts#runArtemis",
+        "lib/artemis/client.ts#dispatchWorkflow",
+        "app/api/cron/artemis-poller/route.ts",
+      ],
+    },
+  ],
+  maestro: [{ capability: "device_execute", mode: "write", notes: "Fluxo YAML versionado; gate obrigatório.", evidence: ["lib/runtime/tools/automation.ts"] }],
+  appium: [{ capability: "device_execute", mode: "write", notes: "Ações UiAutomator2 allowlisted; gate obrigatório.", evidence: ["lib/runtime/tools/automation.ts"] }],
+  playwright: [{ capability: "browser_execute", mode: "write", notes: "Browser isolado e domínio validado; gate obrigatório.", evidence: ["lib/runtime/tools/automation.ts"] }],
+  androidworld: [{ capability: "benchmark_execute", mode: "read", notes: "Benchmark somente para avaliação do agente.", evidence: ["lib/runtime/tools/automation.ts"] }],
 };
 
 function buildEntry(provider: ConnectorProviderId, decl: Declaration): CapabilityEntry {

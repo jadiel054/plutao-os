@@ -41,6 +41,7 @@ export function detectCapabilityIntent(text: string, defaultAccountLogin?: strin
   const t = text.toLowerCase();
 
   for (const manifest of Object.values(CONNECTOR_MANIFESTS)) {
+    if (manifest.runtimeOnly) continue;
     const isProviderMatch =
       t.includes(manifest.provider) ||
       t.includes(manifest.displayName.toLowerCase());
