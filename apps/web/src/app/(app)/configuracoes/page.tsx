@@ -15,12 +15,15 @@ import { SettingsNotificationsSection } from "@/components/SettingsNotifications
 import { SettingsConnectorsSection } from "@/components/SettingsConnectorsSection";
 import { SettingsMcpGrantsSection } from "@/components/SettingsMcpGrantsSection";
 import { SettingsVoiceSection } from "@/components/SettingsVoiceSection";
+import { SettingsAppearanceSection } from "@/components/SettingsAppearanceSection";
+import { applyFontScale } from "@/components/FontScaleBootstrap";
 import { ConsentCenterShortcut } from "@/components/ConsentCenterShortcut";
 import { useModelMode } from "@/hooks/useModelMode";
 
-type TabType = "ia" | "conectores" | "voz" | "perfil" | "notificacoes" | "seguranca" | "sobre";
+type FontScale = "small" | "default" | "large" | "xlarge";
+type TabType = "ia" | "aparencia" | "conectores" | "voz" | "perfil" | "notificacoes" | "seguranca" | "sobre";
 
-const VALID_TABS: TabType[] = ["ia", "conectores", "voz", "perfil", "notificacoes", "seguranca", "sobre"];
+const VALID_TABS: TabType[] = ["ia", "aparencia", "conectores", "voz", "perfil", "notificacoes", "seguranca", "sobre"];
 
 function resolveInitialTab(): TabType {
   if (typeof window !== "undefined") {
@@ -82,6 +85,7 @@ export default function SettingsPage() {
   const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
   const [densityMode, setDensityMode] = useState<"comfortable" | "compact">("comfortable");
   const [language, setLanguage] = useState<"pt-BR" | "en-US">("pt-BR");
+  const [fontScale, setFontScaleState] = useState<FontScale>("default");
   const { mode } = useModelMode();
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const addToast = useCallback((message: string, type: ToastType = "info", title?: string) => {
@@ -93,6 +97,10 @@ export default function SettingsPage() {
     });
   }, []);
   const dismissToast = useCallback((id: string) => setToasts((prev) => prev.filter((t) => t.id !== id)), []);
+  const setFontScale = useCallback((value: FontScale) => {
+    setFontScaleState(value);
+    applyFontScale(value);
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -150,6 +158,10 @@ export default function SettingsPage() {
             );
           }
         }
+        const appearance = prefsData.preferences?.appearance;
+        if (appearance?.fontScale === "small" || appearance?.fontScale === "default" || appearance?.fontScale === "large" || appearance?.fontScale === "xlarge") {
+          setFontScale(appearance.fontScale);
+        }
       }
 
       // Fallback para cache local se server-side não retornou preferências de notificação
@@ -174,6 +186,7 @@ export default function SettingsPage() {
             if (p.soundMissions) setSoundMissions(p.soundMissions);
             if (p.soundTasks) setSoundTasks(p.soundTasks);
             if (p.soundAlerts) setSoundAlerts(p.soundAlerts);
+            if (p.fontScale === "small" || p.fontScale === "default" || p.fontScale === "large" || p.fontScale === "xlarge") setFontScale(p.fontScale);
           }
         } catch {
           /* ignore */
@@ -203,7 +216,7 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [router, addToast]);
+  }, [router, addToast, setFontScale]);
 
   useEffect(() => {
     void loadData();
@@ -232,12 +245,13 @@ export default function SettingsPage() {
         soundTasks,
         soundAlerts,
       };
+      const appearancePayload = { fontScale };
 
       // Persistir preferências de notificação server-side
       await fetch("/api/user/preferences", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notifications: notifPayload }),
+        body: JSON.stringify({ notifications: notifPayload, appearance: appearancePayload }),
       });
 
       // Persistir no cache local
@@ -245,7 +259,7 @@ export default function SettingsPage() {
         localStorage.setItem("plutao_pref_notifications", JSON.stringify(notifPayload));
         localStorage.setItem(
           "plutao_pref_appearance",
-          JSON.stringify({ theme: themeMode, density: densityMode, language })
+          JSON.stringify({ theme: themeMode, density: densityMode, language, fontScale })
         );
       }
       addToast("Configurações salvas com sucesso!", "success", "Salvo");
@@ -271,7 +285,7 @@ export default function SettingsPage() {
           soundTasks,
           soundAlerts,
         },
-        appearance: { themeMode, densityMode, language },
+        appearance: { themeMode, densityMode, language, fontScale },
         mode,
         exportedAt: new Date().toISOString(),
       };
@@ -309,6 +323,7 @@ export default function SettingsPage() {
 
   const tabs: { id: TabType; label: string }[] = [
     { id: "ia", label: "Modelos" },
+    { id: "aparencia", label: "Aparência" },
     { id: "conectores", label: "Conectores" },
     { id: "voz", label: "Voz" },
     { id: "perfil", label: "Conta" },
@@ -367,6 +382,7 @@ export default function SettingsPage() {
         </div>
         <div className="space-y-6">
           {activeTab === "ia" && <SettingsModelsSection onNotify={addToast} />}
+          {activeTab === "aparencia" && <SettingsAppearanceSection fontScale={fontScale} setFontScale={setFontScale} />}
           {activeTab === "conectores" && <SettingsConnectorsSection onNotify={addToast} />}
           {activeTab === "voz" && <SettingsVoiceSection onNotify={addToast} />}
           {activeTab === "perfil" && (

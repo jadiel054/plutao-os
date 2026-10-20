@@ -6,6 +6,7 @@ import { ViewModeBootstrap } from "@/components/ViewModeBootstrap";
 import { GuidedTour } from "@/components/GuidedTour";
 import { MobileOAuthBridge } from "@/components/MobileOAuthBridge";
 import { UpdateChecker } from "@/components/UpdateChecker";
+import { FontScaleBootstrap } from "@/components/FontScaleBootstrap";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -85,6 +86,7 @@ export default function RootLayout({
         <GuidedTour />
         <MobileOAuthBridge />
         <UpdateChecker />
+        <FontScaleBootstrap />
         {children}
       </body>
     </html>
