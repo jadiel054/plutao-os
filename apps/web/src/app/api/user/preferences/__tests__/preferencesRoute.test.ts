@@ -12,7 +12,7 @@ vi.mock("@/lib/auth/session", () => ({
 // Mock do db
 const mockUserRecord: {
   id: string;
-  preferences: { onboarding_seen?: boolean };
+  preferences: { onboarding_seen?: boolean; notifications?: Record<string, unknown> };
   preferredModel: string;
 } = {
   id: "user-123",
@@ -36,7 +36,10 @@ vi.mock("@/lib/db", () => {
             mockUserRecord.preferredModel = fields.preferredModel as string;
           }
           if (fields.preferences) {
-            mockUserRecord.preferences = fields.preferences as { onboarding_seen?: boolean };
+            mockUserRecord.preferences = fields.preferences as {
+              onboarding_seen?: boolean;
+              notifications?: Record<string, unknown>;
+            };
           }
           return {
             where: () => ({
@@ -54,9 +57,10 @@ vi.mock("@/lib/db", () => {
   };
 });
 
-describe("API /api/user/preferences — preferredModel server-side", () => {
+describe("API /api/user/preferences — preferredModel & notifications server-side", () => {
   beforeEach(() => {
     mockUserRecord.preferredModel = "groq/gpt-oss-120b";
+    mockUserRecord.preferences = { onboarding_seen: true };
   });
 
   it("GET retorna preferências e preferredModel gravado", async () => {
@@ -65,6 +69,39 @@ describe("API /api/user/preferences — preferredModel server-side", () => {
     const data = await res.json();
     expect(data.preferredModel).toBe("groq/gpt-oss-120b");
     expect(data.preferences).toEqual({ onboarding_seen: true });
+  });
+
+  it("PATCH grava preferências de notificação por categoria e sons", async () => {
+    const req = new NextRequest("http://localhost/api/user/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        notifications: {
+          notifyMissions: true,
+          notifyTasks: false,
+          notifyAlerts: true,
+          notifySounds: true,
+          soundGlobal: "plutao_chime",
+          soundMissions: "mission_complete",
+          soundTasks: "task_nudge",
+          soundAlerts: "alert_critical",
+        },
+      }),
+    });
+
+    const res = await PATCH(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.preferences.notifications).toEqual({
+      notifyMissions: true,
+      notifyTasks: false,
+      notifyAlerts: true,
+      notifySounds: true,
+      soundGlobal: "plutao_chime",
+      soundMissions: "mission_complete",
+      soundTasks: "task_nudge",
+      soundAlerts: "alert_critical",
+    });
   });
 
   it("PATCH grava preferredModel quando válido no PRESET_MODELS", async () => {

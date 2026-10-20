@@ -67,10 +67,18 @@ export default function SettingsPage() {
   const [agentName, setAgentName] = useState("Nix");
   const [agentIdentity, setAgentIdentity] = useState("operador do Plutão OS, assistente pessoal do usuário");
   const [agentPersonality, setAgentPersonality] = useState("Prestativo, eficiente e focado em evidências");
+
+  // Notificações por Categoria + Toques
   const [notifyMissions, setNotifyMissions] = useState(true);
   const [notifyTasks, setNotifyTasks] = useState(true);
   const [notifyAlerts, setNotifyAlerts] = useState(true);
-  const [notifySounds, setNotifySounds] = useState(false);
+  const [notifySounds, setNotifySounds] = useState(true);
+
+  const [soundGlobal, setSoundGlobal] = useState("plutao_chime");
+  const [soundMissions, setSoundMissions] = useState("mission_complete");
+  const [soundTasks, setSoundTasks] = useState("task_nudge");
+  const [soundAlerts, setSoundAlerts] = useState("alert_critical");
+
   const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
   const [densityMode, setDensityMode] = useState<"comfortable" | "compact">("comfortable");
   const [language, setLanguage] = useState<"pt-BR" | "en-US">("pt-BR");
@@ -95,6 +103,7 @@ export default function SettingsPage() {
       }
       const meData = await me.json();
       setUserEmail(meData.user?.email ?? "");
+
       const a = await fetch("/api/agent", { cache: "no-store" });
       if (a.ok) {
         const d = await a.json();
@@ -104,16 +113,75 @@ export default function SettingsPage() {
           if (d.agent.personality) setAgentPersonality(d.agent.personality);
         }
       }
-      if (typeof window !== "undefined") {
+
+      // Buscar preferências do usuário server-side
+      const prefsRes = await fetch("/api/user/preferences", { cache: "no-store" });
+      let loadedServerPrefs = false;
+      if (prefsRes.ok) {
+        const prefsData = await prefsRes.json();
+        const notif = prefsData.preferences?.notifications;
+        if (notif && typeof notif === "object") {
+          if (typeof notif.notifyMissions === "boolean") setNotifyMissions(notif.notifyMissions);
+          if (typeof notif.notifyTasks === "boolean") setNotifyTasks(notif.notifyTasks);
+          if (typeof notif.notifyAlerts === "boolean") setNotifyAlerts(notif.notifyAlerts);
+          if (typeof notif.notifySounds === "boolean") setNotifySounds(notif.notifySounds);
+
+          if (notif.soundGlobal) setSoundGlobal(notif.soundGlobal);
+          if (notif.soundMissions) setSoundMissions(notif.soundMissions);
+          if (notif.soundTasks) setSoundTasks(notif.soundTasks);
+          if (notif.soundAlerts) setSoundAlerts(notif.soundAlerts);
+
+          loadedServerPrefs = true;
+
+          // Atualizar cache local
+          if (typeof window !== "undefined") {
+            localStorage.setItem(
+              "plutao_pref_notifications",
+              JSON.stringify({
+                notifyMissions: notif.notifyMissions ?? true,
+                notifyTasks: notif.notifyTasks ?? true,
+                notifyAlerts: notif.notifyAlerts ?? true,
+                notifySounds: notif.notifySounds ?? true,
+                soundGlobal: notif.soundGlobal || "plutao_chime",
+                soundMissions: notif.soundMissions || "mission_complete",
+                soundTasks: notif.soundTasks || "task_nudge",
+                soundAlerts: notif.soundAlerts || "alert_critical",
+              })
+            );
+          }
+        }
+      }
+
+      // Fallback para cache local se server-side não retornou preferências de notificação
+      if (!loadedServerPrefs && typeof window !== "undefined") {
         try {
           const sn = localStorage.getItem("plutao_pref_notifications");
           if (sn) {
             const p = JSON.parse(sn);
-            if (typeof p.missions === "boolean") setNotifyMissions(p.missions);
-            if (typeof p.tasks === "boolean") setNotifyTasks(p.tasks);
-            if (typeof p.alerts === "boolean") setNotifyAlerts(p.alerts);
-            if (typeof p.sounds === "boolean") setNotifySounds(p.sounds);
+            if (typeof p.notifyMissions === "boolean") setNotifyMissions(p.notifyMissions);
+            else if (typeof p.missions === "boolean") setNotifyMissions(p.missions);
+
+            if (typeof p.notifyTasks === "boolean") setNotifyTasks(p.notifyTasks);
+            else if (typeof p.tasks === "boolean") setNotifyTasks(p.tasks);
+
+            if (typeof p.notifyAlerts === "boolean") setNotifyAlerts(p.notifyAlerts);
+            else if (typeof p.alerts === "boolean") setNotifyAlerts(p.alerts);
+
+            if (typeof p.notifySounds === "boolean") setNotifySounds(p.notifySounds);
+            else if (typeof p.sounds === "boolean") setNotifySounds(p.sounds);
+
+            if (p.soundGlobal) setSoundGlobal(p.soundGlobal);
+            if (p.soundMissions) setSoundMissions(p.soundMissions);
+            if (p.soundTasks) setSoundTasks(p.soundTasks);
+            if (p.soundAlerts) setSoundAlerts(p.soundAlerts);
           }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (typeof window !== "undefined") {
+        try {
           const sa = localStorage.getItem("plutao_pref_appearance");
           if (sa) {
             const p = JSON.parse(sa);
@@ -144,20 +212,37 @@ export default function SettingsPage() {
   const handleSaveAll = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/agent", {
+      const resAgent = await fetch("/api/agent", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: agentName, identity: agentIdentity, personality: agentPersonality }),
       });
-      if (!res.ok) {
+      if (!resAgent.ok) {
         addToast("Erro ao salvar configurações do agente", "error");
         return;
       }
+
+      const notifPayload = {
+        notifyMissions,
+        notifyTasks,
+        notifyAlerts,
+        notifySounds,
+        soundGlobal,
+        soundMissions,
+        soundTasks,
+        soundAlerts,
+      };
+
+      // Persistir preferências de notificação server-side
+      await fetch("/api/user/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notifications: notifPayload }),
+      });
+
+      // Persistir no cache local
       if (typeof window !== "undefined") {
-        localStorage.setItem(
-          "plutao_pref_notifications",
-          JSON.stringify({ missions: notifyMissions, tasks: notifyTasks, alerts: notifyAlerts, sounds: notifySounds })
-        );
+        localStorage.setItem("plutao_pref_notifications", JSON.stringify(notifPayload));
         localStorage.setItem(
           "plutao_pref_appearance",
           JSON.stringify({ theme: themeMode, density: densityMode, language })
@@ -176,7 +261,16 @@ export default function SettingsPage() {
       const exportObject = {
         userEmail,
         agent: { name: agentName, identity: agentIdentity, personality: agentPersonality },
-        notifications: { notifyMissions, notifyTasks, notifyAlerts, notifySounds },
+        notifications: {
+          notifyMissions,
+          notifyTasks,
+          notifyAlerts,
+          notifySounds,
+          soundGlobal,
+          soundMissions,
+          soundTasks,
+          soundAlerts,
+        },
         appearance: { themeMode, densityMode, language },
         mode,
         exportedAt: new Date().toISOString(),
@@ -295,10 +389,18 @@ export default function SettingsPage() {
               notifyTasks={notifyTasks}
               notifyAlerts={notifyAlerts}
               notifySounds={notifySounds}
+              soundGlobal={soundGlobal}
+              soundMissions={soundMissions}
+              soundTasks={soundTasks}
+              soundAlerts={soundAlerts}
               setNotifyMissions={setNotifyMissions}
               setNotifyTasks={setNotifyTasks}
               setNotifyAlerts={setNotifyAlerts}
               setNotifySounds={setNotifySounds}
+              setSoundGlobal={setSoundGlobal}
+              setSoundMissions={setSoundMissions}
+              setSoundTasks={setSoundTasks}
+              setSoundAlerts={setSoundAlerts}
             />
           )}
           {activeTab === "seguranca" && (

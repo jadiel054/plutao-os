@@ -4,6 +4,8 @@
  * executa fallback local, porque isso reintroduziria o contrato não durável.
  */
 
+import { dispatchAppNotification } from "@/lib/notifications/notifyService";
+
 async function runOnServer(opts: {
   missionId: string;
   taskId: string | null;
@@ -45,6 +47,11 @@ async function runOnServer(opts: {
   if (res.status === 404 && d.error === "Missão não encontrada") {
     opts.onError(d.error);
     opts.onToast(d.error, "error");
+    void dispatchAppNotification({
+      category: "alerts",
+      title: "Erro de Missão",
+      body: d.error,
+    });
     return true;
   }
 
@@ -83,16 +90,31 @@ async function runOnServer(opts: {
         : d.error ?? "Falha na execução autônoma");
     opts.onError(msg);
     opts.onToast(msg, d.error === "ALREADY_TERMINAL" ? "warning" : "error");
+    void dispatchAppNotification({
+      category: "alerts",
+      title: "Alerta de Execução",
+      body: msg,
+    });
     return true;
   }
 
-  opts.onToast(
+  const successMsg =
     d.message ??
-      (d.completed
-        ? `Missão COMPLETED — ${d.stepsOk ?? 0} passo(s), DoD OK`
-        : `Execução ok (${d.stepsOk ?? 0} passo(s)) — status: ${d.finalStatus}`),
-    "success"
-  );
+    (d.completed
+      ? `Missão COMPLETED — ${d.stepsOk ?? 0} passo(s), DoD OK`
+      : `Execução ok (${d.stepsOk ?? 0} passo(s)) — status: ${d.finalStatus}`);
+
+  opts.onToast(successMsg, "success");
+
+  if (d.completed || d.finalStatus === "COMPLETED") {
+    void dispatchAppNotification({
+      category: "missions",
+      title: "Missão Concluída",
+      body: `A missão foi concluída com sucesso (${d.stepsOk ?? 0} passo(s)).`,
+      data: { missionId: opts.missionId },
+    });
+  }
+
   return true;
 }
 
@@ -119,12 +141,24 @@ export async function runAutonomousMission(opts: {
       onToast: opts.onToast,
     });
     if (handled) return;
-    opts.onError("Worker durável indisponível; a missão não foi executada.");
-    opts.onToast("Worker durável indisponível; a missão não foi executada.", "error");
+    const errMsg = "Worker durável indisponível; a missão não foi executada.";
+    opts.onError(errMsg);
+    opts.onToast(errMsg, "error");
+    void dispatchAppNotification({
+      category: "alerts",
+      title: "Alerta do Sistema",
+      body: errMsg,
+    });
     return;
   } catch {
-    opts.onError("Não foi possível enfileirar a missão no worker durável.");
-    opts.onToast("Não foi possível enfileirar a missão no worker durável.", "error");
+    const errMsg = "Não foi possível enfileirar a missão no worker durável.";
+    opts.onError(errMsg);
+    opts.onToast(errMsg, "error");
+    void dispatchAppNotification({
+      category: "alerts",
+      title: "Alerta de Conexão",
+      body: errMsg,
+    });
     return;
   }
 }
