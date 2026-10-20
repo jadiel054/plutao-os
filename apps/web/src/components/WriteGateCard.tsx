@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { dispatchAppNotification } from "@/lib/notifications/notifyService";
 
 export type WriteGateCardProps = {
   gateId: string;
@@ -42,14 +43,32 @@ export function WriteGateCard({
         const msg = data.error || "Falha na decisão do gate";
         setError(msg);
         onResolved?.({ status: "failed", error: msg });
+        void dispatchAppNotification({
+          category: "alerts",
+          title: "Falha na Ação de Escrita",
+          body: msg,
+          data: { gateId, status: "failed" },
+        });
         return;
       }
       const status = String(data.status || decision);
       setDone(status);
       onResolved?.({ status, output: data.output });
+      void dispatchAppNotification({
+        category: status === "executed" ? "missions" : "alerts",
+        title: status === "executed" ? "Ação Executada" : "Ação Recusada",
+        body: status === "executed" ? `Escrita em ${provider} (${capability}) concluída.` : `Escrita em ${provider} foi recusada.`,
+        data: { gateId, status },
+      });
     } catch {
       setError("Erro de rede");
       onResolved?.({ status: "failed", error: "Erro de rede" });
+      void dispatchAppNotification({
+        category: "alerts",
+        title: "Erro de Conexão",
+        body: "Erro de rede ao processar decisão do gate.",
+        data: { gateId, status: "failed" },
+      });
     } finally {
       setBusy(null);
     }

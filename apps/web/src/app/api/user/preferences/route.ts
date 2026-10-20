@@ -15,8 +15,20 @@ type VoicePrefs = {
   volume?: number;
 };
 
+type NotificationPrefs = {
+  notifyMissions?: boolean;
+  notifyTasks?: boolean;
+  notifyAlerts?: boolean;
+  notifySounds?: boolean;
+  soundGlobal?: string;
+  soundMissions?: string;
+  soundTasks?: string;
+  soundAlerts?: string;
+};
+
 type PreferencesShape = {
   voice?: VoicePrefs;
+  notifications?: NotificationPrefs;
   onboarding_seen?: boolean;
   /** standard | elevated | full — write-gate auto-approval level */
   autonomyMode?: "standard" | "elevated" | "full";
@@ -39,6 +51,24 @@ function sanitizeVoice(input: unknown): VoicePrefs | undefined {
   if (typeof v.volume === "number" && Number.isFinite(v.volume)) {
     out.volume = clamp(v.volume, 0, 1);
   }
+  return out;
+}
+
+function sanitizeNotifications(input: unknown): NotificationPrefs | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const n = input as Record<string, unknown>;
+  const out: NotificationPrefs = {};
+
+  if (typeof n.notifyMissions === "boolean") out.notifyMissions = n.notifyMissions;
+  if (typeof n.notifyTasks === "boolean") out.notifyTasks = n.notifyTasks;
+  if (typeof n.notifyAlerts === "boolean") out.notifyAlerts = n.notifyAlerts;
+  if (typeof n.notifySounds === "boolean") out.notifySounds = n.notifySounds;
+
+  if (typeof n.soundGlobal === "string" && n.soundGlobal.length <= 64) out.soundGlobal = n.soundGlobal;
+  if (typeof n.soundMissions === "string" && n.soundMissions.length <= 64) out.soundMissions = n.soundMissions;
+  if (typeof n.soundTasks === "string" && n.soundTasks.length <= 64) out.soundTasks = n.soundTasks;
+  if (typeof n.soundAlerts === "string" && n.soundAlerts.length <= 64) out.soundAlerts = n.soundAlerts;
+
   return out;
 }
 
@@ -78,6 +108,13 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "voice inválido" }, { status: 400 });
       }
       if (voice) patch.voice = voice;
+    }
+    if ("notifications" in body) {
+      const notifications = sanitizeNotifications(body.notifications);
+      if (notifications === undefined && body.notifications != null) {
+        return NextResponse.json({ error: "notifications inválido" }, { status: 400 });
+      }
+      if (notifications) patch.notifications = notifications;
     }
     if ("onboarding_seen" in body) {
       if (typeof body.onboarding_seen === "boolean") {
@@ -122,6 +159,14 @@ export async function PATCH(req: NextRequest) {
             voice: {
               ...(typeof current.voice === "object" && current.voice ? current.voice : {}),
               ...patch.voice,
+            },
+          }
+        : {}),
+      ...(patch.notifications
+        ? {
+            notifications: {
+              ...(typeof current.notifications === "object" && current.notifications ? current.notifications : {}),
+              ...patch.notifications,
             },
           }
         : {}),
