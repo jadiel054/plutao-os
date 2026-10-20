@@ -5,6 +5,7 @@
 
 import { PRESET_MODELS } from "@plutao/domain";
 import type { ModelConfig, ModelProviderId } from "./types";
+import { getModelConfig } from "./config";
 
 export type CloudRoute = {
   /** Provedor lógico no runtime Plutão */
@@ -228,6 +229,36 @@ export function resolveCloudModelConfig(modelId: string): ResolveCloudResult {
       apiKey,
       model: route.apiModel,
       baseUrl,
+    },
+  };
+}
+
+/**
+ * Resolve the effective cloud model used by mission runtime.
+ * A user's catalog preference has precedence. Without one, use the same
+ * environment contract as chat through getModelConfig.
+ */
+export function resolveConfiguredCloudModelConfig(modelId?: string | null): ResolveCloudResult {
+  const preferredModel = modelId?.trim();
+  if (preferredModel) return resolveCloudModelConfig(preferredModel);
+
+  const config = getModelConfig();
+  if (!config) {
+    return {
+      ok: false,
+      error: "Nenhuma configuração de modelo cloud válida foi encontrada. Configure a chave do provedor e o modelo.",
+      missingEnv: "MODEL_API_KEY",
+    };
+  }
+
+  return {
+    ok: true,
+    config,
+    route: {
+      provider: config.provider,
+      apiModel: config.model,
+      baseUrl: config.baseUrl,
+      envKeys: ["MODEL_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "XAI_API_KEY", "OPENROUTER_API_KEY"],
     },
   };
 }

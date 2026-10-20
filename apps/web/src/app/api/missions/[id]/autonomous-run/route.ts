@@ -9,6 +9,7 @@ import { createRequestId, recordRuntimeTelemetry } from "@/lib/observability/run
 import { sanitizeError } from "@/lib/security/sanitize";
 import { getMissionGraphSerialOrder } from "@plutao/domain";
 import { ensurePersistedMissionGraph, MissionGraphPersistenceError } from "@/lib/missions/graphPersistence";
+import { resolveUserCloudModelConfig } from "@/lib/runtime/model/resolveUserConfig";
 
 export const runtime = "nodejs";
 
@@ -63,6 +64,19 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
     if (conversationId && !(await getOwnedConversation(conversationId, user.id))) {
       return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
+    }
+
+    const modelResolution = await resolveUserCloudModelConfig(user.id);
+    if (!modelResolution.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          missionId,
+          error: "MODEL_NOT_CONFIGURED",
+          message: modelResolution.error,
+        },
+        { status: 503 }
+      );
     }
 
     const graph = await ensurePersistedMissionGraph(missionId, user.id);

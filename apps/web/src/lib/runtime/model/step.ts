@@ -14,7 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
-import { executions, missions, tasks, users } from "@plutao/db";
+import { executions, missions, tasks } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { getOwnedExecution } from "@/lib/runtime/service";
@@ -22,7 +22,7 @@ import { saveCheckpoint } from "@/lib/runtime/checkpoint";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { dispatchTool } from "@/lib/runtime/tools/dispatcher";
 import { ModelProviderFactory, setModelProviderMode } from "./provider";
-import { resolveCloudModelConfig } from "./resolveConfig";
+import { resolveUserCloudModelConfig } from "./resolveUserConfig";
 import { buildSystemPrompt } from "./missionPrompt";
 import { callModelWithRetry, classifyModelError, type ModelProviderLike } from "./modelCall";
 import { loadConnectorRuntime } from "@/lib/chat/connectorRuntime";
@@ -132,25 +132,17 @@ export async function runModelStep(
   // Identidade canônica compartilhada com chat/MCP; falha de DB cai em Nix default.
   const agent = await loadAgentIdentity(userId);
 
-  // Resolve users.preferredModel → rota de catálogo (resolveCloudModelConfig)
+  // Resolve o mesmo contrato efetivo usado pelo enqueue e pelo worker.
   let cloudConfig: ModelConfig | undefined;
   try {
-    const userRows = await db
-      .select({ preferredModel: users.preferredModel })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    const preferredId = userRows[0]?.preferredModel;
-    if (preferredId) {
-      const resolved = resolveCloudModelConfig(preferredId);
-      if (resolved.ok) {
-        cloudConfig = resolved.config;
-      } else {
-        console.warn("[runModelStep] preferredModel sem rota/chave:", preferredId, resolved.error);
-      }
+    const resolved = await resolveUserCloudModelConfig(userId);
+    if (resolved.ok) {
+      cloudConfig = resolved.config;
+    } else if (effectiveMode !== "offline") {
+      console.warn("[runModelStep] configuração cloud inválida:", resolved.error);
     }
   } catch (e) {
-    console.error("[runModelStep] falha ao resolver preferredModel:", e);
+    console.error("[runModelStep] falha ao resolver modelo efetivo:", e);
   }
 
   const provider = await getModelProvider(effectiveMode, cloudConfig);

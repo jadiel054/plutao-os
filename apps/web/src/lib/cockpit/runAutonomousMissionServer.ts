@@ -37,6 +37,7 @@ import { MAX_ITERATIONS } from "@/lib/runtime/agent-loop";
 import { nextStatuses } from "@/lib/missions/lifecycle";
 import { ensurePersistedMissionGraph } from "@/lib/missions/graphPersistence";
 import { runNextMissionGraphNodeSerial } from "@/lib/missions/serialMissionExecutor";
+import { resolveUserCloudModelConfig } from "@/lib/runtime/model/resolveUserConfig";
 
 export type AutonomousRunResult = {
   ok: boolean;
@@ -133,7 +134,24 @@ export async function runAutonomousMissionServer(opts: {
     };
   }
 
-  if (!process.env.MODEL_API_KEY) {
+  let modelResolution: Awaited<ReturnType<typeof resolveUserCloudModelConfig>>;
+  try {
+    modelResolution = await resolveUserCloudModelConfig(userId);
+  } catch (error) {
+    console.error("[runAutonomousMissionServer model resolution]", error);
+    return {
+      ok: false,
+      missionId,
+      finalStatus: status,
+      allowedTransitions: nextStatuses(status),
+      stepsOk: 0,
+      completed: false,
+      executionId: opts.executionId ?? null,
+      error: "MODEL_CONFIG_RESOLUTION_FAILED",
+      message: "Não foi possível validar a configuração de modelo com segurança.",
+    };
+  }
+  if (!modelResolution.ok) {
     return {
       ok: false,
       missionId,
@@ -143,7 +161,7 @@ export async function runAutonomousMissionServer(opts: {
       completed: false,
       executionId: null,
       error: "MODEL_NOT_CONFIGURED",
-      message: "Configure MODEL_API_KEY no Vercel",
+      message: modelResolution.error,
     };
   }
 
