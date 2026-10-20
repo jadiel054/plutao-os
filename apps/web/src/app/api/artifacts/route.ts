@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, desc } from "drizzle-orm";
-import { put } from "@vercel/blob";
+import { del, put } from "@vercel/blob";
 import { artifacts } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
@@ -13,6 +13,28 @@ export const runtime = "nodejs";
 
 const MAX_JSON_ARTIFACT_SIZE = 5 * 1024 * 1024;
 const MAX_FILE_UPLOAD_SIZE = 20 * 1024 * 1024;
+
+function publicMetadata(raw: unknown, artifactId: string): Record<string, unknown> {
+  const metadata = raw && typeof raw === "object" ? { ...(raw as Record<string, unknown>) } : {};
+  delete metadata.blobUrl;
+  delete metadata.dataUrl;
+  if (metadata.isImage === true) metadata.previewUrl = `/api/artifacts/${artifactId}/content`;
+  return metadata;
+}
+
+function publicArtifact(row: typeof artifacts.$inferSelect) {
+  return {
+    id: row.id,
+    userId: row.userId,
+    missionId: row.missionId,
+    name: row.name,
+    type: row.type,
+    size: row.size,
+    metadata: publicMetadata(row.metadata, row.id),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
 
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
@@ -65,7 +87,8 @@ export async function POST(req: NextRequest) {
         try {
           const sanitized = fileName.replace(/[^a-zA-Z0-9_.\-]/g, "_");
           const blob = await put(`artifacts/${user.id}/${Date.now()}_${sanitized}`, arrayBuffer, {
-            access: "public",
+            access: "private",
+            contentType: mimeType,
           });
           blobUrl = blob.url;
         } catch (err) {
@@ -76,7 +99,6 @@ export async function POST(req: NextRequest) {
       let content = "";
       let isImage = false;
       let isBinary = false;
-      let dataUrl: string | undefined;
 
       if (ext === "pdf" || mimeType === "application/pdf") {
         isBinary = true;
@@ -96,11 +118,17 @@ export async function POST(req: NextRequest) {
       ) {
         isImage = true;
         isBinary = true;
-        dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
         content = `[Imagem anexada: ${fileName}]`;
       } else {
         // Plain text formats (.md, .txt, .csv, .html, .css, .json, .js, .ts, etc.)
         content = buffer.toString("utf-8");
+      }
+
+      if (isImage && !blobUrl) {
+        return NextResponse.json(
+          { error: "Upload de imagem indisponível: o armazenamento privado não está configurado." },
+          { status: 503 }
+        );
       }
 
       const metadata: Record<string, unknown> = {
@@ -110,7 +138,8 @@ export async function POST(req: NextRequest) {
         isImage,
       };
       if (blobUrl) metadata.blobUrl = blobUrl;
-      if (dataUrl) metadata.dataUrl = dataUrl;
+      // A base64 image is kept only in memory for the request. It is not
+      // persisted in metadata; vision providers read the private blob server-side.
       metadata.evaluation = evaluateArtifact({ name: fileName, type: mimeType, content, size: file.size });
 
       const [inserted] = await db
@@ -126,19 +155,7 @@ export async function POST(req: NextRequest) {
         })
         .returning();
 
-      return NextResponse.json({
-        artifact: {
-          id: inserted.id,
-          userId: inserted.userId,
-          missionId: inserted.missionId,
-          name: inserted.name,
-          type: inserted.type,
-          size: inserted.size,
-          metadata: inserted.metadata,
-          createdAt: inserted.createdAt,
-          updatedAt: inserted.updatedAt,
-        },
-      });
+      return NextResponse.json({ artifact: publicArtifact(inserted) });
     }
 
     // Standard JSON payload (Smart Long-Input / Colar texto)
@@ -167,6 +184,8 @@ export async function POST(req: NextRequest) {
     }
     const metadata: Record<string, unknown> =
       typeof body.metadata === "object" && body.metadata !== null ? body.metadata : {};
+    delete metadata.blobUrl;
+    delete metadata.dataUrl;
     metadata.evaluation = evaluateArtifact({ name, type, content, size });
 
     const [inserted] = await db
@@ -182,19 +201,7 @@ export async function POST(req: NextRequest) {
       })
       .returning();
 
-    return NextResponse.json({
-      artifact: {
-        id: inserted.id,
-        userId: inserted.userId,
-        missionId: inserted.missionId,
-        name: inserted.name,
-        type: inserted.type,
-        size: inserted.size,
-        metadata: inserted.metadata,
-        createdAt: inserted.createdAt,
-        updatedAt: inserted.updatedAt,
-      },
-    });
+    return NextResponse.json({ artifact: publicArtifact(inserted) });
   } catch (e) {
     console.error("[artifacts POST]", e);
     return NextResponse.json({ error: "Erro interno ao criar artifact" }, { status: 500 });
@@ -226,7 +233,7 @@ export async function GET() {
       .orderBy(desc(artifacts.createdAt))
       .limit(50);
 
-    return NextResponse.json({ artifacts: rows });
+    return NextResponse.json({ artifacts: rows.map((row) => ({ ...row, metadata: publicMetadata(row.metadata, row.id) })) });
   } catch (e) {
     console.error("[artifacts GET]", e);
     return NextResponse.json({ error: "Erro interno ao listar artifacts" }, { status: 500 });
@@ -241,6 +248,15 @@ export async function DELETE() {
 
   try {
     const db = getDb();
+    const rows = await db
+      .select({ metadata: artifacts.metadata })
+      .from(artifacts)
+      .where(eq(artifacts.userId, user.id));
+    const blobUrls = rows.flatMap((row) => {
+      const metadata = row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : {};
+      return typeof metadata.blobUrl === "string" ? [metadata.blobUrl] : [];
+    });
+    if (blobUrls.length > 0 && process.env.BLOB_READ_WRITE_TOKEN) await del(blobUrls);
     await db.delete(artifacts).where(eq(artifacts.userId, user.id));
     return NextResponse.json({ ok: true });
   } catch (e) {

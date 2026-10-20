@@ -1339,7 +1339,7 @@ function ChatPageInner() {
           }
           const meta = data.artifact.metadata || {};
           const isImg = Boolean(meta.isImage) || (data.artifact.type && data.artifact.type.startsWith("image/"));
-          const thumbnailUrl = isImg ? ((meta.blobUrl as string) || (meta.dataUrl as string) || undefined) : undefined;
+          const thumbnailUrl = isImg ? ((meta.previewUrl as string) || undefined) : undefined;
 
           setPendingArtifacts((prev) => [...prev, {
             id: data.artifact.id,
@@ -1365,7 +1365,7 @@ function ChatPageInner() {
           }
           const meta = data.artifact.metadata || {};
           const isImg = Boolean(meta.isImage) || (data.artifact.type && data.artifact.type.startsWith("image/"));
-          const thumbnailUrl = isImg ? ((meta.blobUrl as string) || (meta.dataUrl as string) || undefined) : undefined;
+          const thumbnailUrl = isImg ? ((meta.previewUrl as string) || undefined) : undefined;
 
           setPendingArtifacts((prev) => [...prev, {
             id: data.artifact.id,

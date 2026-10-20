@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { PRESET_MODELS } from "@plutao/domain";
 import { buildImageParts, VISION_CAPABLE_PROVIDERS } from "../runtime/model/imageParts";
 import { resolveCloudModelConfig, getCloudRoute } from "../runtime/model/resolveConfig";
 import { getModelConfig } from "../runtime/model/config";
+
+vi.mock("@vercel/blob", () => ({ get: vi.fn() }));
 
 describe("Model Routing & Preset Registry", () => {
   const originalEnv = process.env;
@@ -21,7 +23,7 @@ describe("Model Routing & Preset Registry", () => {
     expect(gemini?.category).toBe("vision");
   });
 
-  it("buildImageParts constrói partes de imagem preferindo blobUrl sobre dataUrl", () => {
+  it("buildImageParts usa dataUrl como fallback quando o blob privado não está disponível", async () => {
     const artifacts = [
       {
         id: "art-1",
@@ -36,15 +38,15 @@ describe("Model Routing & Preset Registry", () => {
       },
     ];
 
-    const parts = buildImageParts(artifacts);
+    const parts = await buildImageParts(artifacts);
     expect(parts).toHaveLength(1);
     expect(parts[0]).toEqual({
       type: "image_url",
-      image_url: { url: "https://blob.store/foto.jpg" },
+      image_url: { url: "data:image/jpeg;base64,12345" },
     });
   });
 
-  it("buildImageParts usa dataUrl como fallback quando blobUrl não existe", () => {
+  it("buildImageParts usa dataUrl quando não há blob privado", async () => {
     const artifacts = [
       {
         id: "art-2",
@@ -58,7 +60,7 @@ describe("Model Routing & Preset Registry", () => {
       },
     ];
 
-    const parts = buildImageParts(artifacts);
+    const parts = await buildImageParts(artifacts);
     expect(parts).toHaveLength(1);
     expect(parts[0]).toEqual({
       type: "image_url",
@@ -66,7 +68,7 @@ describe("Model Routing & Preset Registry", () => {
     });
   });
 
-  it("buildImageParts retorna array vazio para não-imagens (PDF, Excel, Texto)", () => {
+  it("buildImageParts retorna array vazio para não-imagens (PDF, Excel, Texto)", async () => {
     const artifacts = [
       {
         id: "art-3",
@@ -84,7 +86,7 @@ describe("Model Routing & Preset Registry", () => {
       },
     ];
 
-    const parts = buildImageParts(artifacts);
+    const parts = await buildImageParts(artifacts);
     expect(parts).toEqual([]);
   });
 
