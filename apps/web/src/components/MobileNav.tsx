@@ -17,7 +17,7 @@ export function MobileNav() {
   ];
 
   return (
-    <nav className="mobile-bottom-nav sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[var(--surface)]/95 backdrop-blur-md border-t border-[var(--border)] px-2 py-1.5 shadow-lg">
+    <nav className="mobile-bottom-nav mobile-safe-bottom sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[var(--surface)]/95 backdrop-blur-md border-t border-[var(--border)] px-2 pt-1.5 shadow-lg">
       <div className="flex items-center justify-around max-w-lg mx-auto">
         {navItems.map((item) => {
           const isActive =
@@ -26,7 +26,7 @@ export function MobileNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-xl min-w-[52px] transition-colors ${
+              className={`flex min-h-11 min-w-[44px] flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 transition-colors ${
                 isActive
                   ? "text-[var(--selo)]"
                   : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"

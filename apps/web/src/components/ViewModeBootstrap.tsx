@@ -5,7 +5,7 @@ import { useEffect } from "react";
 const STORAGE_KEY = "plutao_view_mode";
 const DESKTOP_VIEWPORT = "width=1280, initial-scale=1, maximum-scale=1, user-scalable=no";
 const MOBILE_VIEWPORT =
-  "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no";
+  "width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover";
 
 /** Apply saved view mode early to reduce layout flash. */
 export function ViewModeBootstrap() {

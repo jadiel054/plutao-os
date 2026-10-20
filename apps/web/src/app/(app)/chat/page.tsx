@@ -209,6 +209,23 @@ function ChatPageInner() {
     textarea.style.overflowY = h > maxHeight ? "auto" : "hidden";
   }, [inputMessage]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    const updateVisualViewport = () => {
+      const height = window.visualViewport?.height ?? window.innerHeight;
+      root.style.setProperty("--plutao-visual-vh", `${height}px`);
+    };
+    updateVisualViewport();
+    window.visualViewport?.addEventListener("resize", updateVisualViewport);
+    window.visualViewport?.addEventListener("scroll", updateVisualViewport);
+    window.addEventListener("resize", updateVisualViewport);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", updateVisualViewport);
+      window.visualViewport?.removeEventListener("scroll", updateVisualViewport);
+      window.removeEventListener("resize", updateVisualViewport);
+    };
+  }, []);
+
   const refreshMissions = useCallback(async () => {
     try {
       const mRes = await fetch("/api/missions", { cache: "no-store" });
@@ -1274,7 +1291,7 @@ function ChatPageInner() {
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void handleSend();
     }
@@ -1381,7 +1398,7 @@ function ChatPageInner() {
   }
 
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col overflow-hidden bg-[var(--base)] text-[var(--text-primary)] pb-20 sm:pb-4">
+    <div className="mobile-chat-shell min-h-0 flex flex-col overflow-hidden bg-[var(--base)] text-[var(--text-primary)] sm:pb-4">
       <>
         <ChatHistoryDrawer
           open={isChatMenuOpen}
@@ -1822,10 +1839,12 @@ function ChatPageInner() {
             conversationId={activeConversationId}
             onNotify={(msg, type) => addToast(msg, type ?? "info")}
           />
-          <AgentComputerPanel
-            conversationId={activeConversationId}
-            missionId={activeMissionId}
-          />
+          <div className="hidden sm:block">
+            <AgentComputerPanel
+              conversationId={activeConversationId}
+              missionId={activeMissionId}
+            />
+          </div>
         </div>
 
         {isGuest && (
@@ -1968,6 +1987,8 @@ function ChatPageInner() {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={handleKeyDown}
+              enterKeyHint="send"
+              aria-label={`Mensagem para ${agentName}`}
               placeholder={
                 guestLimitReached
                   ? "Limite do modo Convidado atingido. Faça login para continuar."

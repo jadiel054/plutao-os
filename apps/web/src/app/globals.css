@@ -87,6 +87,26 @@ body {
   min-height: 100dvh;
 }
 
+:root {
+  --plutao-visual-vh: 100dvh;
+}
+
+.mobile-chat-shell {
+  height: var(--plutao-visual-vh, 100dvh);
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
+.mobile-safe-bottom {
+  padding-bottom: max(0.625rem, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 640px) {
+  .mobile-chat-shell {
+    height: 100dvh;
+    padding-bottom: 1rem;
+  }
+}
+
 button,
 a,
 textarea,

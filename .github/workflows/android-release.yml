@@ -17,6 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -61,6 +62,11 @@ jobs:
           ./node_modules/.bin/cap add android
           ./node_modules/.bin/cap sync android
           node scripts/apply-branding.mjs
+          test -f native/cpp/CMakeLists.txt
+          test -f native/cpp/vendor/llama.cpp/CMakeLists.txt
+          test -f capacitor.config.json
+          grep -q 'appId.*app.plutao.os' capacitor.config.json
+          echo "Android native source and branding inputs validated"
 
       - name: Restore release keystore
         env:
