@@ -12,7 +12,7 @@ vi.mock("@/lib/auth/session", () => ({
 // Mock do db
 const mockUserRecord: {
   id: string;
-  preferences: { onboarding_seen?: boolean; notifications?: Record<string, unknown> };
+  preferences: { onboarding_seen?: boolean; notifications?: Record<string, unknown>; appearance?: Record<string, unknown> };
   preferredModel: string;
 } = {
   id: "user-123",
@@ -39,6 +39,7 @@ vi.mock("@/lib/db", () => {
             mockUserRecord.preferences = fields.preferences as {
               onboarding_seen?: boolean;
               notifications?: Record<string, unknown>;
+              appearance?: Record<string, unknown>;
             };
           }
           return {
@@ -130,6 +131,30 @@ describe("API /api/user/preferences — preferredModel & notifications server-si
     expect(res.status).toBe(400);
     const data = await res.json();
     expect(data.error).toBe("Modelo preferido inválido");
+  });
+
+  it("PATCH grava a escala de fonte da aparência", async () => {
+    const req = new NextRequest("http://localhost/api/user/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appearance: { fontScale: "large" } }),
+    });
+
+    const res = await PATCH(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.preferences.appearance).toEqual({ fontScale: "large" });
+  });
+
+  it("rejeita escala de fonte desconhecida", async () => {
+    const req = new NextRequest("http://localhost/api/user/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appearance: { fontScale: "huge" } }),
+    });
+
+    const res = await PATCH(req);
+    expect(res.status).toBe(400);
   });
 
   it("PATCH rejeita preferredModel marcado como comingSoon com HTTP 400", async () => {

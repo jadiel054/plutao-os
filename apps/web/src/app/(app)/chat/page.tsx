@@ -10,6 +10,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { LongInputModal, type ArtifactRef } from "@/components/LongInputModal";
 import { MissionWorkspaceBar } from "@/components/MissionWorkspaceBar";
 import { AgentComputerPanel } from "@/components/AgentComputerPanel";
+import { ChatModelDisclosure } from "@/components/ChatModelDisclosure";
 import { ChatAttachMenu } from "@/components/ChatAttachMenu";
 import { ConnectorsSheet } from "@/components/ConnectorsSheet";
 import { ConnectorActionCard, type SuggestedConnector } from "@/components/ConnectorActionCard";
@@ -1447,35 +1448,12 @@ function ChatPageInner() {
       </>
 
       {/* Model Selector Bar */}
-      <div className="border-b border-[var(--border)] bg-[var(--surface)]/70 px-4 py-2 text-xs font-mono flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-[var(--text-muted)] font-semibold uppercase text-[10px]">Modelo:</span>
-          <select
-            value={selectedLocalModel || "cloud"}
-            onChange={(e) => handleSelectModelChoice(e.target.value)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--base)] px-2.5 py-1 text-xs outline-none text-[var(--text-primary)] cursor-pointer focus:border-[var(--selo)]"
-          >
-            <option value="cloud">Nuvem (AUTO cloud)</option>
-            {installedLocalModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                Local · {m.name}
-              </option>
-            ))}
-          </select>
-          {selectedLocalModel && selectedLocalModel !== "cloud" && (
-            <span className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
-              Execução On-Device
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => router.push("/modelos")}
-          className="text-[10px] text-[var(--selo)] hover:underline cursor-pointer font-semibold"
-        >
-          {installedLocalModels.length === 0 ? "+ Instalar modelo local na vitrine" : "Gerenciar vitrine"}
-        </button>
-      </div>
+      <ChatModelDisclosure
+        selectedModel={selectedLocalModel}
+        installedModels={installedLocalModels}
+        onSelect={handleSelectModelChoice}
+        onManage={() => router.push("/modelos")}
+      />
 
       <main className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden p-4">
         {messages.length === 0 ? (

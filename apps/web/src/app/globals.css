@@ -84,11 +84,13 @@ body {
   background-image: radial-gradient(ellipse at center, #0E1512 0%, #070908 100%);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  font-size: calc(1rem * var(--plutao-font-scale, 1));
   min-height: 100dvh;
 }
 
 :root {
   --plutao-visual-vh: 100dvh;
+  --plutao-font-scale: 1;
 }
 
 .mobile-chat-shell {

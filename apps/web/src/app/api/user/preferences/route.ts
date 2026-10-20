@@ -26,9 +26,14 @@ type NotificationPrefs = {
   soundAlerts?: string;
 };
 
+type AppearancePrefs = {
+  fontScale?: "small" | "default" | "large" | "xlarge";
+};
+
 type PreferencesShape = {
   voice?: VoicePrefs;
   notifications?: NotificationPrefs;
+  appearance?: AppearancePrefs;
   onboarding_seen?: boolean;
   /** standard | elevated | full — write-gate auto-approval level */
   autonomyMode?: "standard" | "elevated" | "full";
@@ -70,6 +75,16 @@ function sanitizeNotifications(input: unknown): NotificationPrefs | undefined {
   if (typeof n.soundAlerts === "string" && n.soundAlerts.length <= 64) out.soundAlerts = n.soundAlerts;
 
   return out;
+}
+
+function sanitizeAppearance(input: unknown): AppearancePrefs | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const appearance = input as Record<string, unknown>;
+  if (appearance.fontScale === undefined) return {};
+  if (appearance.fontScale !== "small" && appearance.fontScale !== "default" && appearance.fontScale !== "large" && appearance.fontScale !== "xlarge") {
+    return undefined;
+  }
+  return { fontScale: appearance.fontScale };
 }
 
 export async function GET() {
@@ -115,6 +130,13 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "notifications inválido" }, { status: 400 });
       }
       if (notifications) patch.notifications = notifications;
+    }
+    if ("appearance" in body) {
+      const appearance = sanitizeAppearance(body.appearance);
+      if (appearance === undefined && body.appearance != null) {
+        return NextResponse.json({ error: "appearance inválido" }, { status: 400 });
+      }
+      if (appearance) patch.appearance = appearance;
     }
     if ("onboarding_seen" in body) {
       if (typeof body.onboarding_seen === "boolean") {
@@ -167,6 +189,14 @@ export async function PATCH(req: NextRequest) {
             notifications: {
               ...(typeof current.notifications === "object" && current.notifications ? current.notifications : {}),
               ...patch.notifications,
+            },
+          }
+        : {}),
+      ...(patch.appearance
+        ? {
+            appearance: {
+              ...(typeof current.appearance === "object" && current.appearance ? current.appearance : {}),
+              ...patch.appearance,
             },
           }
         : {}),
