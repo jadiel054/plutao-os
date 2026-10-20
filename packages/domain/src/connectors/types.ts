@@ -15,7 +15,12 @@ export type ConnectorProviderId =
   | "supabase"
   | "telegram"
   | "cloudflare"
-  | "render";
+  | "render"
+  | "artemis"
+  | "maestro"
+  | "appium"
+  | "playwright"
+  | "androidworld";
 
 export type ConnectorStatus =
   | "disconnected"

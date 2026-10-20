@@ -7,6 +7,11 @@ export type ToolName =
   | "telegram"
   | "cloudflare"
   | "render"
+  | "artemis"
+  | "maestro"
+  | "appium"
+  | "playwright"
+  | "androidworld"
   | "files.export_pdf"
   | "files.export_xlsx"
   | "files.export_markdown"
@@ -44,6 +49,11 @@ export const KNOWN_TOOLS: readonly ToolName[] = [
   "telegram",
   "cloudflare",
   "render",
+  "artemis",
+  "maestro",
+  "appium",
+  "playwright",
+  "androidworld",
   "files.export_pdf",
   "files.export_xlsx",
   "files.export_markdown",

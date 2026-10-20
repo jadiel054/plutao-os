@@ -1,0 +1,58 @@
+name: AndroidWorld benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        { description: AndroidWorld task class, required: true, type: string }
+      nonce: { required: true, type: string }
+      androidworld_commit:
+        {
+          description: Pinned AndroidWorld commit,
+          required: true,
+          default: main,
+          type: string,
+        }
+run-name: AndroidWorld ${{ inputs.nonce }}
+permissions: { contents: read }
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TASK: ${{ inputs.task }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GCP_API_KEY: ${{ secrets.GCP_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: google-research/android_world
+          ref: ${{ inputs.androidworld_commit }}
+          path: android_world
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Install AndroidWorld
+        working-directory: android_world
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run pinned single-task benchmark on API 33 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -grpc 8554
+          script: |
+            adb devices
+            cd android_world
+            python minimal_task_runner.py --task="$TASK" 2>&1 | tee "$GITHUB_WORKSPACE/androidworld-${{ inputs.nonce }}.log"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: androidworld-${{ inputs.nonce }}
+          path: androidworld-${{ inputs.nonce }}.log
+          if-no-files-found: warn
+          retention-days: 30

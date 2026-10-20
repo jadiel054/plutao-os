@@ -1,0 +1,35 @@
+name: ARTEMIS poller
+
+on:
+  schedule:
+    - cron: "*/2 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Reconcile ARTEMIS tasks
+        env:
+          APP_URL: https://plutao-os.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+          for batch in 1 2 3; do
+            status=$(curl --silent --show-error --output /tmp/artemis-poller.json --write-out '%{http_code}' \
+              --request POST "$APP_URL/api/cron/artemis-poller" \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              --header 'Accept: application/json' \
+              --header 'Content-Type: application/json' \
+              --data '{"limit":3}')
+            cat /tmp/artemis-poller.json
+            test "$status" = "200"
+            processed=$(python3 -c "import json; print(len(json.load(open('/tmp/artemis-poller.json')).get('processed') or []))")
+            echo "batch=$batch processed=$processed"
+            test "$processed" != "0" || break
+          done
