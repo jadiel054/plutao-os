@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { missions, projects } from "@plutao/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { conversations, messages, missions, projects } from "@plutao/db";
 import { getDb } from "@/lib/db";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,64 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
   try {
     const db = getDb();
+
+    // Conversation shares are prefixed and must never fall through to the
+    // mission share domain. The snapshot intentionally excludes metadata,
+    // artifacts, traces and ownership identifiers.
+    if (token.startsWith("conv_")) {
+      const conversationRows = await db
+        .select({
+          id: conversations.id,
+          title: conversations.title,
+          createdAt: conversations.createdAt,
+          updatedAt: conversations.updatedAt,
+          projectId: conversations.projectId,
+        })
+        .from(conversations)
+        .where(eq(conversations.shareToken, token))
+        .limit(1);
+
+      const conversation = conversationRows[0];
+      if (!conversation) {
+        return NextResponse.json({ error: "Link de compartilhamento não encontrado ou desativado" }, { status: 404 });
+      }
+
+      const messageRows = await db
+        .select({ id: messages.id, role: messages.role, content: messages.content, createdAt: messages.createdAt })
+        .from(messages)
+        .where(and(eq(messages.conversationId, conversation.id), inArray(messages.role, ["user", "assistant"])))
+        .orderBy(messages.createdAt);
+
+      let projectName: string | null = null;
+      if (conversation.projectId) {
+        const proj = await db
+          .select({ name: projects.name })
+          .from(projects)
+          .where(eq(projects.id, conversation.projectId))
+          .limit(1);
+        if (proj[0]) projectName = proj[0].name;
+      }
+
+      return NextResponse.json({
+        shared: true,
+        kind: "conversation",
+        conversation: {
+          id: conversation.id,
+          title: sanitizeText(conversation.title),
+          createdAt: conversation.createdAt,
+          updatedAt: conversation.updatedAt,
+          projectName,
+          messages: messageRows.map((message) => ({
+            id: message.id,
+            role: message.role,
+            content: sanitizeText(message.content),
+            createdAt: message.createdAt,
+          })),
+        },
+      });
+    }
+
+    // Keep legacy mission links isolated from conversation shares.
     const rows = await db
       .select({
         id: missions.id,
