@@ -1,0 +1,42 @@
+name: Playwright web validation
+on:
+  workflow_dispatch:
+    inputs:
+      url: { description: HTTPS URL, required: true, type: string }
+      actions_json:
+        {
+          description: Allowlisted browser actions JSON array,
+          required: true,
+          type: string,
+        }
+      allowed_hosts:
+        {
+          description: Comma-separated host allowlist,
+          required: true,
+          type: string,
+        }
+      nonce: { required: true, type: string }
+run-name: Playwright ${{ inputs.nonce }}
+permissions: { contents: read }
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TARGET_URL: ${{ inputs.url }}
+      ACTIONS_JSON: ${{ inputs.actions_json }}
+      ALLOWED_HOSTS: ${{ inputs.allowed_hosts }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/web/playwright-runner.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ inputs.nonce }}
+          path: out
+          if-no-files-found: warn
+          retention-days: 7

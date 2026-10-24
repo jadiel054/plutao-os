@@ -15,6 +15,8 @@ import { runTelegram } from "./telegram";
 import { runCloudflare } from "./cloudflare";
 import { runRender } from "./render";
 import { runExportTool } from "./export";
+import { runArtemis } from "./artemis";
+import { runAutomationExecutor } from "./automation";
 import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
 import { evaluateInternalTool, isInternalTool } from "@/lib/capabilities/registry";
 import { isToolAllowedBySpecialist } from "@/lib/missions/specialistProfiles";
@@ -47,6 +49,16 @@ async function dispatchLocal(
       return await runCloudflare(input, opts.userId, opts.executionId);
     case "render":
       return await runRender(input, opts.userId, opts.executionId);
+    case "artemis":
+      return await runArtemis(input, opts.userId, opts.executionId);
+    case "maestro":
+      return await runAutomationExecutor("maestro", input, opts.userId, opts.executionId);
+    case "appium":
+      return await runAutomationExecutor("appium", input, opts.userId, opts.executionId);
+    case "playwright":
+      return await runAutomationExecutor("playwright", input, opts.userId, opts.executionId);
+    case "androidworld":
+      return await runAutomationExecutor("androidworld", input, opts.userId, opts.executionId);
     case "files.export_pdf":
     case "files.export_xlsx":
     case "files.export_markdown":
@@ -233,6 +245,22 @@ export async function dispatchTool(opts: {
   const taskId = opts.taskId ?? execution.currentTaskId ?? null;
   const stepIndex = (cp.stepIndex ?? 0) + 1;
 
+  let gateId: string | null = null;
+  try {
+    const parsedInput = JSON.parse(String(opts.input ?? "")) as Record<string, unknown>;
+    gateId = typeof parsedInput._gateId === "string" ? parsedInput._gateId : null;
+  } catch {
+    /* tool inputs are validated by their executor */
+  }
+  const evidenceMetadata = cp.missionGraphRuntime?.activeNodeId || gateId
+    ? {
+        ...(cp.missionGraphRuntime?.activeNodeId
+          ? { missionNodeId: cp.missionGraphRuntime.activeNodeId, graphVersion: 2 }
+          : {}),
+        ...(gateId ? { writeGateId: gateId } : {}),
+      }
+    : undefined;
+
   const evidenceItem: EvidenceItem = {
     id: evidenceId,
     type: result.ok ? "tool_result" : "tool_error",
@@ -245,9 +273,7 @@ export async function dispatchTool(opts: {
     taskId,
     missionId: execution.missionId,
     executionId: opts.executionId,
-    ...(cp.missionGraphRuntime?.activeNodeId
-      ? { metadata: { missionNodeId: cp.missionGraphRuntime.activeNodeId, graphVersion: 2 } }
-      : {}),
+    ...(evidenceMetadata ? { metadata: evidenceMetadata } : {}),
     createdAt: now.toISOString(),
   };
 

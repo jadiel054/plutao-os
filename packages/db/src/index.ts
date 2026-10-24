@@ -3,6 +3,7 @@ export * from "./schema-mcp";
 export * from "./schema-gates";
 export * from "./schema-events";
 export * from "./schema-rate-limit";
+export * from "./schema-artemis";
 export { createDb, checkDatabaseConnection, type Db } from "./client";
 
 // Storage Abstraction - import and re-export StorageBackend type

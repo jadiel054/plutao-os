@@ -85,7 +85,12 @@ or
   const examples = [`{"tool":"${profile.allowedTools[0]}","input":"..."}`];
   if (profile.allowedTools.includes("filesystem")) {
     examples.push(
-      `{"tool":"filesystem","input":"{\\\"action\\\":\\\"list\\\",\\\"payload\\\":{\\\"path\\\":\\\"dir\\\"}}"}`
+      `{"tool":"filesystem","input":"{\\"action\\":\\"list\\",\\"payload\\":{\\"path\\":\\"dir\\"}}"}`
+    );
+  }
+  if (profile.allowedTools.includes("artemis")) {
+    examples.push(
+      `{"tool":"artemis","input":"{\\"prompt\\":\\"Abra o app e valide o fluxo\\",\\"profile\\":\\"flash\\",\\"nonce\\":\\"<uuid-novo>\\",\\"missionId\\":\\"<missionId>\\"}"}`
     );
   }
   return `You may either reply with short reasoning in plain text, or propose exactly one tool call as JSON only using a tool from the specialist allowlist:\n${examples.join("\nor\n")}`;
@@ -136,6 +141,11 @@ export function buildSystemPrompt(
 - telegram — requires Telegram connector connected
 - cloudflare — requires Cloudflare connector connected
 - render — requires Render connector connected
+- artemis — mobile Android executor assíncrono; input JSON {prompt, deviceSerial?, profile:"flash", nonce:<uuid novo>, missionId}; external device actions always use Write Gate
+- maestro — fluxo YAML Android versionado, assíncrono e protegido por Write Gate
+- appium — ações Android UiAutomator2 allowlisted, assíncrono e protegido por Write Gate
+- playwright — validação web/deployment em browser isolado, assíncrona e protegida por Write Gate
+- androidworld — benchmark Android read-only para medir qualidade do agente
 - files.export_pdf | files.export_xlsx | files.export_markdown | files.export_html — file exports
 
 GitHub actions: repos_list | repo_get | issues_list | issues_get | pulls_list | actions_list | branches_list | code_search | tree (reads) — and repo_create | push_files | branches_create | prs_create (writes, gated)
@@ -159,6 +169,7 @@ Rules:
 - Prefer a tool call only when it helps the mission.
 - For filesystem: valid JSON with action (list/read/write/mkdir/stat) and payload.path
 - For connector tools: valid JSON with action and owner/repo/number when required.
+- For artemis: always generate a fresh UUID nonce; the tool returns immediately after dispatch and the final proof arrives later as mission evidence.
 - Never invent other tool names.
 - Keep replies concise.`;
 }

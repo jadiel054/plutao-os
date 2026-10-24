@@ -26,14 +26,37 @@ Qualquer resposta negativa faz o executor **recusar** a chamada (fail-closed).
 
 | Provedor | Capacidades | Leituras | Escritas | Habilitadas e completas |
 | --- | --- | --- | --- | --- |
+| `androidworld` | 1 | 1 | 0 | 1 |
+| `appium` | 1 | 0 | 1 | 1 |
+| `artemis` | 1 | 0 | 1 | 1 |
 | `cloudflare` | 6 | 4 | 2 | 6 |
 | `github` | 16 | 11 | 5 | 16 |
+| `maestro` | 1 | 0 | 1 | 1 |
 | `neon` | 3 | 3 | 0 | 3 |
+| `playwright` | 1 | 0 | 1 | 1 |
 | `render` | 5 | 3 | 2 | 5 |
 | `stripe` | 5 | 5 | 0 | 5 |
 | `supabase` | 4 | 3 | 1 | 4 |
 | `telegram` | 3 | 2 | 1 | 3 |
 | `vercel` | 5 | 3 | 2 | 5 |
+
+## Provedor: `androidworld`
+
+| Capacidade | Modo | Habilitada | Controles exigidos | Evidência |
+| --- | --- | --- | --- | --- |
+| `benchmark_execute` | read | sim | `capability_allowlist`, `output_sanitization`, `audit_trail` | lib/runtime/tools/automation.ts |
+
+## Provedor: `appium`
+
+| Capacidade | Modo | Habilitada | Controles exigidos | Evidência |
+| --- | --- | --- | --- | --- |
+| `device_execute` | write | sim | `capability_allowlist`, `input_sanitization`, `output_sanitization`, `write_gate`, `gate_server_validation`, `rate_limit`, `audit_trail` | lib/runtime/tools/automation.ts |
+
+## Provedor: `artemis`
+
+| Capacidade | Modo | Habilitada | Controles exigidos | Evidência |
+| --- | --- | --- | --- | --- |
+| `device_execute` | write | sim | `capability_allowlist`, `input_sanitization`, `output_sanitization`, `write_gate`, `gate_server_validation`, `rate_limit`, `audit_trail` | lib/runtime/tools/artemis.ts#runArtemis, lib/artemis/client.ts#dispatchWorkflow, app/api/cron/artemis-poller/route.ts |
 
 ## Provedor: `cloudflare`
 
@@ -67,6 +90,12 @@ Qualquer resposta negativa faz o executor **recusar** a chamada (fail-closed).
 | `github.code.search` | read | sim | `capability_allowlist`, `output_sanitization`, `audit_trail` | lib/connectors/runRestCapability.ts, lib/mcp/audit.ts |
 | `github.tree` | read | sim | `capability_allowlist`, `output_sanitization`, `audit_trail` | lib/connectors/runRestCapability.ts, lib/mcp/audit.ts |
 
+## Provedor: `maestro`
+
+| Capacidade | Modo | Habilitada | Controles exigidos | Evidência |
+| --- | --- | --- | --- | --- |
+| `device_execute` | write | sim | `capability_allowlist`, `input_sanitization`, `output_sanitization`, `write_gate`, `gate_server_validation`, `rate_limit`, `audit_trail` | lib/runtime/tools/automation.ts |
+
 ## Provedor: `neon`
 
 | Capacidade | Modo | Habilitada | Controles exigidos | Evidência |
@@ -74,6 +103,12 @@ Qualquer resposta negativa faz o executor **recusar** a chamada (fail-closed).
 | `projects_list` | read | sim | `capability_allowlist`, `output_sanitization`, `audit_trail` | lib/connectors/runRestCapability.ts, lib/mcp/audit.ts |
 | `branches_list` | read | sim | `capability_allowlist`, `output_sanitization`, `audit_trail` | lib/connectors/runRestCapability.ts, lib/mcp/audit.ts |
 | `databases_list` | read | sim | `capability_allowlist`, `output_sanitization`, `audit_trail` | lib/connectors/runRestCapability.ts, lib/mcp/audit.ts |
+
+## Provedor: `playwright`
+
+| Capacidade | Modo | Habilitada | Controles exigidos | Evidência |
+| --- | --- | --- | --- | --- |
+| `browser_execute` | write | sim | `capability_allowlist`, `input_sanitization`, `output_sanitization`, `write_gate`, `gate_server_validation`, `rate_limit`, `audit_trail` | lib/runtime/tools/automation.ts |
 
 ## Provedor: `render`
 
