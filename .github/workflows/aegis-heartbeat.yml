@@ -11,11 +11,17 @@ jobs:
       - name: Ping Aegis
         env:
           AEGIS_BASE_URL: ${{ vars.AEGIS_BASE_URL || 'https://aegis-control-sand.vercel.app' }}
+          AEGIS_API_KEY: ${{ secrets.AEGIS_API_KEY }}
         run: |
           set -euo pipefail
+          if [[ -z "${AEGIS_API_KEY:-}" ]]; then
+            echo "::notice::AEGIS_API_KEY is not configured; skipping the heartbeat until the repository secret is added."
+            exit 0
+          fi
           curl --silent --show-error --fail \
             --request POST "$AEGIS_BASE_URL/api/agents/heartbeat" \
             --header 'Content-Type: application/json' \
+            --header "Authorization: Bearer ${AEGIS_API_KEY}" \
             --data '{"name":"Plutao","status":"online","metadata":{"source":"github-actions","repo":"plutao-os"}}'
           echo
           echo "Plutao heartbeat OK"
