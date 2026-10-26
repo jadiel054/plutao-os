@@ -45,7 +45,7 @@
     "eslint-config-next": "15.5.25",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^3.0.0"
+    "vitest": "^5.0.5"
   },
   "description": "Plutão — Cockpit PWA"
 }
