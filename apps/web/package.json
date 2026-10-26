@@ -15,7 +15,7 @@
     "@capacitor/browser": "^6.0.2",
     "@capacitor/core": "^6.2.1",
     "@huggingface/transformers": "^3.0.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.3.0",
     "@plutao/db": "*",
     "@plutao/domain": "*",
     "@realtimex/piper-tts-web": "^1.1.1",
