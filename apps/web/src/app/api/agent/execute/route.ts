@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json().catch(() => ({}));
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const command = String(body.command || "execute_real");
     const title = String(body.mission_title || body.title || "Missão");
     const input = String(body.input || body.mission_context || body.mission_description || "");
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     if (command === "synthesize_real") {
       return NextResponse.json({
         success: true,
-        agent: "Plutao",
+        agent: "Zarith",
         command,
         output: "Síntese deve ser feita pelo Zarith. Plutão só executa.",
       });
@@ -66,7 +66,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // --- write-gate ---
     if (!approved) {
       const proposal = [
         `# Proposta de execução Plutão — ${title}`,
@@ -98,11 +97,10 @@ export async function POST(request: Request) {
       });
     }
 
-    // Approved path: still safe-by-default — record execution intent, no blind deploy
     const result = [
       `# Execução Plutão (gate aprovado) — ${title}`,
       taskId ? `task_id: ${taskId}` : "",
-      `approved_by: ${body.approved_by || "operator"}`,
+      `approved_by: ${String(body.approved_by || "operator")}`,
       "",
       "## Contexto",
       input.slice(0, 4000),
@@ -128,12 +126,10 @@ export async function POST(request: Request) {
       status: "completed",
       output: result,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal error";
     console.error("[api/agent/execute]", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "Internal error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
 
