@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { githubPushFiles } from "@/lib/connectors/githubWrite";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,11 +16,86 @@ function authorized(request: Request): boolean {
 }
 
 /**
+ * Safe smoke write target — private sandbox only.
+ * Override with SMOKE_GITHUB_OWNER / SMOKE_GITHUB_REPO.
+ */
+function smokeTarget() {
+  return {
+    owner: process.env.SMOKE_GITHUB_OWNER || "jadiel054",
+    repo: process.env.SMOKE_GITHUB_REPO || "aegis-smoke-sandbox",
+    branch: process.env.SMOKE_GITHUB_BRANCH || "main",
+  };
+}
+
+async function trySmokeGithubWrite(opts: {
+  taskId: string | null;
+  title: string;
+  approvedBy: string;
+}): Promise<{ ok: boolean; detail: string }> {
+  const token =
+    process.env.GITHUB_TOKEN ||
+    process.env.GH_TOKEN ||
+    process.env.GITHUB_PAT ||
+    "";
+  if (!token) {
+    return {
+      ok: false,
+      detail:
+        "GITHUB_TOKEN ausente no Plutão — write real não executado. Defina GITHUB_TOKEN (repo scope) no Vercel do plutao-os.",
+    };
+  }
+
+  const { owner, repo, branch } = smokeTarget();
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const path = `smoke/${stamp}-${(opts.taskId || "manual").slice(0, 8)}.md`;
+  const content = [
+    `# Smoke write — Aegis write-gate`,
+    ``,
+    `- task_id: ${opts.taskId || "(none)"}`,
+    `- title: ${opts.title}`,
+    `- approved_by: ${opts.approvedBy}`,
+    `- at: ${new Date().toISOString()}`,
+    `- agent: Plutão /api/agent/execute`,
+    ``,
+    `Arquivo criado automaticamente após aprovação humana no Aegis/Telegram.`,
+    `Alvo restrito: ${owner}/${repo} (sandbox).`,
+    ``,
+  ].join("\n");
+
+  const res = await githubPushFiles(token, {
+    owner,
+    repo,
+    branch,
+    message: `smoke(aegis): ${opts.title.slice(0, 72)}`,
+    files: [{ path, content }],
+  });
+
+  if (!res.ok) {
+    return { ok: false, detail: `GitHub push falhou: ${res.error}` };
+  }
+
+  return {
+    ok: true,
+    detail: [
+      `WRITE REAL OK`,
+      res.output,
+      `path: ${path}`,
+      res.htmlUrl ? `commit_url: ${res.htmlUrl}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+/**
  * Aegis contract: POST /api/agent/execute
  * Primary command for Plutão: execute_real
  *
  * Write-gate: if body.approved !== true and no approved_by,
  * returns a gated proposal (does not mutate external systems).
+ *
+ * After approval: optional smoke write to private aegis-smoke-sandbox
+ * when GITHUB_TOKEN is configured.
  */
 export async function POST(request: Request) {
   try {
@@ -36,6 +112,7 @@ export async function POST(request: Request) {
       body.approved === true ||
       Boolean(body.approved_by) ||
       String(body.gate || "") === "approved";
+    const approvedBy = String(body.approved_by || "operator");
 
     if (command === "plan_real_mission") {
       return NextResponse.json({
@@ -67,6 +144,7 @@ export async function POST(request: Request) {
     }
 
     if (!approved) {
+      const { owner, repo } = smokeTarget();
       const proposal = [
         `# Proposta de execução Plutão — ${title}`,
         taskId ? `task_id: ${taskId}` : "",
@@ -75,9 +153,9 @@ export async function POST(request: Request) {
         input.slice(0, 4000) || "(vazio)",
         "",
         "## Ações pretendidas (bloqueadas até aprovação)",
-        "1. Validar escopo e alvos (repo, ambiente, secrets).",
-        "2. Preparar mudanças mínimas.",
-        "3. Aplicar somente após write-gate do operador (Aegis /approve).",
+        "1. Validar escopo e alvos (repos, ambientes, secrets).",
+        `2. Smoke write seguro em \\`${owner}/${repo}\\` (arquivo em smoke/).`,
+        "3. Nenhuma mutação fora do sandbox sem gate explícito.",
         "",
         "## Status",
         "**awaiting_approval** — nenhum write externo foi executado.",
@@ -97,18 +175,26 @@ export async function POST(request: Request) {
       });
     }
 
+    // ── Gate aprovado: smoke write controlado ─────────────────────────────
+    const smoke = await trySmokeGithubWrite({
+      taskId,
+      title,
+      approvedBy,
+    });
+
     const result = [
       `# Execução Plutão (gate aprovado) — ${title}`,
       taskId ? `task_id: ${taskId}` : "",
-      `approved_by: ${String(body.approved_by || "operator")}`,
+      `approved_by: ${approvedBy}`,
       "",
       "## Contexto",
-      input.slice(0, 4000),
+      input.slice(0, 3000),
       "",
-      "## Resultado",
-      "Gate liberado. Nesta fase o worker registra a execução autorizada.",
-      "Connectors de write (GitHub/Vercel/Render) permanecem atrás dos gates internos do Plutão.",
-      "Nenhuma mutação destrutiva automática foi disparada por este endpoint sozinho.",
+      "## Write real (sandbox)",
+      smoke.detail,
+      "",
+      "## Status",
+      smoke.ok ? "**completed** com evidência no GitHub sandbox" : "**completed_partial** — gate ok, write sandbox não concluído",
       "",
       "## Próximo",
       "Zarith deve sintetizar o histórico completo da missão.",
@@ -123,7 +209,8 @@ export async function POST(request: Request) {
       agent: "Plutao",
       command: "execute_real",
       gated: false,
-      status: "completed",
+      status: smoke.ok ? "completed" : "completed_partial",
+      write_ok: smoke.ok,
       output: result,
     });
   } catch (error: unknown) {
@@ -138,5 +225,6 @@ export async function GET() {
     service: "plutao-agent-execute",
     commands: ["execute_real"],
     write_gate: true,
+    smoke_target: smokeTarget(),
   });
 }
