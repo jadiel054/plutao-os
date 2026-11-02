@@ -15,10 +15,7 @@ function authorized(request: Request): boolean {
   return key === expected;
 }
 
-/**
- * Safe smoke write target — private sandbox only.
- * Override with SMOKE_GITHUB_OWNER / SMOKE_GITHUB_REPO.
- */
+/** Safe smoke write target — private sandbox only. */
 function smokeTarget() {
   return {
     owner: process.env.SMOKE_GITHUB_OWNER || "jadiel054",
@@ -49,17 +46,17 @@ async function trySmokeGithubWrite(opts: {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const path = `smoke/${stamp}-${(opts.taskId || "manual").slice(0, 8)}.md`;
   const content = [
-    `# Smoke write — Aegis write-gate`,
-    ``,
+    "# Smoke write — Aegis write-gate",
+    "",
     `- task_id: ${opts.taskId || "(none)"}`,
     `- title: ${opts.title}`,
     `- approved_by: ${opts.approvedBy}`,
     `- at: ${new Date().toISOString()}`,
-    `- agent: Plutão /api/agent/execute`,
-    ``,
-    `Arquivo criado automaticamente após aprovação humana no Aegis/Telegram.`,
+    "- agent: Plutão /api/agent/execute",
+    "",
+    "Arquivo criado automaticamente após aprovação humana no Aegis/Telegram.",
     `Alvo restrito: ${owner}/${repo} (sandbox).`,
-    ``,
+    "",
   ].join("\n");
 
   const res = await githubPushFiles(token, {
@@ -77,7 +74,7 @@ async function trySmokeGithubWrite(opts: {
   return {
     ok: true,
     detail: [
-      `WRITE REAL OK`,
+      "WRITE REAL OK",
       res.output,
       `path: ${path}`,
       res.htmlUrl ? `commit_url: ${res.htmlUrl}` : "",
@@ -89,13 +86,7 @@ async function trySmokeGithubWrite(opts: {
 
 /**
  * Aegis contract: POST /api/agent/execute
- * Primary command for Plutão: execute_real
- *
- * Write-gate: if body.approved !== true and no approved_by,
- * returns a gated proposal (does not mutate external systems).
- *
- * After approval: optional smoke write to private aegis-smoke-sandbox
- * when GITHUB_TOKEN is configured.
+ * Write-gate until approved; then optional smoke write to private sandbox.
  */
 export async function POST(request: Request) {
   try {
@@ -154,7 +145,7 @@ export async function POST(request: Request) {
         "",
         "## Ações pretendidas (bloqueadas até aprovação)",
         "1. Validar escopo e alvos (repos, ambientes, secrets).",
-        `2. Smoke write seguro em \\`${owner}/${repo}\\` (arquivo em smoke/).`,
+        `2. Smoke write seguro em ${owner}/${repo} (arquivo em smoke/).`,
         "3. Nenhuma mutação fora do sandbox sem gate explícito.",
         "",
         "## Status",
@@ -175,7 +166,6 @@ export async function POST(request: Request) {
       });
     }
 
-    // ── Gate aprovado: smoke write controlado ─────────────────────────────
     const smoke = await trySmokeGithubWrite({
       taskId,
       title,
@@ -194,7 +184,9 @@ export async function POST(request: Request) {
       smoke.detail,
       "",
       "## Status",
-      smoke.ok ? "**completed** com evidência no GitHub sandbox" : "**completed_partial** — gate ok, write sandbox não concluído",
+      smoke.ok
+        ? "**completed** com evidência no GitHub sandbox"
+        : "**completed_partial** — gate ok, write sandbox não concluído",
       "",
       "## Próximo",
       "Zarith deve sintetizar o histórico completo da missão.",
