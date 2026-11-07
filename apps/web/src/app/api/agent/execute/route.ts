@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
+import { missions } from "@plutao/db";
+import { missionObjectiveToGraphV2 } from "@plutao/domain";
+import { getDb } from "@/lib/db";
+import { enqueueMissionExecutionJob, releaseRuntimeJobAfterApproval } from "@/lib/runtime/durableJobs";
+import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
+import { approveGate, listWriteGatesForExecution } from "@/lib/connectors/gates";
 import { githubPushFiles } from "@/lib/connectors/githubWrite";
+import { sanitizeText } from "@/lib/security/sanitize";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-function authorized(request: Request): boolean {
+export function authorized(request: Request): boolean {
   const expected = process.env.AEGIS_API_KEY;
-  if (!expected) return true;
+  if (!expected) return false;
   const key =
     request.headers.get("x-api-key") ||
     request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
@@ -86,7 +94,8 @@ async function trySmokeGithubWrite(opts: {
 
 /**
  * Aegis contract: POST /api/agent/execute
- * Write-gate until approved; then optional smoke write to private sandbox.
+ * - command="smoke": sandbox smoke write
+ * - command="execute_real" | "execute": enqueues a durable mission
  */
 export async function POST(request: Request) {
   try {
@@ -98,7 +107,8 @@ export async function POST(request: Request) {
     const command = String(body.command || "execute_real");
     const title = String(body.mission_title || body.title || "Missão");
     const input = String(body.input || body.mission_context || body.mission_description || "");
-    const taskId = body.task_id ? String(body.task_id) : null;
+    const taskId = body.task_id != null ? String(body.task_id) : null;
+    const stepIndex = body.step_index != null ? Number(body.step_index) : 0;
     const approved =
       body.approved === true ||
       Boolean(body.approved_by) ||
@@ -123,33 +133,60 @@ export async function POST(request: Request) {
       });
     }
 
-    if (command !== "execute_real" && command !== "execute") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Unsupported command: ${command}`,
-          supported: ["execute_real", "plan_real_mission", "synthesize_real"],
-        },
-        { status: 400 }
-      );
-    }
+    if (command === "smoke") {
+      if (!approved) {
+        const { owner, repo } = smokeTarget();
+        const proposal = [
+          `# Proposta de execução Plutão (smoke) — ${title}`,
+          taskId ? `task_id: ${taskId}` : "",
+          "",
+          "## Entrada (plano / contexto)",
+          input.slice(0, 4000) || "(vazio)",
+          "",
+          "## Ações pretendidas (bloqueadas até aprovação)",
+          "1. Validar escopo e alvos (repos, ambientes, secrets).",
+          `2. Smoke write seguro em ${owner}/${repo} (arquivo em smoke/).`,
+          "3. Nenhuma mutação fora do sandbox sem gate explícito.",
+          "",
+          "## Status",
+          "**awaiting_approval** — nenhum write externo foi executado.",
+          "",
+          `_Plutão /api/agent/execute · ${new Date().toISOString()}_`,
+        ]
+          .filter(Boolean)
+          .join("\n");
 
-    if (!approved) {
-      const { owner, repo } = smokeTarget();
-      const proposal = [
-        `# Proposta de execução Plutão — ${title}`,
+        return NextResponse.json({
+          success: true,
+          agent: "Plutao",
+          command: "smoke",
+          gated: true,
+          status: "awaiting_approval",
+          output: proposal,
+        });
+      }
+
+      const smoke = await trySmokeGithubWrite({
+        taskId,
+        title,
+        approvedBy,
+      });
+
+      const result = [
+        `# Execução Plutão (gate aprovado) — ${title}`,
         taskId ? `task_id: ${taskId}` : "",
+        `approved_by: ${approvedBy}`,
         "",
-        "## Entrada (plano / contexto)",
-        input.slice(0, 4000) || "(vazio)",
+        "## Contexto",
+        input.slice(0, 3000),
         "",
-        "## Ações pretendidas (bloqueadas até aprovação)",
-        "1. Validar escopo e alvos (repos, ambientes, secrets).",
-        `2. Smoke write seguro em ${owner}/${repo} (arquivo em smoke/).`,
-        "3. Nenhuma mutação fora do sandbox sem gate explícito.",
+        "## Write real (sandbox)",
+        smoke.detail,
         "",
         "## Status",
-        "**awaiting_approval** — nenhum write externo foi executado.",
+        smoke.ok
+          ? "**completed** com evidência no GitHub sandbox"
+          : "**completed_partial** — gate ok, write sandbox não concluído",
         "",
         `_Plutão /api/agent/execute · ${new Date().toISOString()}_`,
       ]
@@ -159,63 +196,136 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         agent: "Plutao",
-        command: "execute_real",
-        gated: true,
-        status: "awaiting_approval",
-        output: proposal,
+        command: "smoke",
+        gated: false,
+        status: smoke.ok ? "completed" : "completed_partial",
+        write_ok: smoke.ok,
+        output: result,
       });
     }
 
-    const smoke = await trySmokeGithubWrite({
-      taskId,
-      title,
-      approvedBy,
+    if (command !== "execute_real" && command !== "execute") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Unsupported command: ${command}`,
+          supported: ["execute_real", "smoke", "plan_real_mission", "synthesize_real"],
+        },
+        { status: 400 }
+      );
+    }
+
+    const serviceUserId = process.env.PLUTAO_SERVICE_USER_ID;
+    if (!serviceUserId) {
+      return NextResponse.json(
+        { success: false, error: "PLUTAO_SERVICE_USER_ID not configured" },
+        { status: 500 }
+      );
+    }
+
+    const db = getDb();
+    const idempotencyKey = taskId
+      ? `aegis:${taskId}:${stepIndex}`
+      : `aegis:manual:${Date.now()}`;
+
+    // 1. Check idempotency for mission
+    const existingMissions = await db
+      .select()
+      .from(missions)
+      .where(and(eq(missions.userId, serviceUserId), eq(missions.idempotencyKey, idempotencyKey)))
+      .limit(1);
+
+    let mission = existingMissions[0];
+    let isNewMission = false;
+
+    if (!mission) {
+      const missionGraph = missionObjectiveToGraphV2(title);
+      const inserted = await db
+        .insert(missions)
+        .values({
+          userId: serviceUserId,
+          objective: title,
+          context: input,
+          definitionOfDone: "Execution completed and DoD verified",
+          creationSource: "aegis",
+          graphVersion: missionGraph.version,
+          missionGraph,
+          status: "CREATED",
+          currentState: "CREATED",
+          completedSteps: [],
+          pendingSteps: [],
+          evidence: [],
+          errors: [],
+          decisions: [
+            {
+              type: "idempotency",
+              intentId: idempotencyKey,
+              idempotencyKey,
+              taskId,
+              stepIndex,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          idempotencyKey,
+        })
+        .returning();
+      mission = inserted[0];
+      isNewMission = true;
+    }
+
+    if (!mission) {
+      throw new Error("Failed to create or retrieve mission");
+    }
+
+    // 2. Enqueue or find execution + runtimeJob
+    const queued = await enqueueMissionExecutionJob({
+      missionId: mission.id,
+      userId: serviceUserId,
+      requestId: `aegis-${taskId || "req"}-${stepIndex}`,
     });
 
-    const result = [
-      `# Execução Plutão (gate aprovado) — ${title}`,
-      taskId ? `task_id: ${taskId}` : "",
-      `approved_by: ${approvedBy}`,
-      "",
-      "## Contexto",
-      input.slice(0, 3000),
-      "",
-      "## Write real (sandbox)",
-      smoke.detail,
-      "",
-      "## Status",
-      smoke.ok
-        ? "**completed** com evidência no GitHub sandbox"
-        : "**completed_partial** — gate ok, write sandbox não concluído",
-      "",
-      "## Próximo",
-      "Zarith deve sintetizar o histórico completo da missão.",
-      "",
-      `_Plutão /api/agent/execute · ${new Date().toISOString()}_`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const executionId = queued.execution.id;
+    const jobId = queued.job.id;
 
-    return NextResponse.json({
-      success: true,
-      agent: "Plutao",
-      command: "execute_real",
-      gated: false,
-      status: smoke.ok ? "completed" : "completed_partial",
-      write_ok: smoke.ok,
-      output: result,
-    });
+    // 3. Handle write-gate unblocking if approved is true
+    let releasedApproval = false;
+    if (approved && executionId) {
+      const gates = await listWriteGatesForExecution(executionId, serviceUserId);
+      const pendingGates = gates.filter((g) => g.status === "pending");
+      for (const gate of pendingGates) {
+        await approveGate(gate.id, serviceUserId);
+      }
+      if (pendingGates.length > 0) {
+        await releaseRuntimeJobAfterApproval(executionId, serviceUserId);
+        await publishRuntimeWorkerWake("write_gate_resolved");
+        releasedApproval = true;
+      }
+    }
+
+    if (isNewMission || !releasedApproval) {
+      await publishRuntimeWorkerWake("mission_enqueued");
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        job_id: jobId,
+        mission_id: mission.id,
+        status: "queued",
+      },
+      { status: 202 }
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal error";
     console.error("[api/agent/execute]", error);
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: sanitizeText(message) }, { status: 500 });
   }
 }
 
 export async function GET() {
   return NextResponse.json({
     service: "plutao-agent-execute",
-    commands: ["execute_real"],
+    commands: ["execute_real", "smoke"],
     write_gate: true,
     smoke_target: smokeTarget(),
   });
