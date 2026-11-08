@@ -7,15 +7,20 @@ const appDir = path.resolve(scriptsDir, "..");
 const repoRootDir = path.resolve(appDir, "..", "..");
 const soundsSource = path.join(repoRootDir, "apps", "web", "public", "sounds");
 const rawBrandingTarget = path.join(appDir, "branding", "res", "raw");
+const isCI = process.env.CI === "true";
+
+function failOrWarn(message) {
+  if (isCI) {
+    console.error(`[apply-branding] FATAL (CI): ${message}`);
+    process.exit(1);
+  }
+  console.warn(`[apply-branding] WARN: ${message}`);
+}
 
 // Sync sounds from web public directory to Android branding res/raw
-// Note: Android AAPT2 maps file names without extensions to R.raw.<basename>.
-// Having both .ogg and .mp3 for the same audio name causes duplicate resource errors.
-// Prefer .ogg files exclusively for Android native raw resources.
 try {
   await mkdir(rawBrandingTarget, { recursive: true });
 
-  // Remove any stale non-ogg files from rawBrandingTarget
   const existingRaw = await readdir(rawBrandingTarget, { withFileTypes: true }).catch(() => []);
   for (const file of existingRaw) {
     if (file.isFile() && !file.name.endsWith(".ogg")) {
@@ -42,10 +47,10 @@ const javaTargetDir = path.join(appDir, "android", "app", "src", "main", "java",
 const cppTargetDir = path.join(appDir, "android", "app", "src", "main", "cpp");
 const buildGradlePath = path.join(appDir, "android", "app", "build.gradle");
 const mainActivityPath = path.join(javaTargetDir, "MainActivity.java");
+const androidDirExists = await readdir(path.join(appDir, "android")).then(() => true).catch(() => false);
 
 await mkdir(target, { recursive: true });
 
-// Clean up stale non-ogg files in main res/raw if present
 try {
   const mainRawTarget = path.join(target, "raw");
   const existingMainRaw = await readdir(mainRawTarget, { withFileTypes: true }).catch(() => []);
@@ -93,27 +98,44 @@ try {
 }`
         );
         await writeFile(mainActivityPath, mainActivity);
+      } else if (androidDirExists) {
+        failOrWarn("MainActivity.java exists but LocalModelPlugin registration pattern did not match");
       }
     }
-  } catch {
-    // MainActivity might not exist yet if cap add android hasn't run locally
+  } catch (err) {
+    if (androidDirExists) {
+      failOrWarn(`MainActivity.java patch failed: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   try {
     let buildGradle = await readFile(buildGradlePath, "utf8");
+    let changed = false;
     if (!buildGradle.includes("externalNativeBuild")) {
       const cmakeBlock = `    externalNativeBuild {\n        cmake {\n            path "src/main/cpp/CMakeLists.txt"\n            version "3.22.1"\n        }\n    }\n`;
-      buildGradle = buildGradle.replace("android {", `android {\n${cmakeBlock}`);
+      if (buildGradle.includes("android {")) {
+        buildGradle = buildGradle.replace("android {", `android {\n${cmakeBlock}`);
+        changed = true;
+      } else if (androidDirExists) {
+        failOrWarn("build.gradle missing 'android {' block for externalNativeBuild patch");
+      }
     }
     if (!buildGradle.includes("abiFilters")) {
-      buildGradle = buildGradle.replace(
-        "defaultConfig {",
-        `defaultConfig {\n        ndk {\n            abiFilters "arm64-v8a", "x86_64"\n        }`
-      );
+      if (buildGradle.includes("defaultConfig {")) {
+        buildGradle = buildGradle.replace(
+          "defaultConfig {",
+          `defaultConfig {\n        ndk {\n            abiFilters "arm64-v8a", "x86_64"\n        }`
+        );
+        changed = true;
+      } else if (androidDirExists) {
+        failOrWarn("build.gradle missing 'defaultConfig {' for abiFilters patch");
+      }
     }
-    await writeFile(buildGradlePath, buildGradle);
-  } catch {
-    // build.gradle might not exist yet if cap add android hasn't run locally
+    if (changed) await writeFile(buildGradlePath, buildGradle);
+  } catch (err) {
+    if (androidDirExists) {
+      failOrWarn(`build.gradle patch failed: ${err instanceof Error ? err.message : err}`);
+    }
   }
 } catch {
   // Ignore if nativeSourceDir not found
@@ -123,20 +145,40 @@ try {
   let manifest = await readFile(manifestPath, "utf8");
   const oauthIntentFilter = `            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n                <data android:scheme="plutao" android:host="oauth" />\n            </intent-filter>`;
   if (!manifest.includes('android:scheme="plutao"')) {
-    manifest = manifest.replace(
-      `                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>`,
-      `                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>\n${oauthIntentFilter}`
-    );
+    if (manifest.includes(`                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>`)) {
+      manifest = manifest.replace(
+        `                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>`,
+        `                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>\n${oauthIntentFilter}`
+      );
+    } else if (androidDirExists) {
+      failOrWarn("AndroidManifest.xml OAuth intent-filter pattern did not match");
+    }
   }
 
-  // Ensure POST_NOTIFICATIONS permission for Android 13+
   const postNotifPermission = `    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />`;
   if (!manifest.includes("android.permission.POST_NOTIFICATIONS")) {
-    manifest = manifest.replace("<application", `${postNotifPermission}\n    <application`);
+    if (manifest.includes("<application")) {
+      manifest = manifest.replace("<application", `${postNotifPermission}\n    <application`);
+    } else if (androidDirExists) {
+      failOrWarn("AndroidManifest.xml missing <application for POST_NOTIFICATIONS");
+    }
+  }
+
+  // RECORD_AUDIO for future ASR (push-to-talk); idempotent
+  const recordAudioPermission = `    <uses-permission android:name="android.permission.RECORD_AUDIO" />`;
+  if (!manifest.includes("android.permission.RECORD_AUDIO")) {
+    if (manifest.includes("<application")) {
+      manifest = manifest.replace("<application", `${recordAudioPermission}\n    <application`);
+    } else if (androidDirExists) {
+      failOrWarn("AndroidManifest.xml missing <application for RECORD_AUDIO");
+    }
   }
 
   await writeFile(manifestPath, manifest);
-} catch {
-  // Manifest might not exist yet if cap add android hasn't run locally
+} catch (err) {
+  if (androidDirExists) {
+    failOrWarn(`AndroidManifest.xml patch failed: ${err instanceof Error ? err.message : err}`);
+  }
 }
+
 console.log(`Applied Plutão Android branding and native C++ plugins from ${source}`);
