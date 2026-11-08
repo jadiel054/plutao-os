@@ -1,109 +1,107 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { githubPushFiles } from "@/lib/connectors/githubWrite";
+import { checkMcpRateLimit } from "@/lib/mcp/audit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-function authorized(request: Request): boolean {
+/**
+ * Fase 0 hardening (A1):
+ * - Fail-closed when AEGIS_API_KEY is unset (503).
+ * - Constant-time key comparison.
+ * - Body flags (approved / approved_by / gate) are IGNORED — they never authorize write.
+ * - Real GitHub smoke write removed: this endpoint has no user session / H1 write-gate
+ *   context (userId + consumeGateForWrite). Reusing H1 would invent a parallel gate path.
+ *   Until Aegis is wired to the real write-gate table, the endpoint only returns proposals
+ *   with status awaiting_approval.
+ * - Persistent rate limit (rate_limit_buckets via checkMcpRateLimit).
+ * - GET requires the same auth and does not expose smoke target.
+ */
+
+function aegisKeyConfigured(): string | null {
   const expected = process.env.AEGIS_API_KEY;
-  if (!expected) return true;
-  const key =
+  if (!expected || expected.length === 0) return null;
+  return expected;
+}
+
+function extractPresentedKey(request: Request): string {
+  return (
     request.headers.get("x-api-key") ||
     request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
-    "";
-  return key === expected;
+    ""
+  );
 }
 
-/** Safe smoke write target — private sandbox only. */
-function smokeTarget() {
-  return {
-    owner: process.env.SMOKE_GITHUB_OWNER || "jadiel054",
-    repo: process.env.SMOKE_GITHUB_REPO || "aegis-smoke-sandbox",
-    branch: process.env.SMOKE_GITHUB_BRANCH || "main",
-  };
+/** Constant-time compare; never throws on length mismatch. */
+function keyMatches(presented: string, expected: string): boolean {
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) {
+    // Still run a dummy compare to keep timing closer to the equal-length path.
+    const dummy = Buffer.alloc(b.length);
+    timingSafeEqual(dummy, b);
+    return false;
+  }
+  return timingSafeEqual(a, b);
 }
 
-async function trySmokeGithubWrite(opts: {
-  taskId: string | null;
-  title: string;
-  approvedBy: string;
-}): Promise<{ ok: boolean; detail: string }> {
-  const token =
-    process.env.GITHUB_TOKEN ||
-    process.env.GH_TOKEN ||
-    process.env.GITHUB_PAT ||
-    "";
-  if (!token) {
-    return {
-      ok: false,
-      detail:
-        "GITHUB_TOKEN ausente no Plutão — write real não executado. Defina GITHUB_TOKEN (repo scope) no Vercel do plutao-os.",
-    };
+function authorized(request: Request): "ok" | "missing_config" | "unauthorized" {
+  const expected = aegisKeyConfigured();
+  if (!expected) return "missing_config";
+  const presented = extractPresentedKey(request);
+  if (!keyMatches(presented, expected)) return "unauthorized";
+  return "ok";
+}
+
+function rateLimitKey(request: Request): string {
+  const presented = extractPresentedKey(request);
+  if (presented) {
+    return `aegis:execute:${createHash("sha256").update(presented).digest("hex").slice(0, 24)}`;
   }
+  const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return `aegis:execute:ip:${fwd || "unknown"}`;
+}
 
-  const { owner, repo, branch } = smokeTarget();
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const path = `smoke/${stamp}-${(opts.taskId || "manual").slice(0, 8)}.md`;
-  const content = [
-    "# Smoke write — Aegis write-gate",
-    "",
-    `- task_id: ${opts.taskId || "(none)"}`,
-    `- title: ${opts.title}`,
-    `- approved_by: ${opts.approvedBy}`,
-    `- at: ${new Date().toISOString()}`,
-    "- agent: Plutão /api/agent/execute",
-    "",
-    "Arquivo criado automaticamente após aprovação humana no Aegis/Telegram.",
-    `Alvo restrito: ${owner}/${repo} (sandbox).`,
-    "",
-  ].join("\n");
-
-  const res = await githubPushFiles(token, {
-    owner,
-    repo,
-    branch,
-    message: `smoke(aegis): ${opts.title.slice(0, 72)}`,
-    files: [{ path, content }],
-  });
-
-  if (!res.ok) {
-    return { ok: false, detail: `GitHub push falhou: ${res.error}` };
-  }
-
-  return {
-    ok: true,
-    detail: [
-      "WRITE REAL OK",
-      res.output,
-      `path: ${path}`,
-      res.htmlUrl ? `commit_url: ${res.htmlUrl}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  };
+async function enforceRateLimit(request: Request): Promise<NextResponse | null> {
+  const result = await checkMcpRateLimit(rateLimitKey(request));
+  if (result.ok) return null;
+  return NextResponse.json(
+    { success: false, error: "Rate limit exceeded", retry_after_sec: result.retryAfterSec },
+    { status: 429, headers: { "Retry-After": String(result.retryAfterSec) } }
+  );
 }
 
 /**
  * Aegis contract: POST /api/agent/execute
- * Write-gate until approved; then optional smoke write to private sandbox.
+ * Always proposal-only (awaiting_approval). No external write from this route.
  */
 export async function POST(request: Request) {
   try {
-    if (!authorized(request)) {
+    const auth = authorized(request);
+    if (auth === "missing_config") {
+      return NextResponse.json(
+        { success: false, error: "AEGIS_API_KEY not configured — endpoint fail-closed" },
+        { status: 503 }
+      );
+    }
+    if (auth === "unauthorized") {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+
+    const limited = await enforceRateLimit(request);
+    if (limited) return limited;
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const command = String(body.command || "execute_real");
     const title = String(body.mission_title || body.title || "Missão");
     const input = String(body.input || body.mission_context || body.mission_description || "");
     const taskId = body.task_id ? String(body.task_id) : null;
-    const approved =
-      body.approved === true ||
-      Boolean(body.approved_by) ||
-      String(body.gate || "") === "approved";
-    const approvedBy = String(body.approved_by || "operator");
+
+    // Body approval flags are intentionally ignored (H1 principle).
+    void body.approved;
+    void body.approved_by;
+    void body.gate;
 
     if (command === "plan_real_mission") {
       return NextResponse.json({
@@ -134,62 +132,20 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!approved) {
-      const { owner, repo } = smokeTarget();
-      const proposal = [
-        `# Proposta de execução Plutão — ${title}`,
-        taskId ? `task_id: ${taskId}` : "",
-        "",
-        "## Entrada (plano / contexto)",
-        input.slice(0, 4000) || "(vazio)",
-        "",
-        "## Ações pretendidas (bloqueadas até aprovação)",
-        "1. Validar escopo e alvos (repos, ambientes, secrets).",
-        `2. Smoke write seguro em ${owner}/${repo} (arquivo em smoke/).`,
-        "3. Nenhuma mutação fora do sandbox sem gate explícito.",
-        "",
-        "## Status",
-        "**awaiting_approval** — nenhum write externo foi executado.",
-        "",
-        `_Plutão /api/agent/execute · ${new Date().toISOString()}_`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      return NextResponse.json({
-        success: true,
-        agent: "Plutao",
-        command: "execute_real",
-        gated: true,
-        status: "awaiting_approval",
-        output: proposal,
-      });
-    }
-
-    const smoke = await trySmokeGithubWrite({
-      taskId,
-      title,
-      approvedBy,
-    });
-
-    const result = [
-      `# Execução Plutão (gate aprovado) — ${title}`,
+    const proposal = [
+      `# Proposta de execução Plutão — ${title}`,
       taskId ? `task_id: ${taskId}` : "",
-      `approved_by: ${approvedBy}`,
       "",
-      "## Contexto",
-      input.slice(0, 3000),
+      "## Entrada (plano / contexto)",
+      input.slice(0, 4000) || "(vazio)",
       "",
-      "## Write real (sandbox)",
-      smoke.detail,
+      "## Ações pretendidas (bloqueadas até aprovação via write gate H1)",
+      "1. Validar escopo e alvos (repos, ambientes, secrets).",
+      "2. Qualquer write externo exige gate persistido (userId, status approved, payload_hash, consumo atômico).",
+      "3. Este endpoint não executa write: flags approved/approved_by/gate no body são ignoradas.",
       "",
       "## Status",
-      smoke.ok
-        ? "**completed** com evidência no GitHub sandbox"
-        : "**completed_partial** — gate ok, write sandbox não concluído",
-      "",
-      "## Próximo",
-      "Zarith deve sintetizar o histórico completo da missão.",
+      "**awaiting_approval** — nenhum write externo foi executado.",
       "",
       `_Plutão /api/agent/execute · ${new Date().toISOString()}_`,
     ]
@@ -200,10 +156,10 @@ export async function POST(request: Request) {
       success: true,
       agent: "Plutao",
       command: "execute_real",
-      gated: false,
-      status: smoke.ok ? "completed" : "completed_partial",
-      write_ok: smoke.ok,
-      output: result,
+      gated: true,
+      status: "awaiting_approval",
+      write_ok: false,
+      output: proposal,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal error";
@@ -212,11 +168,26 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = authorized(request);
+  if (auth === "missing_config") {
+    return NextResponse.json(
+      { success: false, error: "AEGIS_API_KEY not configured — endpoint fail-closed" },
+      { status: 503 }
+    );
+  }
+  if (auth === "unauthorized") {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  const limited = await enforceRateLimit(request);
+  if (limited) return limited;
+
   return NextResponse.json({
     service: "plutao-agent-execute",
     commands: ["execute_real"],
     write_gate: true,
-    smoke_target: smokeTarget(),
+    // smoke_target intentionally omitted — do not leak owner/repo without need
+    note: "Proposal-only; real writes require H1 write gate outside this route.",
   });
 }
