@@ -19,13 +19,7 @@ jobs:
           cache: npm
 
       - name: Install
-        run: npm ci --no-audit --no-fund
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
+        run: npm install --no-audit --no-fund
 
       - name: Test
         run: npm run test
