@@ -39,8 +39,29 @@ const nextConfig: NextConfig = {
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "X-Frame-Options", value: "DENY" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        // microphone=(self) required for future ASR / getUserMedia; camera and geo stay blocked
+        { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
         { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+        // Report-only CSP: observe violations without breaking the app.
+        // Allows blob/data/wasm/worker for on-device voice and local models;
+        // connect-src covers same-origin APIs plus common model/voice hosts the app already uses.
+        {
+          key: "Content-Security-Policy-Report-Only",
+          value: [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob: https:",
+            "font-src 'self' data:",
+            "connect-src 'self' https: wss: blob:",
+            "media-src 'self' blob: data:",
+            "worker-src 'self' blob:",
+            "child-src 'self' blob:",
+            "frame-ancestors 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+          ].join("; "),
+        },
         ...(process.env.NODE_ENV === "production"
           ? [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]
           : []),
