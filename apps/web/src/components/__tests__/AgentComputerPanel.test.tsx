@@ -16,10 +16,10 @@ beforeEach(() => {
   );
   vi.stubGlobal(
     "EventSource",
-    vi.fn(() => ({
-      addEventListener: vi.fn(),
-      close: vi.fn(),
-    }))
+    vi.fn().mockImplementation(function (this: { addEventListener: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }) {
+      this.addEventListener = vi.fn();
+      this.close = vi.fn();
+    })
   );
 });
 
