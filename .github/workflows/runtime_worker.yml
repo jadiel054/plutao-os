@@ -18,11 +18,12 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$CRON_SECRET"
-          status=$(curl --silent --show-error --output /tmp/runtime-worker-health.json --write-out '%{http_code}' \
+          status=$(curl --silent --show-error --max-time 30 --output /tmp/runtime-worker-health.json --write-out '%{http_code}' \
             --request GET "$APP_URL/api/cron/runtime-worker/health" \
             --header "Authorization: Bearer $CRON_SECRET" \
-            --header 'Accept: application/json')
-          cat /tmp/runtime-worker-health.json
+            --header 'Accept: application/json' || true)
+          echo "HTTP $status"
+          cat /tmp/runtime-worker-health.json || true
           test "$status" = "200"
           python3 - <<'PY'
           import json
@@ -52,11 +53,13 @@ jobs:
           test -n "$CRON_SECRET"
           # Process up to 3 batches per cron tick to drain backlog faster
           for i in 1 2 3; do
-            status=$(curl --silent --show-error --output /tmp/runtime-worker.json --write-out '%{http_code}' \
+            status=$(curl --silent --show-error --max-time 290 --output /tmp/runtime-worker.json --write-out '%{http_code}' \
               --request POST "$APP_URL/api/cron/runtime-worker" \
               --header "Authorization: Bearer $CRON_SECRET" \
-              --header 'Accept: application/json')
-            cat /tmp/runtime-worker.json
+              --header 'Accept: application/json' || true)
+            echo "batch $i HTTP $status"
+            cat /tmp/runtime-worker.json || true
+            echo
             test "$status" = "200"
             processed=$(python3 -c "import json; d=json.load(open('/tmp/runtime-worker.json')); print(len(d.get('processed') or []))")
             echo "batch $i processed=$processed"
