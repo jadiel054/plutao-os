@@ -11,6 +11,8 @@ import { formatPlaybackClock } from "@/lib/voice/audioPlayback";
 
 type Props = {
   content: string;
+  messageId?: string;
+  conversationId?: string | null;
   onRegenerate?: () => void;
   disabled?: boolean;
 };
@@ -47,14 +49,42 @@ async function loadVoicePrefs(): Promise<VoiceRuntimePrefs> {
 /**
  * Barra de ações sob a resposta do assistente — folha discreta (copiar, falar, regenerar, feedback).
  */
-export function MessageActions({ content, onRegenerate, disabled }: Props) {
+export function MessageActions({ content, messageId, conversationId, onRegenerate, disabled }: Props) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [speakLoading, setSpeakLoading] = useState(false);
   const [speakError, setSpeakError] = useState<string | null>(null);
   const [playElapsed, setPlayElapsed] = useState(0);
   const [playTotal, setPlayTotal] = useState<number | null>(null);
+
+  async function submitFeedback(rating: "up" | "down") {
+    if (!messageId || !conversationId || feedbackLoading) return;
+    const previous = feedback;
+    setFeedbackError(null);
+    setFeedbackLoading(true);
+    setFeedback(rating);
+    try {
+      const res = await fetch("/api/chat/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rating, messageId, conversationId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data.error === "string" ? data.error : `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setFeedback(previous);
+      const msg = err instanceof Error ? err.message : "Falha ao enviar feedback";
+      setFeedbackError(msg);
+      setTimeout(() => setFeedbackError(null), 4000);
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }
 
   async function handleCopy() {
     try {
@@ -185,21 +215,36 @@ export function MessageActions({ content, onRegenerate, disabled }: Props) {
       <button
         type="button"
         className={`${btn} ${feedback === "up" ? "text-[var(--selo)]" : ""}`}
-        onClick={() => setFeedback((f) => (f === "up" ? null : "up"))}
+        disabled={disabled || feedbackLoading || !messageId || !conversationId}
+        onClick={() => void submitFeedback("up")}
         title="Útil"
         aria-label="Útil"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill={feedback === "up" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.75"><path d="M7 11v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3zm0 0V8a4 4 0 0 1 4-4l1 5h5a2 2 0 0 1 2 2l-1 6a2 2 0 0 1-2 2h-7" strokeLinejoin="round" /></svg>
+        {feedbackLoading && feedback !== "down" ? (
+          <span className="w-3.5 h-3.5 border-2 border-[var(--selo)] border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill={feedback === "up" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.75"><path d="M7 11v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3zm0 0V8a4 4 0 0 1 4-4l1 5h5a2 2 0 0 1 2 2l-1 6a2 2 0 0 1-2 2h-7" strokeLinejoin="round" /></svg>
+        )}
       </button>
       <button
         type="button"
         className={`${btn} ${feedback === "down" ? "text-rose-400" : ""}`}
-        onClick={() => setFeedback((f) => (f === "down" ? null : "down"))}
+        disabled={disabled || feedbackLoading || !messageId || !conversationId}
+        onClick={() => void submitFeedback("down")}
         title="Não útil"
         aria-label="Não útil"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill={feedback === "down" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.75"><path d="M17 13V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-3zm0 0v3a4 4 0 0 1-4 4l-1-5H7a2 2 0 0 1-2-2l1-6a2 2 0 0 1 2-2h7" strokeLinejoin="round" /></svg>
+        {feedbackLoading && feedback !== "up" ? (
+          <span className="w-3.5 h-3.5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill={feedback === "down" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.75"><path d="M17 13V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-3zm0 0v3a4 4 0 0 1-4 4l-1-5H7a2 2 0 0 1-2-2l1-6a2 2 0 0 1 2-2h7" strokeLinejoin="round" /></svg>
+        )}
       </button>
+      {feedbackError ? (
+        <span className="text-[10px] font-mono text-rose-400 ml-1 truncate max-w-[140px]" title={feedbackError}>
+          {feedbackError}
+        </span>
+      ) : null}
     </div>
   );
 }

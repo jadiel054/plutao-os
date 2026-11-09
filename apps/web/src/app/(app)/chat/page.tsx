@@ -1518,6 +1518,8 @@ function ChatPageInner() {
                   {m.role === "assistant" && m.content.trim() ? (
                     <MessageActions
                       content={m.content}
+                      messageId={m.id}
+                      conversationId={activeConversationId}
                       disabled={sending}
                       onRegenerate={() => void regenerateLast()}
                     />
