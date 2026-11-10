@@ -15,6 +15,7 @@ import {
   continueRuntimeJob,
   parseRuntimeJobPayload,
   releaseResolvedApprovalJobs,
+  renewRuntimeJobLease,
   resolveRuntimeJobOutcome,
   retryRuntimeJob,
   waitRuntimeJobForApproval,
@@ -161,6 +162,10 @@ export async function processUserRuntimeJobs(userId: string, maxJobs = 3) {
             maxIterations: payload.maxIterations,
             missionGraph,
             conversationId: payload.conversationId ?? null,
+            heartbeat: async () => {
+              const renewed = await renewRuntimeJobLease(job.id, job.lockToken ?? "");
+              return Boolean(renewed);
+            },
           });
           graphContinuation = runResult.continuation === true;
           waitingApproval = runResult.waitingApproval === true;
