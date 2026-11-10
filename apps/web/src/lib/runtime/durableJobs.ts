@@ -344,21 +344,50 @@ export async function retryRuntimeJob(jobId: string, lockToken: string, error: s
   const db = getDb();
   const now = new Date();
   const safeError = sanitizeError(error, "JOB_FAILED");
+
+  // Read current attempts under the same ownership conditions.
+  // Avoids SQL CASE + Date parameter type inference issues in Postgres.
+  const [current] = await db
+    .select({
+      attempts: runtimeJobs.attempts,
+      maxAttempts: runtimeJobs.maxAttempts,
+    })
+    .from(runtimeJobs)
+    .where(
+      and(
+        eq(runtimeJobs.id, jobId),
+        eq(runtimeJobs.lockToken, lockToken),
+        eq(runtimeJobs.status, "RUNNING")
+      )
+    )
+    .limit(1);
+
+  if (!current) return null;
+
+  const isTerminal = current.attempts >= current.maxAttempts;
+  const nextStatus: RuntimeJobStatus = isTerminal ? "FAILED" : "PENDING";
+  const completedAt = isTerminal ? now : null;
+
   const [job] = await db
     .update(runtimeJobs)
     .set({
-      status: sql`CASE WHEN ${runtimeJobs.attempts} >= ${runtimeJobs.maxAttempts} THEN 'FAILED' ELSE 'PENDING' END`,
+      status: nextStatus,
       availableAt: new Date(now.getTime() + RUNTIME_JOB_RETRY_DELAY_MS),
       lastError: safeError,
       lockedAt: null,
       lockToken: null,
       updatedAt: now,
-      completedAt: sql`CASE WHEN ${runtimeJobs.attempts} >= ${runtimeJobs.maxAttempts} THEN ${now} ELSE NULL END`,
+      completedAt,
     })
     .where(
-      and(eq(runtimeJobs.id, jobId), eq(runtimeJobs.lockToken, lockToken), eq(runtimeJobs.status, "RUNNING"))
+      and(
+        eq(runtimeJobs.id, jobId),
+        eq(runtimeJobs.lockToken, lockToken),
+        eq(runtimeJobs.status, "RUNNING")
+      )
     )
     .returning();
+
   return job ?? null;
 }
 
