@@ -191,12 +191,24 @@ export async function pauseExecution(executionId: string, userId: string) {
   }
   const now = new Date();
   const db = getDb();
+  // CAS: só transiciona se o status não mudou desde a leitura (evita sobrescrever
+  // uma transição concorrente, ex.: worker completando enquanto o usuário pausa).
   const updated = await db
     .update(executions)
     .set({ status: "PAUSED", updatedAt: now })
-    .where(eq(executions.id, executionId))
+    .where(
+      and(
+        eq(executions.id, executionId),
+        eq(executions.userId, userId),
+        eq(executions.status, row.status)
+      )
+    )
     .returning();
-  return { execution: updated[0] };
+  if (updated[0]) return { execution: updated[0] };
+  const fresh = await getOwnedExecution(executionId, userId);
+  return fresh && TERMINAL.has(fresh.status as ExecutionStatus)
+    ? { error: "NOT_RECOVERABLE" as const }
+    : { execution: fresh ?? row };
 }
 
 export async function interruptExecution(executionId: string, userId: string) {
@@ -207,29 +219,49 @@ export async function interruptExecution(executionId: string, userId: string) {
   }
   const now = new Date();
   const db = getDb();
+  // CAS: não sobrescreve transição concorrente (ex.: worker marcando COMPLETED).
   const updated = await db
     .update(executions)
     .set({ status: "INTERRUPTED", updatedAt: now })
-    .where(eq(executions.id, executionId))
+    .where(
+      and(
+        eq(executions.id, executionId),
+        eq(executions.userId, userId),
+        eq(executions.status, row.status)
+      )
+    )
     .returning();
-  return { execution: updated[0] };
+  if (updated[0]) return { execution: updated[0] };
+  const fresh = await getOwnedExecution(executionId, userId);
+  return fresh && TERMINAL.has(fresh.status as ExecutionStatus)
+    ? { error: "TERMINAL" as const }
+    : { execution: fresh ?? row };
 }
 
 /** Resume recoverable run or queued PENDING execution → RUNNING. */
 export async function resumeExecution(executionId: string, userId: string) {
   const row = await getOwnedExecution(executionId, userId);
-  if (!row) return { error: "NOT_FOUND" as const };
+  if (!row) return { error: "NOT_FOUND" as const, execution: row };
   if (row.status !== "PENDING" && !RECOVERABLE.has(row.status as ExecutionStatus)) {
     return { error: "NOT_RECOVERABLE" as const, execution: row };
   }
   const now = new Date();
   const db = getDb();
+  // CAS: evita corrida com outra transição concorrente do mesmo registro.
   const updated = await db
     .update(executions)
     .set({ status: "RUNNING", startedAt: row.startedAt ?? now, updatedAt: now })
-    .where(eq(executions.id, executionId))
+    .where(
+      and(
+        eq(executions.id, executionId),
+        eq(executions.userId, userId),
+        eq(executions.status, row.status)
+      )
+    )
     .returning();
-  return { execution: updated[0] };
+  if (updated[0]) return { execution: updated[0] };
+  const fresh = await getOwnedExecution(executionId, userId);
+  return fresh ? { execution: fresh } : { error: "NOT_FOUND" as const, execution: row };
 }
 
 export async function completeExecution(
@@ -244,8 +276,11 @@ export async function completeExecution(
     return { execution: row, alreadyTerminal: true as const };
   }
   const now = new Date();
-  const db = getDb();
   const freedKey = `${row.idempotencyKey}:done:${row.id}`;
+  const db = getDb();
+  // CAS server-side: a condição de não-terminal fica no WHERE, eliminando a
+  // janela de corrida entre a checagem em memória e o UPDATE (dois workers
+  // completando a mesma execution ao mesmo tempo).
   const updated = await db
     .update(executions)
     .set({
@@ -255,9 +290,22 @@ export async function completeExecution(
       updatedAt: now,
       idempotencyKey: freedKey,
     })
-    .where(eq(executions.id, executionId))
+    .where(
+      and(
+        eq(executions.id, executionId),
+        sql`${executions.status} NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')`
+      )
+    )
     .returning();
-  return { execution: updated[0], alreadyTerminal: false as const };
+  if (updated[0]) return { execution: updated[0], alreadyTerminal: false as const };
+  // Perdeu a corrida: outra transição venceu. Reavalia o estado atual.
+  const fresh = await getOwnedExecution(executionId, userId);
+  if (fresh && TERMINAL.has(fresh.status as ExecutionStatus)) {
+    return { execution: fresh, alreadyTerminal: true as const };
+  }
+  return fresh
+    ? { execution: fresh, alreadyTerminal: false as const }
+    : { error: "NOT_FOUND" as const };
 }
 
 /**
