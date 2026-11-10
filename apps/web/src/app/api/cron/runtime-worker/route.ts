@@ -174,7 +174,10 @@ export async function POST(req: NextRequest) {
           errorType: "WAITING_APPROVAL",
           metadata: { worker: true, executionStatus: finalExecution?.status ?? null, missionStatus: finalMission?.status ?? null },
         });
-        break;
+        // A-05: segue para o próximo job do lote em vez de abortar o dreno.
+        // O job atual já está em WAITING_APPROVAL e não será reclamado até a
+        // liberação do gate, portanto continuar não causa reexecução.
+        continue;
       }
 
       const outcome = resolveRuntimeJobOutcome(null, finalExecution?.status, finalMission?.status);
