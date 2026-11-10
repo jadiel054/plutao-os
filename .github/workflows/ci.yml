@@ -41,6 +41,8 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      pull-requests: write
     services:
       postgres:
         image: postgres:17
@@ -70,4 +72,14 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Integration tests (real PostgreSQL)
-        run: npx vitest run apps/web/src/lib/runtime/__tests__/pg
+        run: |
+          set -o pipefail
+          npx vitest run apps/web/src/lib/runtime/__tests__/pg --reporter=verbose 2>&1 | tee /tmp/pg-tests.log
+
+      - name: Publish failure log to PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/pg-tests.log > /tmp/pg-tail.txt
+          gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/pg-tail.txt || true
