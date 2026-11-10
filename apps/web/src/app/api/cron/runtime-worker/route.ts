@@ -3,6 +3,7 @@ import { getOwnedConversation, getOwnedMission, getOwnedTaskInMission } from "@/
 import { isMissionStatus, TERMINAL_STATUSES } from "@/lib/missions/lifecycle";
 import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
 import {
+  RUNTIME_JOB_CONTINUATION_DELAY_MS,
   claimNextRuntimeJob,
   completeRuntimeJob,
   continueRuntimeJob,
@@ -26,7 +27,8 @@ import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const MAX_BATCH = 1;
+const MAX_JOBS_PER_INVOCATION = 8;
+const WORKER_TIME_BUDGET_MS = 260_000; // maxDuration = 300s com ~40s de margem
 
 function authorized(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -57,9 +59,23 @@ export async function POST(req: NextRequest) {
   await recordReconciliation(repaired);
   await releaseResolvedApprovalJobs();
 
-  for (let i = 0; i < MAX_BATCH; i += 1) {
+  let processedJobs = 0;
+  let drainContinuation = false;
+
+  while (processedJobs < MAX_JOBS_PER_INVOCATION) {
+    // Orçamento de tempo: mantém ~40s de margem sobre maxDuration (300s).
+    if (Date.now() - startedAt >= WORKER_TIME_BUDGET_MS) break;
+    if (drainContinuation) {
+      // Respeita o delay de continuação para que o claim (available_at <= now)
+      // encontre o job re-enfileirado na mesma invocation.
+      await new Promise((resolve) => setTimeout(resolve, RUNTIME_JOB_CONTINUATION_DELAY_MS + 100));
+    }
+    drainContinuation = false;
+
     const job = await claimNextRuntimeJob();
     if (!job) break;
+
+    processedJobs += 1;
 
     const payload = parseRuntimeJobPayload(job.payload);
     const requestId = createRequestId(payload.requestId);
@@ -139,10 +155,11 @@ export async function POST(req: NextRequest) {
         if (!waiting) {
           const continued = await continueRuntimeJob(job.id, job.lockToken ?? "");
           if (continued?.status === "PENDING") {
-            await publishRuntimeWorkerWake("graph_continued", { delaySeconds: 2 });
+            await publishRuntimeWorkerWake("graph_continued", { delaySeconds: 0 });
+            drainContinuation = true;
           }
           processed.push({ id: job.id, status: continued?.status ?? "PENDING", executionStatus: finalExecution?.status });
-          continue;
+          break;
         }
         processed.push({ id: job.id, status: waiting.status, executionStatus: finalExecution?.status });
         await recordRuntimeTelemetry({
@@ -157,7 +174,7 @@ export async function POST(req: NextRequest) {
           errorType: "WAITING_APPROVAL",
           metadata: { worker: true, executionStatus: finalExecution?.status ?? null, missionStatus: finalMission?.status ?? null },
         });
-        continue;
+        break;
       }
 
       const outcome = resolveRuntimeJobOutcome(null, finalExecution?.status, finalMission?.status);
@@ -215,8 +232,11 @@ export async function POST(req: NextRequest) {
         if (retry?.status === "PENDING") {
           await publishRuntimeWorkerWake(
             graphContinuation ? "graph_continued" : "job_retry",
-            { delaySeconds: graphContinuation ? 2 : 30 }
+            { delaySeconds: graphContinuation ? 0 : 30 }
           );
+        }
+        if (graphContinuation && retry?.status === "PENDING") {
+          drainContinuation = true;
         }
         await recordRuntimeTelemetry({
           userId: job.userId,

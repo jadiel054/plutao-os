@@ -45,9 +45,19 @@ Do not expose database URLs to the client.
 
 O endpoint `POST /api/missions/:id/autonomous-run` **somente enfileira** uma execution `PENDING` e retorna `202`. O processamento acontece em `POST /api/cron/runtime-worker`, protegido por `Authorization: Bearer $CRON_SECRET`. O workflow `.github/workflows/runtime_worker.yml` chama essa rota a cada cinco minutos na branch padrão e executa antes um probe read-only em `GET /api/cron/runtime-worker/health`.
 
-O código também contém um wake-up opcional via [Vercel Queues](https://vercel.com/docs/queues), atualmente em beta e disponível em todos os planos. Após persistir o job, resolver um Write Gate, continuar um nó ou programar um retry, publica apenas `{version, reason}` (sem IDs, payload de missão ou PII). O consumer privado reutiliza o mesmo handler autenticado do worker; o claim atômico Postgres e `MAX_BATCH=1` continuam inalterados. A fila entrega at-least-once e isola mensagens por deployment; duplicatas não substituem idempotência.
+O código também contém um wake-up opcional via [Vercel Queues](https://vercel.com/docs/queues), atualmente em beta e disponível em todos os planos. Após persistir o job, resolver um Write Gate, continuar um nó ou programar um retry, publica apenas `{version, reason}` (sem IDs, payload de missão ou PII). O consumer privado reutiliza o mesmo handler autenticado do worker. O claim atômico Postgres por onda continua inalterado; dentro da mesma invocation, o worker drena continuations de grafo em sequência (até 8 jobs, respeitando um orçamento de tempo com ~40s de margem sobre `maxDuration` de 300s). A fila entrega at-least-once e isola mensagens por deployment; duplicatas não substituem idempotência.
 
 A opção é deliberadamente **desligada por padrão**. Para avaliar em produção, revisar [limites e preços da fila](https://vercel.com/docs/queues/pricing) e [uso de Functions](https://vercel.com/docs/functions/usage-and-pricing), então definir `RUNTIME_WORKER_QUEUE_ENABLED=true` somente no ambiente Production e fazer deploy. O Hobby inclui até 1 milhão de operações de Queue/mês; invocações, CPU e memória das Functions seguem quotas separadas. O cron GitHub continua sendo recuperação caso a publicação/entrega falhe ou expire; Postgres é a fonte durável da missão.
+
+Papéis em produção: a **Vercel Queues é o caminho primário de latência** (wake imediato após continuação de nó ou resolução de gate); o **GitHub Actions é apenas recuperação/vigia**, garantindo que nenhum job fique preso se a publicação ou entrega da fila falhar. Nunca conte com o schedule do GitHub para o avanço rápido entre nós de uma missão.
+
+### Checklist para ativar a fila em Production
+
+1. Confirme que `CRON_SECRET` tem o mesmo valor no ambiente da Vercel e nos secrets do GitHub Actions.
+2. Revise os limites da Vercel Queues (documentação acima) e defina `RUNTIME_WORKER_QUEUE_ENABLED=true` somente no ambiente Production.
+3. Faça deploy e confirme que o consumer `/api/queues/runtime-worker` processa o wake (resposta `ok: true` do worker).
+4. Dispare uma missão multi-nó e confirme que o avanço entre nós acontece sem esperar o próximo tick do cron do GitHub.
+5. Mantenha `.github/workflows/runtime_worker.yml` ativo como recovery.
 
 O probe de saúde usa o mesmo bearer do cron, não reivindica jobs e retorna apenas contagens agregadas (`PENDING`, `RUNNING`, `WAITING_APPROVAL` e estados terminais), idade dos itens mais antigos e leases de execução expirados. Ele não retorna `userId`, `missionId`, `executionId`, payload ou texto de erro.
 
@@ -55,7 +65,7 @@ Em produção:
 
 1. Defina `CRON_SECRET` no ambiente da Vercel e como secret do repositório no GitHub Actions, com o mesmo valor.
 2. Migrations 0024–0026 já foram aplicadas no Neon `main` em 2026-10-07; confira o schema antes do rollout. O smoke autenticado multi-nó continua pendente.
-3. Dispare o workflow e confirme que o probe `GET /api/cron/runtime-worker/health` retorna `200` antes do processamento. O worker serial processa no máximo um job por invocation (`maxBatch = 1`).
+3. Dispare o workflow e confirme que o probe `GET /api/cron/runtime-worker/health` retorna `200` antes do processamento. O worker serial processa uma onda por vez; continuations de grafo são drenadas na mesma invocation (até 8 jobs, com margem de tempo).
 4. Execute uma missão de teste com pelo menos dois nós dependentes e confirme que o mesmo job passa por continuations serializadas até `runtime_jobs.SUCCEEDED` e `executions.COMPLETED`.
 5. Confirme que uma falha terminal de nó não vira sucesso do job e que o DoD usa evidence da execution/nó correspondente.
 6. Teste um Write Gate pendente: confirme job `WAITING_APPROVAL`, execução recuperável, aprovação/rejeição vinculada à evidence do nó e retomada do mesmo job.
