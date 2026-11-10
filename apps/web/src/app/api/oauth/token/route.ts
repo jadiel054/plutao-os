@@ -81,7 +81,13 @@ export async function POST(req: NextRequest) {
     if (!grant) return tokenError("invalid_grant", "refresh_token inválido ou revogado");
     if (!timingSafeStringEqual(grant.clientId, clientId)) return tokenError("invalid_grant", "client_id não confere");
 
-    const issued = issueAccessToken({ userId: grant.userId, clientId: grant.clientId, scope: grant.scope, grantId: grant.id });
+    const issued = issueAccessToken({
+      userId: grant.userId,
+      clientId: grant.clientId,
+      scope: grant.scope,
+      grantId: grant.id,
+      allowWrite: grant.scope.split(/\s+/).includes("mcp:write"),
+    });
     const newRefresh = newRefreshTokenPlain();
     await attachRefreshToken(grant.id, newRefresh, refreshExpiresAt());
     await touchGrant(grant.id);
@@ -120,7 +126,13 @@ export async function POST(req: NextRequest) {
 
   const consumed = await consumeAuthCodeRow(peeked.jti);
   if (!consumed) return tokenError("invalid_grant", "código já usado, inválido ou expirado");
-  const issued = issueAccessToken({ userId: consumed.userId, clientId: consumed.clientId, scope: consumed.scope, grantId: consumed.grantId });
+  const issued = issueAccessToken({
+    userId: consumed.userId,
+    clientId: consumed.clientId,
+    scope: consumed.scope,
+    grantId: consumed.grantId,
+    allowWrite: consumed.scope.split(/\s+/).includes("mcp:write"),
+  });
   const supportsRefresh = clientSupportsGrant(resolvedClient.client, "refresh_token");
   const refreshPlain = supportsRefresh ? newRefreshTokenPlain() : undefined;
   if (refreshPlain) await attachRefreshToken(consumed.grantId, refreshPlain, refreshExpiresAt());

@@ -1,4 +1,4 @@
-export const MISSION_CREATION_SOURCES = ["chat", "cockpit"] as const;
+export const MISSION_CREATION_SOURCES = ["chat", "cockpit", "mcp"] as const;
 export type MissionCreationSource = (typeof MISSION_CREATION_SOURCES)[number];
 
 export type MissionIntakeInput = {

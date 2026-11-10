@@ -1,4 +1,4 @@
-import { getMcpIssuer, getMcpResourceUrl } from "@/lib/mcp/tokens";
+import { getMcpIssuer, getMcpResourceUrl, MCP_SCOPES } from "@/lib/mcp/tokens";
 
 export const runtime = "nodejs";
 
@@ -10,7 +10,7 @@ export async function GET() {
   const body = {
     resource,
     authorization_servers: [issuer],
-    scopes_supported: ["mcp:read"],
+    scopes_supported: [...MCP_SCOPES],
     bearer_methods_supported: ["header"],
     resource_documentation: `${issuer}/ajuda`,
     logo_uri: `${issuer}/icon.png`,

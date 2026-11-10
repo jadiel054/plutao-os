@@ -50,6 +50,7 @@ export const mcpOauthGrants = pgTable(
     clientId: text("client_id").notNull(),
     redirectUri: text("redirect_uri").notNull(),
     scope: text("scope").notNull().default("mcp:read"),
+    writeConsentedAt: timestamp("write_consented_at", { withTimezone: true }),
     refreshTokenHash: text("refresh_token_hash"),
     refreshExpiresAt: timestamp("refresh_expires_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),

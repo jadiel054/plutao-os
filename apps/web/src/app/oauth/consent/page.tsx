@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
-import { getMcpResourceUrl } from "@/lib/mcp/tokens";
+import { getMcpResourceUrl, issueConsentTicket, normalizeScopes } from "@/lib/mcp/tokens";
 import { resolveMcpOAuthClient } from "@/lib/mcp/clientMetadata";
 
 export const dynamic = "force-dynamic";
@@ -14,16 +14,11 @@ function one(v: string | string[] | undefined): string {
   return v || "";
 }
 
-const SCOPE_COPY: Record<string, string> = {
-  "mcp:read":
-    "mcp:read — status, conectores (sem tokens), conversas e detalhes de missão",
-};
-
 export default async function OAuthConsentPage({ searchParams }: Props) {
   const sp = await searchParams;
   const clientId = one(sp.client_id);
   const redirectUri = one(sp.redirect_uri);
-  const scope = one(sp.scope) || "mcp:read";
+  const requestedScope = normalizeScopes(one(sp.scope) || "mcp:read", { allowWrite: true });
   const resource = one(sp.resource) || getMcpResourceUrl();
   const codeChallenge = one(sp.code_challenge);
   const state = one(sp.state);
@@ -36,7 +31,7 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
       `/oauth/consent?${new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
-        scope,
+        scope: requestedScope,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
         ...(state ? { state } : {}),
@@ -56,9 +51,18 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
     );
   }
 
-  const resolvedClient = clientId ? await resolveMcpOAuthClient(clientId) : null;
-  const clientName = resolvedClient?.ok ? resolvedClient.client.clientName : null;
-  const displayScopes = ["mcp:read"];
+  const resolvedClient = await resolveMcpOAuthClient(clientId);
+  const clientName = resolvedClient.ok ? resolvedClient.client.clientName : null;
+  const requestsWrite = requestedScope.split(/\s+/).includes("mcp:write");
+  const consentTicket = issueConsentTicket({
+    sub: user.id,
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    resource,
+    scope: requestedScope,
+    code_challenge: codeChallenge,
+    state,
+  });
 
   return (
     <main className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-6 p-6 text-[var(--text)]">
@@ -69,23 +73,19 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
         <h1 className="text-xl font-semibold">Autorizar acesso</h1>
         <p className="text-sm text-[var(--text-muted)]">
           Um aplicativo externo pede permissão para acessar a sua conta no Plutão via MCP.
-          Revise os escopos antes de autorizar.
+          Revise o cliente e cada permissão antes de autorizar.
         </p>
       </div>
 
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3 text-sm">
+      <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm">
         <div>
           <div className="text-xs text-[var(--text-muted)]">Conta</div>
-          <div className="font-medium">{user?.email}</div>
+          <div className="font-medium">{user.email}</div>
         </div>
         <div>
           <div className="text-xs text-[var(--text-muted)]">Cliente</div>
-          {clientName && (
-            <div className="font-medium">{clientName}</div>
-          )}
-          {clientName && (
-            <div className="text-xs text-[var(--text-muted)]">Nome declarado pelo aplicativo; não verificado.</div>
-          )}
+          {clientName && <div className="font-medium">{clientName}</div>}
+          {clientName && <div className="text-xs text-[var(--text-muted)]">Nome declarado pelo aplicativo; não verificado.</div>}
           <div className="break-all font-mono text-xs">{clientId}</div>
         </div>
         <div>
@@ -95,25 +95,29 @@ export default async function OAuthConsentPage({ searchParams }: Props) {
         <div>
           <div className="text-xs text-[var(--text-muted)]">Permissões</div>
           <ul className="mt-1 list-inside list-disc text-[var(--text)]">
-            {displayScopes.map((s) => (
-              <li key={s}>
-                <span className="font-mono text-xs">{s}</span>
-                {" — "}
-                {SCOPE_COPY[s]?.replace(/^mcp:(read|write)\s*—\s*/, "") || s}
-              </li>
-            ))}
+            <li>
+              <span className="font-mono text-xs">mcp:read</span>
+              {" — status, conectores (sem tokens), conversas e detalhes de missão."}
+            </li>
           </ul>
         </div>
+        {requestsWrite && (
+          <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] p-3">
+            <input className="mt-1" type="checkbox" name="allow_write" value="mcp:write" />
+            <span>
+              <span className="font-mono text-xs">mcp:write</span>
+              <span className="block text-sm font-medium">Permitir criação de missões e envio de mensagens</span>
+              <span className="mt-1 block text-xs text-[var(--text-muted)]">
+                Desmarcado por padrão. A criação deixa a missão em CREATED e não a inicia. Esta permissão
+                não libera ações externas em GitHub, Vercel ou outros conectores; os gates de aprovação existentes continuam valendo.
+              </span>
+            </span>
+          </label>
+        )}
       </div>
 
       <form action="/api/oauth/consent" method="post" className="flex flex-col gap-3">
-        <input type="hidden" name="client_id" value={clientId} />
-        <input type="hidden" name="redirect_uri" value={redirectUri} />
-        <input type="hidden" name="scope" value={scope} />
-        <input type="hidden" name="resource" value={resource} />
-        <input type="hidden" name="code_challenge" value={codeChallenge} />
-        <input type="hidden" name="state" value={state} />
-
+        <input type="hidden" name="consent_ticket" value={consentTicket} />
         <button
           type="submit"
           name="decision"

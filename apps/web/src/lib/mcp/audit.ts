@@ -15,7 +15,7 @@ export type McpAuditInput = {
   grantId?: string;
   tool: string;
   params: unknown;
-  status: "ok" | "error" | "forbidden" | "rate_limited";
+  status: "started" | "ok" | "error" | "forbidden" | "rate_limited";
   latencyMs: number;
   errorMessage?: string;
 };
@@ -25,7 +25,7 @@ export function hashParams(params: unknown): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
-export async function writeMcpAudit(input: McpAuditInput): Promise<void> {
+export async function writeMcpAudit(input: McpAuditInput): Promise<boolean> {
   try {
     const db = getDb();
     await db.insert(auditEvents).values({
@@ -43,8 +43,10 @@ export async function writeMcpAudit(input: McpAuditInput): Promise<void> {
         ts: new Date().toISOString(),
       },
     });
+    return true;
   } catch (e) {
     console.error("[mcp.audit] failed to persist", e);
+    return false;
   }
 }
 

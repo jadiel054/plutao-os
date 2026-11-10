@@ -24,12 +24,12 @@ vi.mock("@/lib/db", () => ({
 }));
 
 describe("toolSystemStatus", () => {
-  it("reports OAuth PKCE authentication and read-only capabilities", async () => {
+  it("reports OAuth PKCE authentication and the scopes supported by the server", async () => {
     const response = await toolSystemStatus("user-1", "oauth");
     const result = JSON.parse(response.content[0].text);
     expect(result.mcp.auth).toBe("OAuth 2.1 access token (PKCE)");
     expect(result.mcp.writeTools).toBe(false);
-    expect(result.mcp.scopesSupported).toEqual(["mcp:read"]);
+    expect(result.mcp.scopesSupported).toEqual(["mcp:read", "mcp:write"]);
   });
 
   it("reports the ops key as read-only", async () => {

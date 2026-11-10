@@ -3,7 +3,7 @@
  * URL: https://<APP_URL>/api/mcp
  * Auth: Authorization: Bearer <OAuth access token | read-only ops key>
  * Discovery: /.well-known/oauth-protected-resource
- * Tools: somente mcp:read; nenhuma operação de escrita é exposta.
+ * Read tools require mcp:read; mission/chat writes require explicit OAuth mcp:write consent.
  */
 
 import { createMcpHandler } from "mcp-handler";
@@ -16,8 +16,10 @@ import {
 } from "@/lib/mcp/auth";
 import {
   toolGetMission,
+  toolCreateMission,
   toolListConnectors,
   toolListConversations,
+  toolSendMessage,
   toolSystemStatus,
   withMcpGuards,
 } from "@/lib/mcp/tools";
@@ -82,6 +84,44 @@ const mcpHandler = createMcpHandler((server) => {
         const { userId } = getMcpAuth();
         return toolGetMission(userId, missionId);
       }),
+  );
+
+  server.registerTool(
+    "plutao_create_mission",
+    {
+      title: "Criar missão",
+      description: "Cria missão pertencente ao usuário e deixa em CREATED. Não inicia execução; exige consentimento OAuth mcp:write. Reuse idempotencyKey em tentativas repetidas.",
+      inputSchema: z.object({
+        objective: z.string().min(3).max(1000).describe("Objetivo da missão (até 1000 caracteres)"),
+        context: z.string().max(4000).optional(),
+        constraints: z.string().max(4000).optional(),
+        definitionOfDone: z.string().max(4000).optional(),
+        conversationId: z.string().uuid().optional(),
+        idempotencyKey: z.string().uuid().describe("UUID estável para esta intenção; reuse em retries"),
+      }),
+    },
+    async (input) =>
+      withMcpGuards("plutao_create_mission", input, async () => {
+        const { userId } = getMcpAuth();
+        return toolCreateMission(userId, input);
+      }, { requiredScope: "mcp:write" }),
+  );
+
+  server.registerTool(
+    "plutao_send_message",
+    {
+      title: "Enviar mensagem ao Plutão",
+      description: "Envia uma mensagem textual ao modelo configurado e persiste a conversa do usuário. Não executa ferramentas de conectores; exige consentimento OAuth mcp:write.",
+      inputSchema: z.object({
+        content: z.string().min(1).max(4000).describe("Mensagem (até 4000 caracteres)"),
+        conversationId: z.string().uuid().optional().describe("Conversa própria existente; omita para criar uma nova"),
+      }),
+    },
+    async (input) =>
+      withMcpGuards("plutao_send_message", input, async () => {
+        const { userId } = getMcpAuth();
+        return toolSendMessage(userId, input);
+      }, { requiredScope: "mcp:write" }),
   );
 });
 

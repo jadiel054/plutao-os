@@ -1,34 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { missions } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/session";
 import { getOwnedConversation } from "@/lib/missions/ownership";
-import { matchesMissionIntake, parseMissionIntake } from "@/lib/missions/intake";
-import { missionObjectiveToGraphV2 } from "@plutao/domain";
+import { parseMissionIntake } from "@/lib/missions/intake";
+import {
+  createMissionRecord,
+  MissionIdempotencyConflictError,
+} from "@/lib/missions/createMissionRecord";
 
 export const runtime = "nodejs";
-
-function isUniqueConstraintViolation(error: unknown): boolean {
-  const visited = new Set<object>();
-  let current: unknown = error;
-  while (typeof current === "object" && current !== null && !visited.has(current)) {
-    visited.add(current);
-    const candidate = current as {
-      code?: unknown;
-      message?: unknown;
-      detail?: unknown;
-      cause?: unknown;
-    };
-    if (candidate.code === "23505") return true;
-    const message = [candidate.message, candidate.detail]
-      .filter((part): part is string => typeof part === "string")
-      .join(" ");
-    if (/duplicate key|unique constraint/i.test(message)) return true;
-    current = candidate.cause;
-  }
-  return typeof error === "string" && /duplicate key|unique constraint/i.test(error);
-}
 
 export async function GET() {
   const user = await getSessionUser();
@@ -94,99 +76,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const db = getDb();
-    const missionGraph = missionObjectiveToGraphV2(input.objective);
-    const initialDecisions = input.idempotencyKey
-      ? [
-          {
-            type: "idempotency",
-            intentId: input.idempotencyKey,
-            idempotencyKey: input.idempotencyKey,
-            createdAt: new Date().toISOString(),
-          },
-        ]
-      : [];
-
-    try {
-      const inserted = await db
-        .insert(missions)
-        .values({
-          userId: user.id,
-          objective: input.objective,
-          context: input.context,
-          constraints: input.constraints,
-          definitionOfDone: input.definitionOfDone,
-          creationSource: input.creationSource,
-          conversationId: input.conversationId,
-          graphVersion: missionGraph.version,
-          missionGraph,
-          status: "CREATED",
-          currentState: "CREATED",
-          completedSteps: [],
-          pendingSteps: [],
-          evidence: [],
-          errors: [],
-          decisions: initialDecisions,
-          idempotencyKey: input.idempotencyKey,
-        })
-        .returning({
-          id: missions.id,
-          objective: missions.objective,
-          status: missions.status,
-          currentState: missions.currentState,
-          definitionOfDone: missions.definitionOfDone,
-          creationSource: missions.creationSource,
-          conversationId: missions.conversationId,
-          graphVersion: missions.graphVersion,
-          createdAt: missions.createdAt,
-          updatedAt: missions.updatedAt,
-        });
-
-      return NextResponse.json({ mission: inserted[0] }, { status: 201 });
-    } catch (insertErr: unknown) {
-      if (input.idempotencyKey && isUniqueConstraintViolation(insertErr)) {
-        const existingRows = await db
-          .select({
-            id: missions.id,
-            objective: missions.objective,
-            status: missions.status,
-            currentState: missions.currentState,
-            definitionOfDone: missions.definitionOfDone,
-            creationSource: missions.creationSource,
-            conversationId: missions.conversationId,
-            context: missions.context,
-            constraints: missions.constraints,
-            createdAt: missions.createdAt,
-            updatedAt: missions.updatedAt,
-          })
-          .from(missions)
-          .where(
-            and(
-              eq(missions.userId, user.id),
-              eq(missions.idempotencyKey, input.idempotencyKey)
-            )
-          )
-          .limit(1);
-
-        const existing = existingRows[0];
-        if (existing) {
-          if (!matchesMissionIntake(existing, input)) {
-            return NextResponse.json(
-              { error: "IDEMPOTENCY_KEY_REUSED", code: "IDEMPOTENCY_KEY_REUSED" },
-              { status: 409 }
-            );
-          }
-          return NextResponse.json(
-            { mission: existing, deduplicated: true },
-            { status: 200 }
-          );
-        }
-      }
-
-      throw insertErr;
+    const created = await createMissionRecord(user.id, input);
+    return NextResponse.json(
+      {
+        mission: created.mission,
+        ...(created.deduplicated ? { deduplicated: true } : {}),
+      },
+      { status: created.deduplicated ? 200 : 201 }
+    );
+  } catch (error) {
+    if (error instanceof MissionIdempotencyConflictError) {
+      return NextResponse.json(
+        { error: "IDEMPOTENCY_KEY_REUSED", code: "IDEMPOTENCY_KEY_REUSED" },
+        { status: 409 }
+      );
     }
-  } catch (e) {
-    console.error("[missions POST]", e);
+    console.error("[missions POST]", error);
     return NextResponse.json({ error: "Falha ao criar missão" }, { status: 500 });
   }
 }

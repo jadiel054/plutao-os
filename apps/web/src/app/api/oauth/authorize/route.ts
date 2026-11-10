@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const clientId = url.searchParams.get("client_id")?.trim() || "";
   const redirectUri = url.searchParams.get("redirect_uri") || "";
   const state = url.searchParams.get("state") || "";
-  const scope = normalizeScopes(url.searchParams.get("scope"));
+  const scope = normalizeScopes(url.searchParams.get("scope"), { allowWrite: true });
   const resource = url.searchParams.get("resource") || getMcpResourceUrl();
   const codeChallenge = url.searchParams.get("code_challenge")?.trim() || "";
   const codeChallengeMethod = url.searchParams.get("code_challenge_method") || "";
