@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
             drainContinuation = true;
           }
           processed.push({ id: job.id, status: continued?.status ?? "PENDING", executionStatus: finalExecution?.status });
-          break;
+          continue;
         }
         processed.push({ id: job.id, status: waiting.status, executionStatus: finalExecution?.status });
         await recordRuntimeTelemetry({
