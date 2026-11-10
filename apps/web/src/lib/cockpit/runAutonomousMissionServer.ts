@@ -97,6 +97,8 @@ export async function runAutonomousMissionServer(opts: {
   missionGraph?: MissionGraphV2;
   /** G3: conversa do chat que originou a missão — events no Computador. */
   conversationId?: string | null;
+  /** A-01: heartbeat do lease do runtime job (renovação cooperativa). */
+  heartbeat?: () => Promise<boolean>;
 }): Promise<AutonomousRunResult> {
   const { missionId, userId } = opts;
   const maxIterations = Math.min(
@@ -283,6 +285,7 @@ export async function runAutonomousMissionServer(opts: {
     executionId,
     graph: missionGraph,
     maxIterations,
+    heartbeat: opts.heartbeat,
   });
   const stepsOk = graphRun.iterations;
 

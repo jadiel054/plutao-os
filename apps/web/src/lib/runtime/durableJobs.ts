@@ -173,6 +173,29 @@ export async function claimNextRuntimeJob() {
   return job ?? null;
 }
 
+/**
+ * Renova o lease de um job em execução (heartbeat). Deve ser chamado
+ * periodicamente pelo executor enquanto o job estiver trabalhando. Retorna
+ * null quando o lock foi perdido (lease expirado e reclamado por outro
+ * worker), sinalizando que o trabalho atual deve parar cooperativamente.
+ */
+export async function renewRuntimeJobLease(jobId: string, lockToken: string) {
+  const db = getDb();
+  const now = new Date();
+  const [job] = await db
+    .update(runtimeJobs)
+    .set({ lockedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(runtimeJobs.id, jobId),
+        eq(runtimeJobs.lockToken, lockToken),
+        eq(runtimeJobs.status, "RUNNING")
+      )
+    )
+    .returning();
+  return job ?? null;
+}
+
 /** Compatibilidade para callers antigos: só faz lease de um job PENDING específico. */
 export async function leaseRuntimeJob(jobId: string) {
   const db = getDb();

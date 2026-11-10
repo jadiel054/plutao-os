@@ -118,6 +118,12 @@ export async function runNextMissionGraphNodeSerial(opts: {
   executionId: string;
   graph: MissionGraphV2;
   maxIterations: number;
+  /**
+   * A-01: heartbeat opcional do lease do runtime job. Chamado a cada iteração
+   * do loop do nó; se devolver false (lock perdido), a execução para de forma
+   * cooperativa para não competir com o worker que reclamou o lease expirado.
+   */
+  heartbeat?: () => Promise<boolean>;
 }): Promise<SerialGraphResult> {
   const order = getMissionGraphSerialOrder(opts.graph);
   if (!order) {
@@ -246,6 +252,15 @@ export async function runNextMissionGraphNodeSerial(opts: {
   }
 
   while (true) {
+    if (opts.heartbeat && !(await opts.heartbeat())) {
+      return {
+        kind: "failed",
+        iterations: totalIterations,
+        nodeId: node.id,
+        error: "MISSION_NODE_LEASE_LOST",
+        stopReason: "MISSION_NODE_LEASE_LOST",
+      };
+    }
     const currentAttempt = runtime.nodes[node.id]!.attempts;
     const loop = await runAgentLoop(
       opts.executionId,

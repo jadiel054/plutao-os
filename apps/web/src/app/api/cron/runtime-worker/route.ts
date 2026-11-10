@@ -10,6 +10,7 @@ import {
   parseRuntimeJobPayload,
   reconcileRuntimeJobStates,
   releaseResolvedApprovalJobs,
+  renewRuntimeJobLease,
   waitRuntimeJobForApproval,
   resolveRuntimeJobOutcome,
   retryRuntimeJob,
@@ -141,6 +142,10 @@ export async function POST(req: NextRequest) {
             maxIterations: payload.maxIterations,
             missionGraph,
             conversationId: payload.conversationId ?? null,
+            heartbeat: async () => {
+              const renewed = await renewRuntimeJobLease(job.id, job.lockToken ?? "");
+              return Boolean(renewed);
+            },
           });
           graphContinuation = runResult.continuation === true;
           waitingApproval = runResult.waitingApproval === true;
