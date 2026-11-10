@@ -9,6 +9,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 
+/** Envolve um literal em aspas simples para embutir em SQL de forma segura. */
+function Q(s: string) {
+  return "'" + s + "'";
+}
+
 const env = vi.hoisted(() => ({ db: null as unknown as object }));
 
 vi.mock("@/lib/db", () => ({ getDb: () => env.db }));
@@ -41,7 +46,7 @@ let pool: Pool;
 const BOOTSTRAP = [
   'CREATE TABLE IF NOT EXISTS "users" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL);',
   'CREATE TABLE IF NOT EXISTS "missions" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL, "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE cascade);',
-  'CREATE TABLE IF NOT EXISTS "executions" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL, "mission_id" uuid NOT NULL REFERENCES "missions"("id") ON DELETE cascade, "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE cascade, "current_task_id" uuid, "status" text DEFAULT ' + Q('PENDING') + ' NOT NULL, "checkpoint" jsonb DEFAULT ' + Q('{}' + '::jsonb') + ' NOT NULL, "checkpoint_at" timestamp with time zone, "idempotency_key" text NOT NULL, "error" text, "started_at" timestamp with time zone, "updated_at" timestamp with time zone DEFAULT now() NOT NULL, "completed_at" timestamp with time zone, "created_at" timestamp with time zone DEFAULT now() NOT NULL);',
+  'CREATE TABLE IF NOT EXISTS "executions" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL, "mission_id" uuid NOT NULL REFERENCES "missions"("id") ON DELETE cascade, "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE cascade, "current_task_id" uuid, "status" text DEFAULT ' + Q('PENDING') + ' NOT NULL, "checkpoint" jsonb DEFAULT ' + Q('{}::jsonb') + ' NOT NULL, "checkpoint_at" timestamp with time zone, "idempotency_key" text NOT NULL, "error" text, "started_at" timestamp with time zone, "updated_at" timestamp with time zone DEFAULT now() NOT NULL, "completed_at" timestamp with time zone, "created_at" timestamp with time zone DEFAULT now() NOT NULL);',
   'CREATE UNIQUE INDEX IF NOT EXISTS "executions_idempotency_key_uidx" ON "executions" ("idempotency_key");',
   'CREATE TABLE IF NOT EXISTS "runtime_jobs" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL, "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE cascade, "mission_id" uuid NOT NULL REFERENCES "missions"("id") ON DELETE cascade, "execution_id" uuid NOT NULL REFERENCES "executions"("id") ON DELETE cascade UNIQUE, "kind" text NOT NULL DEFAULT ' + Q('mission_execution') + ', "status" text NOT NULL DEFAULT ' + Q('PENDING') + ', "payload" jsonb NOT NULL DEFAULT ' + Q('{}') + ', "attempts" integer NOT NULL DEFAULT 0, "max_attempts" integer NOT NULL DEFAULT 5, "available_at" timestamp with time zone NOT NULL DEFAULT now(), "locked_at" timestamp with time zone, "lock_token" text, "last_error" text, "created_at" timestamp with time zone NOT NULL DEFAULT now(), "updated_at" timestamp with time zone NOT NULL DEFAULT now(), "completed_at" timestamp with time zone);',
   'CREATE TABLE IF NOT EXISTS "write_gates" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL, "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE cascade, "execution_id" uuid NOT NULL, "status" text NOT NULL DEFAULT ' + Q('pending') + ');',
