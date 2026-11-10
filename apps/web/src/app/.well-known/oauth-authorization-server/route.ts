@@ -1,4 +1,4 @@
-import { getMcpIssuer } from "@/lib/mcp/tokens";
+import { getMcpIssuer, MCP_SCOPES } from "@/lib/mcp/tokens";
 
 export const runtime = "nodejs";
 
@@ -17,7 +17,7 @@ export async function GET() {
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: ["mcp:read"],
+    scopes_supported: [...MCP_SCOPES],
     client_id_metadata_document_supported: true,
     authorization_response_iss_parameter_supported: true,
     logo_uri: `${issuer}/icon.png`,

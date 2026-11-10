@@ -9,7 +9,7 @@
 
 import { createHmac, timingSafeEqual, createHash, randomBytes } from "node:crypto";
 
-export const MCP_SCOPES = ["mcp:read"] as const;
+export const MCP_SCOPES = ["mcp:read", "mcp:write"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 const ACCESS_TTL_SEC = 60 * 60;
@@ -101,6 +101,44 @@ export type AccessTokenClaims = {
   jti: string;
 };
 
+export type ConsentTicketClaims = {
+  typ: "mcp_consent";
+  sub: string;
+  client_id: string;
+  redirect_uri: string;
+  resource: string;
+  scope: string;
+  code_challenge: string;
+  state: string;
+  exp: number;
+  iat: number;
+  jti: string;
+};
+
+/** Signed, short-lived consent state; POST must not trust hidden OAuth fields. */
+export function issueConsentTicket(input: Omit<ConsentTicketClaims, "typ" | "exp" | "iat" | "jti">): string {
+  const now = Math.floor(Date.now() / 1000);
+  return signPayload({
+    typ: "mcp_consent",
+    sub: input.sub,
+    client_id: input.client_id,
+    redirect_uri: input.redirect_uri,
+    resource: input.resource,
+    scope: normalizeScopes(input.scope, { allowWrite: true }),
+    code_challenge: input.code_challenge,
+    state: input.state,
+    iat: now,
+    exp: now + 10 * 60,
+    jti: randomBytes(16).toString("hex"),
+  });
+}
+
+export function verifyConsentTicket(ticket: string): ConsentTicketClaims | null {
+  const claims = verifyPayload<ConsentTicketClaims>(ticket);
+  if (!claims || claims.typ !== "mcp_consent") return null;
+  return claims;
+}
+
 export function issueAuthorizationCode(input: {
   userId: string;
   clientId: string;
@@ -109,6 +147,7 @@ export function issueAuthorizationCode(input: {
   scope: string;
   codeChallenge: string;
   grantId: string;
+  allowWrite?: boolean;
 }): { code: string; jti: string; expiresAt: Date } {
   const now = Math.floor(Date.now() / 1000);
   const jti = randomBytes(16).toString("hex");
@@ -118,7 +157,7 @@ export function issueAuthorizationCode(input: {
     client_id: input.clientId,
     redirect_uri: input.redirectUri,
     resource: input.resource || getMcpResourceUrl(),
-    scope: input.scope,
+    scope: normalizeScopes(input.scope, { allowWrite: input.allowWrite === true }),
     code_challenge: input.codeChallenge,
     code_challenge_method: "S256",
     grant_id: input.grantId,
@@ -144,9 +183,10 @@ export function issueAccessToken(input: {
   clientId: string;
   scope: string;
   grantId: string;
+  allowWrite?: boolean;
 }): { accessToken: string; expiresIn: number; scope: string; tokenType: "Bearer" } {
   const now = Math.floor(Date.now() / 1000);
-  const grantedScope = normalizeScopes(input.scope);
+  const grantedScope = normalizeScopes(input.scope, { allowWrite: input.allowWrite === true });
   const claims: AccessTokenClaims = {
     typ: "mcp_at",
     sub: input.userId,
@@ -171,7 +211,7 @@ export function verifyAccessToken(token: string): AccessTokenClaims | null {
   if (!claims || claims.typ !== "mcp_at") return null;
   if (claims.aud !== getMcpResourceUrl()) return null;
   if (!claims.grant_id) return null;
-  return { ...claims, scope: normalizeScopes(claims.scope) };
+  return { ...claims, scope: normalizeScopes(claims.scope, { allowWrite: true }) };
 }
 
 export function refreshTtlSec(): number {
@@ -194,8 +234,26 @@ export function verifyPkceS256(verifier: string, challenge: string): boolean {
   }
 }
 
-export function normalizeScopes(_requested: string | null | undefined): string {
-  return "mcp:read";
+export function normalizeScopes(
+  requested: string | null | undefined,
+  options: { allowWrite?: boolean } = {}
+): string {
+  const parts = (requested || "mcp:read")
+    .split(/[\s+]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  const hasWrite = parts.includes("mcp:write");
+  const result = ["mcp:read"];
+  if (hasWrite && options.allowWrite === true) result.push("mcp:write");
+  return result.join(" ");
+}
+
+/** Persisted grants receive write only when a positive per-grant consent marker exists. */
+export function normalizeGrantedScopes(
+  requested: string | null | undefined,
+  writeConsentedAt: Date | null | undefined
+): string {
+  return normalizeScopes(requested, { allowWrite: writeConsentedAt instanceof Date });
 }
 
 /**

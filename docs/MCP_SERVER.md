@@ -1,6 +1,6 @@
 # Plutão MCP Server — OAuth 2.1 / Streamable HTTP
 
-O Plutão oferece um servidor MCP HTTP protegido. O resource server publica **somente leitura**: quatro tools com escopo `mcp:read`. A antiga tool `plutao_send_message` foi removida porque não havia gate explícito de confirmação antes de gravar/acionar o agente. Nenhum token de GitHub, Vercel, Neon ou outro conector é retornado.
+O Plutão oferece um servidor MCP HTTP protegido. As tools de leitura exigem `mcp:read`; criação de missão e envio de mensagem exigem `mcp:write`, concedido separadamente na tela OAuth e desmarcado por padrão. Grants anteriores permanecem somente leitura. Nenhum token de GitHub, Vercel, Neon ou outro conector é retornado.
 
 | Papel | URL |
 |---|---|
@@ -39,14 +39,14 @@ PLUTAO_MCP_USER_ID=
 MCP_OAUTH_REDIRECT_ALLOWLIST=https://cliente.example/oauth/callback?client=plutao
 ```
 
-Após alteração de env, faça redeploy. **Nunca** passe Bearer/access/refresh tokens em query string ou URL. Não há migration de banco para esta correção.
+Após alteração de env, faça redeploy. **Nunca** passe Bearer/access/refresh tokens em query string ou URL. Antes de implantar esta versão, aplique a migration aditiva `0028_mcp_write_consent.sql` usando a URL direta Neon; não aplique migrations em produção sem aprovação explícita do responsável. Ela adiciona `write_consented_at` e mantém os grants legados read-only.
 
 ## Fluxo MCP OAuth
 
-1. Cliente inicia `POST /api/mcp` sem token e recebe `401` com `WWW-Authenticate`, `resource_metadata` e `scope="mcp:read"`.
-2. Cliente descobre PRM/AS metadata. O metadata AS informa CIMD, DCR compatível, `mcp:read` e suporte a `iss`.
+1. Cliente inicia `POST /api/mcp` sem token e recebe `401` com `WWW-Authenticate`, `resource_metadata` e os scopes suportados `mcp:read mcp:write`.
+2. Cliente descobre PRM/AS metadata. O metadata AS informa CIMD, DCR compatível, `mcp:read`, `mcp:write` opcional e suporte a `iss`.
 3. Cliente registra/resolve identidade via CIMD ou usa DCR. Deve enviar `resource=https://plutao-os.vercel.app/api/mcp`, `response_type=code`, `code_challenge_method=S256`, challenge, client_id e redirect_uri exata.
-4. Usuário faz login e vê o nome/identidade do cliente e o único escopo de leitura. Pode autorizar ou negar o consentimento.
+4. Usuário faz login e vê o nome/identidade do cliente. `mcp:read` é a base; se o cliente pedir `mcp:write`, a caixa adicional aparece desmarcada. Marcar concede escrita para este grant; deixar desmarcada ou negar não concede escrita.
 5. O callback recebe `code`, `state` e `iss`. O cliente troca o código em `/api/oauth/token` com `client_id`, `redirect_uri`, `code_verifier` e `resource`.
 6. Chamadas MCP usam `Authorization: Bearer <access_token>` no header. Token tem audiência fixa no endpoint MCP. Access token expira em ~1h; refresh token, quando elegível, é opaco e rotacionado.
 
@@ -77,7 +77,7 @@ curl -sS -X POST "$APP_URL/api/mcp" \
 
 CORS permite origem cruzada sem cookies, incluindo `Authorization`, `MCP-Protocol-Version` e `Last-Event-ID`; `OPTIONS` responde ao preflight. Tokens são aceitos somente no header Bearer.
 
-### Tools de leitura
+### Tools disponíveis
 
 | Tool | Conteúdo |
 |---|---|
@@ -85,17 +85,20 @@ CORS permite origem cruzada sem cookies, incluindo `Authorization`, `MCP-Protoco
 | `plutao_list_connectors` | Estado/capabilities, sem tokens |
 | `plutao_list_conversations` | Conversas do usuário autenticado |
 | `plutao_get_mission` | Detalhes de uma missão pertencente ao usuário autenticado |
+| `plutao_create_mission` | Cria missão idempotente em estado `CREATED`; não inicia execução |
+| `plutao_send_message` | Envia texto ao modelo configurado e persiste a conversa; não executa ferramentas de conectores |
 
-Todas passam por rate limit de 30 chamadas/minuto por grant e trilha de auditoria. Não há `mcp:write` no metadata, na API key operacional, na tela de consentimento nem em `tools/list`.
+Todas passam por rate limit de 30 chamadas/minuto por grant e trilha de auditoria. As operações write requerem OAuth com `mcp:write`; antes de executar, precisam registrar o início na auditoria, caso contrário falham sem executar. A chave operacional `PLUTAO_MCP_API_KEY` permanece somente leitura. A permissão MCP não habilita escrita arbitrária em GitHub/Vercel/outros conectores: essas ações continuam nos fluxos com os gates de aprovação já existentes.
 
 ## Arquivos principais
 
 - `apps/web/src/lib/mcp/tokens.ts` — tokens/códigos, scope e validação de callback
 - `apps/web/src/lib/mcp/clientRegistration.ts` — DCR e allowlist de grant
 - `apps/web/src/lib/mcp/clientMetadata.ts` — CIMD, validação SSRF e callbacks
-- `apps/web/src/lib/mcp/auth.ts` — autenticação Bearer, ALS e `mcp:read`
-- `apps/web/src/lib/mcp/tools.ts` — tools read-only, rate limit e auditoria
+- `apps/web/src/lib/mcp/auth.ts` — autenticação Bearer e verificação de scope + grant consentido
+- `apps/web/src/lib/mcp/tools.ts` — tools, rate limit, auditoria e scope write
 - `apps/web/src/lib/mcp/grants.ts` — grants e códigos single-use no banco
+- `packages/db/drizzle/0028_mcp_write_consent.sql` — marca persistida de consentimento por grant
 - `apps/web/src/app/api/mcp/route.ts` — MCP Streamable HTTP + CORS
 - `apps/web/src/app/api/oauth/*` — registro, autorização, token e revogação
 - `apps/web/src/app/oauth/consent/page.tsx` — consentimento explícito

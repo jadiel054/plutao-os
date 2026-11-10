@@ -5,6 +5,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import { createDb, mcpAuthCodes, mcpOauthClients, mcpOauthGrants, mcpOauthRegistrationLimits } from "@plutao/db";
+import { normalizeGrantedScopes, normalizeScopes } from "./tokens";
 
 export function hashToken(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -88,7 +89,10 @@ export async function createGrant(input: {
   clientId: string;
   redirectUri: string;
   scope: string;
-}): Promise<{ grantId: string }> {
+  writeConsentedAt?: Date | null;
+}): Promise<{ grantId: string; scope: string }> {
+  const scope = normalizeScopes(input.scope, { allowWrite: Boolean(input.writeConsentedAt) });
+  const writeConsentedAt = scope.includes("mcp:write") ? input.writeConsentedAt ?? null : null;
   const db = createDb();
   const [row] = await db
     .insert(mcpOauthGrants)
@@ -96,11 +100,12 @@ export async function createGrant(input: {
       userId: input.userId,
       clientId: input.clientId,
       redirectUri: input.redirectUri,
-      scope: input.scope,
+      scope,
+      writeConsentedAt,
     })
     .returning({ id: mcpOauthGrants.id });
   if (!row) throw new Error("failed to create mcp grant");
-  return { grantId: row.id };
+  return { grantId: row.id, scope };
 }
 
 export async function storeAuthCode(input: {
@@ -152,12 +157,17 @@ export async function consumeAuthCodeRow(jti: string): Promise<{
     .returning({ jti: mcpAuthCodes.jti });
   if (!updated.length) return null;
 
+  const grantScopes = await getActiveGrantScopes(row.grantId);
+  if (!grantScopes) return null;
+  const codeScopes = normalizeScopes(row.scope, { allowWrite: true }).split(/\s+/);
+  const effectiveScope = codeScopes.filter((scope) => grantScopes.includes(scope)).join(" ") || "mcp:read";
+
   return {
     grantId: row.grantId,
     userId: row.userId,
     clientId: row.clientId,
     redirectUri: row.redirectUri,
-    scope: row.scope,
+    scope: effectiveScope,
     codeChallenge: row.codeChallenge,
   };
 }
@@ -199,7 +209,7 @@ export async function findGrantByRefreshToken(refreshPlain: string): Promise<{
     id: row.id,
     userId: row.userId,
     clientId: row.clientId,
-    scope: row.scope,
+    scope: normalizeGrantedScopes(row.scope, row.writeConsentedAt),
     redirectUri: row.redirectUri,
   };
 }
@@ -213,6 +223,22 @@ export async function isGrantActive(grantId: string): Promise<boolean> {
     .limit(1);
   if (!row) return false;
   return row.revokedAt == null;
+}
+
+/** Current effective scopes for an active OAuth grant; legacy grants are always read-only. */
+export async function getActiveGrantScopes(grantId: string): Promise<string[] | null> {
+  const db = createDb();
+  const [row] = await db
+    .select({
+      scope: mcpOauthGrants.scope,
+      writeConsentedAt: mcpOauthGrants.writeConsentedAt,
+      revokedAt: mcpOauthGrants.revokedAt,
+    })
+    .from(mcpOauthGrants)
+    .where(eq(mcpOauthGrants.id, grantId))
+    .limit(1);
+  if (!row || row.revokedAt) return null;
+  return normalizeGrantedScopes(row.scope, row.writeConsentedAt).split(/\s+/);
 }
 
 export async function touchGrant(grantId: string): Promise<void> {

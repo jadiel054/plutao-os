@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/mcp/grants", () => ({
-  isGrantActive: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  claims: null as Record<string, unknown> | null,
+  getActiveGrantScopes: vi.fn(),
   touchGrant: vi.fn(),
+}));
+
+vi.mock("@/lib/mcp/grants", () => ({
+  getActiveGrantScopes: mocks.getActiveGrantScopes,
+  touchGrant: mocks.touchGrant,
 }));
 vi.mock("@/lib/runtime/tools/sandbox", () => ({ isSandboxUuid: () => true }));
 vi.mock("../tokens", async (importOriginal) => {
@@ -11,7 +17,7 @@ vi.mock("../tokens", async (importOriginal) => {
     ...actual,
     getMcpIssuer: () => "https://plutao.test",
     getMcpResourceUrl: () => "https://plutao.test/api/mcp",
-    verifyAccessToken: () => null,
+    verifyAccessToken: () => mocks.claims as never,
   };
 });
 
@@ -21,6 +27,10 @@ const previousApiKey = process.env.PLUTAO_MCP_API_KEY;
 const previousUserId = process.env.PLUTAO_MCP_USER_ID;
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.claims = null;
+  mocks.getActiveGrantScopes.mockResolvedValue(["mcp:read"]);
+  mocks.touchGrant.mockResolvedValue(undefined);
   process.env.PLUTAO_MCP_API_KEY = "test-only-ops-key";
   process.env.PLUTAO_MCP_USER_ID = "00000000-0000-4000-8000-000000000001";
 });
@@ -45,13 +55,60 @@ describe("MCP bearer auth", () => {
     expect(result).toMatchObject({ ok: false, status: 401 });
   });
 
-  it("401 discovery challenge advertises resource_metadata and only mcp:read", async () => {
+  it("401 discovery challenge advertises supported read and optional write scopes", async () => {
     const result = await authenticateMcpRequest(new Request("https://plutao.test/api/mcp"));
     if (result.ok) throw new Error("expected unauthenticated request");
     const response = mcpUnauthorizedResponse(result);
     expect(response.status).toBe(401);
     expect(response.headers.get("WWW-Authenticate")).toContain("resource_metadata=\"https://plutao.test/.well-known/oauth-protected-resource\"");
-    expect(response.headers.get("WWW-Authenticate")).toContain('scope="mcp:read"');
-    expect(response.headers.get("WWW-Authenticate")).not.toContain("mcp:write");
+    expect(response.headers.get("WWW-Authenticate")).toContain('scope="mcp:read mcp:write"');
+  });
+
+  it("does not elevate a write-scoped token when its grant has no write consent marker", async () => {
+    mocks.claims = {
+      sub: "user-1",
+      scope: "mcp:read mcp:write",
+      grant_id: "grant-1",
+      client_id: "test-client",
+    };
+    mocks.getActiveGrantScopes.mockResolvedValue(["mcp:read"]);
+
+    const result = await authenticateMcpRequest(new Request("https://plutao.test/api/mcp", {
+      headers: { Authorization: "Bearer oauth-token" },
+    }));
+
+    expect(result).toMatchObject({ ok: true, scopes: ["mcp:read"] });
+  });
+
+  it("allows write only when both the token and persisted grant consent it", async () => {
+    mocks.claims = {
+      sub: "user-1",
+      scope: "mcp:read mcp:write",
+      grant_id: "grant-1",
+      client_id: "test-client",
+    };
+    mocks.getActiveGrantScopes.mockResolvedValue(["mcp:read", "mcp:write"]);
+
+    const result = await authenticateMcpRequest(new Request("https://plutao.test/api/mcp", {
+      headers: { Authorization: "Bearer oauth-token" },
+    }));
+
+    expect(result).toMatchObject({ ok: true, scopes: ["mcp:read", "mcp:write"] });
+  });
+
+  it("fails closed with 503 when the persisted grant cannot be checked", async () => {
+    mocks.claims = {
+      sub: "user-1",
+      scope: "mcp:read mcp:write",
+      grant_id: "grant-1",
+      client_id: "test-client",
+    };
+    mocks.getActiveGrantScopes.mockRejectedValue(new Error("column unavailable"));
+
+    const result = await authenticateMcpRequest(new Request("https://plutao.test/api/mcp", {
+      headers: { Authorization: "Bearer oauth-token" },
+    }));
+
+    expect(result).toMatchObject({ ok: false, status: 503 });
   });
 });

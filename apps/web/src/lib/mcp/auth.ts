@@ -3,20 +3,21 @@
  *
  * Aceita Authorization: Bearer <token> onde token é:
  * 1) Access token OAuth (HMAC + grant ativo no DB)
- * 2) PLUTAO_MCP_API_KEY de ops (break-glass, header only)
+ * 2) PLUTAO_MCP_API_KEY de ops (break-glass, header only, mcp:read)
  *
+ * mcp:write só é aceito quando token e grant ativo carregam consentimento explícito.
  * 401 inclui resource_metadata (RFC 9728) para discovery OAuth.
- * O resource server expõe somente operações mcp:read.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   getMcpIssuer,
   getMcpResourceUrl,
+  normalizeScopes,
   timingSafeStringEqual,
   verifyAccessToken,
 } from "./tokens";
-import { isGrantActive, touchGrant } from "./grants";
+import { getActiveGrantScopes, touchGrant } from "./grants";
 import { isSandboxUuid } from "@/lib/runtime/tools/sandbox";
 
 export type McpAuthContext = {
@@ -56,29 +57,44 @@ export async function authenticateMcpRequest(req: Request): Promise<McpAuthResul
     return { ok: false, status: 401, error: "Unauthorized — Bearer token ausente." };
   }
 
+  let claims: ReturnType<typeof verifyAccessToken> = null;
   try {
-    const claims = verifyAccessToken(token);
-    if (claims) {
-      const scopes = claims.scope.split(/\s+/).filter(Boolean);
-      if (!scopes.includes("mcp:read")) {
-        return { ok: false, status: 401, error: "Unauthorized — scope mcp:read exigido." };
-      }
-      const active = await isGrantActive(claims.grant_id);
-      if (!active) {
-        return { ok: false, status: 401, error: "Unauthorized — grant revogado ou inexistente." };
-      }
-      void touchGrant(claims.grant_id).catch(() => undefined);
-      return {
-        ok: true,
-        userId: claims.sub,
-        scopes,
-        clientId: claims.client_id,
-        grantId: claims.grant_id,
-        method: "oauth",
-      };
-    }
+    claims = verifyAccessToken(token);
   } catch {
-    /* signing key missing or invalid — tenta ops key */
+    // Token assinado inválido/configuração de assinatura ausente: tenta a ops key abaixo.
+  }
+
+  if (claims) {
+    const claimedScopes = claims.scope.split(/\s+/).filter(Boolean);
+    if (!claimedScopes.includes("mcp:read")) {
+      return { ok: false, status: 401, error: "Unauthorized — scope mcp:read exigido." };
+    }
+
+    let grantScopes: string[] | null;
+    try {
+      grantScopes = await getActiveGrantScopes(claims.grant_id);
+    } catch {
+      // Fail closed: indisponibilidade ou schema incompleto nunca concede write nem read OAuth.
+      return { ok: false, status: 503, error: "Indisponível — não foi possível validar o grant OAuth." };
+    }
+    if (!grantScopes) {
+      return { ok: false, status: 401, error: "Unauthorized — grant revogado ou inexistente." };
+    }
+
+    const tokenScopes = normalizeScopes(claims.scope, { allowWrite: true }).split(/\s+/);
+    const scopes = tokenScopes.filter((scope) => grantScopes.includes(scope));
+    if (!scopes.includes("mcp:read")) {
+      return { ok: false, status: 401, error: "Unauthorized — scope mcp:read exigido." };
+    }
+    void touchGrant(claims.grant_id).catch(() => undefined);
+    return {
+      ok: true,
+      userId: claims.sub,
+      scopes,
+      clientId: claims.client_id,
+      grantId: claims.grant_id,
+      method: "oauth",
+    };
   }
 
   const apiKey = process.env.PLUTAO_MCP_API_KEY?.trim();
@@ -107,7 +123,7 @@ export function mcpUnauthorizedResponse(result: Extract<McpAuthResult, { ok: fal
   const resourceMeta = `${getMcpIssuer()}/.well-known/oauth-protected-resource`;
   const www =
     result.status === 401
-      ? `Bearer realm="plutao-mcp", resource_metadata="${resourceMeta}", scope="mcp:read"`
+      ? `Bearer realm="plutao-mcp", resource_metadata="${resourceMeta}", scope="mcp:read mcp:write"`
       : `Bearer realm="plutao-mcp"`;
 
   return new Response(JSON.stringify({ error: result.error }), {

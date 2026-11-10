@@ -11,7 +11,7 @@ vi.mock("@/lib/auth/session", () => ({ getSessionUser: mocks.getSessionUser }));
 
 import { GET } from "../route";
 
-function authorizeRequest(redirectUri: string, clientId = "test-client", includeMethod = true) {
+function authorizeRequest(redirectUri: string, clientId = "test-client", includeMethod = true, scope?: string) {
   const query = new URLSearchParams({
     response_type: "code",
     client_id: clientId,
@@ -19,6 +19,7 @@ function authorizeRequest(redirectUri: string, clientId = "test-client", include
     code_challenge: "s256-challenge",
   });
   if (includeMethod) query.set("code_challenge_method", "S256");
+  if (scope) query.set("scope", scope);
   return new NextRequest(`https://plutao.test/api/oauth/authorize?${query.toString()}`);
 }
 
@@ -57,6 +58,22 @@ describe("GET /api/oauth/authorize client registration checks", () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toContain("/oauth/consent?");
+  });
+
+  it("forwards an optional write request to consent without granting it", async () => {
+    mocks.findOAuthClient.mockResolvedValue(null);
+    mocks.getSessionUser.mockResolvedValue({ id: "user-1" });
+
+    const response = await GET(authorizeRequest(
+      "https://legacy.example/callback",
+      "legacy-client-id",
+      true,
+      "mcp:read mcp:write"
+    ));
+
+    const location = new URL(response.headers.get("location") || "https://plutao.test/");
+    expect(location.pathname).toBe("/oauth/consent");
+    expect(location.searchParams.get("scope")).toBe("mcp:read mcp:write");
   });
 
   it("rejects PKCE when code_challenge_method is omitted", async () => {

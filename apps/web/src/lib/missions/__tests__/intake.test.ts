@@ -45,6 +45,19 @@ describe("parseMissionIntake", () => {
     }
   });
 
+  it("accepts MCP as a source while preserving ownership-linked input", () => {
+    const parsed = parseMissionIntake(
+      {
+        objective: "Preparar missão via conector",
+        source: "mcp",
+        conversationId,
+        idempotencyKey: "32b3f52f-3a82-4d32-97ea-ea95bd157421",
+      },
+      null
+    );
+    expect(parsed).toMatchObject({ ok: true, input: { creationSource: "mcp", conversationId } });
+  });
+
   it("rejects malformed UUIDs, unsupported origins, and conflicting idempotency keys", () => {
     expect(
       parseMissionIntake({ objective: "Uma missão válida", conversationId: "not-a-uuid" }, null)
