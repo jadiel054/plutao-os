@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-11-10 (B-01 #185 + B-02 #186 fechados; worker persistente B-12 e smoke serial I-01 seguem pendentes)
+**Última atualização:** 2026-11-10 (B-01 #185, B-02 #186, B-12 #187 fechados; próximo: smoke serial I-01 até execution `COMPLETED`)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -29,7 +29,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | **X2 — Identidade do agente aplicada (autorizado pelo fundador)** | **IMPLEMENTED** (2026-10-07) | Perfil de Configurações > Agente (`name`/`identity`/`personality`) era carregado e descartado no chat; o MCP usava persona hardcoded diferente. Agora `lib/agente/identity.ts` alimenta chat e MCP com a mesma identidade e os mesmos princípios operacionais. Default permanece idêntico a `NIX_IDENTITY`. |
 | **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate. **BUG 2:** Validação de nome do projeto Vercel. **BUG 3:** Label amigável em `/api/model/status` e Cockpit. |
 | **Fix & Hardening Runtime de Missões (#109+#110+#111)** | **IMPLEMENTED** (2026-10-03) | Catch FASE 3 grava evidência `model_error`; `maxDuration = 300` no resume pós-gate; sanitização de payload no boundary de `client.ts`. **Pendente:** smoke formal em produção de missão completa. |
-| **Worker durável de missões** | **IMPLEMENTED — probe verificado; cadência/execução real não verificada** | `POST /api/missions/:id/autonomous-run` enfileira execution/job; workflow `runtime_worker.yml` (cron). Health probe OK. **B-01 fechado (#185):** `retryRuntimeJob` sem erro de tipo SQL. **B-02 fechado (#186):** UI de missão/conectores não renderiza `lastError`/erro cru (sanitizeErrorForClient + detalhes colapsáveis). Wake Vercel Queues existe mas opt-in (`RUNTIME_WORKER_QUEUE_ENABLED`). Smoke serial ainda sem execution `COMPLETED`. **B-12 pendente.** |
+| **Worker durável de missões** | **IMPLEMENTED — código de cadência melhorado; execução real ainda não verificada** | Enfileira via autonomous-run; worker autenticado `POST /api/cron/runtime-worker`. **B-01 (#185):** retry sem erro SQL. **B-02 (#186):** UI sem erro cru. **B-12 (#187):** drain de continuations na mesma invocation (até 8 jobs / 260s) + wake `graph_continued` com delay 0; Vercel Queues continua opt-in (`RUNTIME_WORKER_QUEUE_ENABLED`); GitHub Actions como recovery. **I-01 pendente:** provar 1 missão até execution `COMPLETED` / job `SUCCEEDED`. |
 | **Entrada única + grafo versionado V2 serial** | **IMPLEMENTED — intake/configuração parcialmente verificados; execução serial pendente** | Intake, replay deduplicado, conflito `409`, ownership básico verificados. Enqueue cria job; Write Gate, DoD/evidence por nó e paralelismo sem evidência completa. |
 | **Preferência de modelo server-side + Resiliência a Rate Limit (#112)** | **IMPLEMENTED** (2026-10-03) | `preferredModel` em preferences; retry com backoff/`Retry-After`. Smoke produção pendente. |
 | **Modelos GGUF locais no APK (vitrine + chat)** | **IMPLEMENTED — uso em device parcial** (2026-10-15, PRs #152–#155) | Download/import SAF; `LocalModelPlugin`; llama.cpp oficial (submodule); CI Android Debug verde + artifact `plutao-debug-apk` (arm64-v8a/x86_64). ChatML Qwen, stop EOG/`<|im_end|>`, maxTokens 96, `n_threads≤4`, sampler top_k/top_p/temp, throttle, cancel. **Pendente:** polimento device; preload; unload smoke. Browser não executa GGUF. |
@@ -70,9 +70,10 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ## Atualização 2026-11-10
 
-- **B-01 fechado (#185):** `retryRuntimeJob` deixa de usar SQL `CASE` com parâmetro `Date` (erro de inferência text/timestamptz no Postgres). Agora lê `attempts`/`maxAttempts`, decide status e `completedAt` em JS e faz update com valores planos. Testes unitários cobrem PENDING, FAILED e lock perdido. CI (test + build) verde no PR.
-- **B-02 fechado (#186):** página de missão e Settings de conectores não renderizam mais `execution.error` / `job.lastError` crus. Usam `sanitizeErrorForClient` + `ref` + detalhes técnicos colapsáveis (`sanitizeError`, max-height, scroll).
-- **Ainda pendente no caminho crítico do runtime:** worker confiável sem depender só do cron GitHub (B-12), smoke serial até execution `COMPLETED` (I-01), feedback de write-gate no chat (I-02).
+- **B-01 fechado (#185):** `retryRuntimeJob` sem SQL CASE+Date; decisão em JS; testes unitários.
+- **B-02 fechado (#186):** UI de missão/conectores sem erro cru; `sanitizeErrorForClient` + detalhes colapsáveis.
+- **B-12 fechado (#187):** worker drena continuations de grafo na mesma invocation (até 8 jobs / 260s); wake `graph_continued` delay 0; docs de fila vs GitHub recovery atualizadas.
+- **Próximo (I-01):** provar em produção uma missão multi-nó até `executions.COMPLETED` e `runtime_jobs.SUCCEEDED`, com evidência e DoD. Ops: considerar `RUNTIME_WORKER_QUEUE_ENABLED=true` em Production.
 
 ## Atualização 2026-10-15 (código em `main`, docs)
 
@@ -107,12 +108,13 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - [x] Smoke write gate — 2026-09-25; feedback no chat pendente
 - [x] Smoke voz comportamental — 2026-09-27; kill-test M3/M5 pendentes
 - [x] Smoke MCP fase 2 — 2026-09-27
+- [ ] **I-01 Smoke runtime serial:** missão multi-nó → job SUCCEEDED + execution COMPLETED
 
 ### Produto (próximo ciclo — ordem de prioridade)
 
-1. **Runtime serial:** job → claim → nó → execution `COMPLETED` / job `SUCCEEDED` (B-12 + I-01)
-2. Feedback de write-gate no chat
-3. Smoke worker + missão formal (plano → tool → evidência)
+1. **I-01 Runtime serial verificado** em produção
+2. Feedback de write-gate no chat (I-02)
+3. Smoke worker + missão formal documentado
 4. Billing LIVE (se for lançar); smokes GitHub Pro / conectores pendentes
 5. Polimento GGUF local (preload, calor, unload) — **fila depois**
 6. Fallback de modelo cloud em 429 — fila depois
