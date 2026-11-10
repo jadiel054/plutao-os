@@ -8,6 +8,7 @@ import { ToastContainer, type ToastMessage, type ToastType } from "@/components/
 import { MissionTimeline, buildMissionTimeline } from "@/components/MissionTimeline";
 import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
 import { MissionDoDPanel } from "@/components/MissionDoDPanel";
+import { sanitizeError, sanitizeErrorForClient } from "@/lib/security/sanitize";
 
 type Props = { params: Promise<{ id: string }> };
 type TaskData = { id: string; title: string; description?: string | null; status: string; parentTaskId?: string | null; startedAt?: string | null; completedAt?: string | null; updatedAt?: string | null };
@@ -40,6 +41,7 @@ export default function MissionDetailPage({ params }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [dodLoading, setDodLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = useCallback((message: string, type: ToastType = "info") => {
@@ -137,6 +139,12 @@ export default function MissionDetailPage({ params }: Props) {
   const graph = mission.missionGraph;
   const graphNodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
 
+  const rawError = execution?.error ?? job?.lastError ?? null;
+  const friendlyError = rawError
+    ? sanitizeErrorForClient(rawError, { fallback: "Falha na execução da missão. Tente novamente ou veja os detalhes técnicos." })
+    : null;
+  const errorDetails = rawError ? sanitizeError(rawError) : "";
+
   return (
     <div className="min-h-dvh bg-[var(--base)] text-[var(--text-primary)] pb-20 sm:pb-8">
       <Header userEmail={email} onNotify={(message, type) => addToast(message, type)} />
@@ -185,7 +193,16 @@ export default function MissionDetailPage({ params }: Props) {
               <p><span className="text-[var(--text-muted)]">Job:</span> {job?.id ?? "—"} · tentativa {job?.attempts ?? "—"}/{job?.maxAttempts ?? "—"}</p>
               <p><span className="text-[var(--text-muted)]">Última execução:</span> {formatDate(execution?.updatedAt)}</p>
               <p><span className="text-[var(--text-muted)]">Eventos runtime:</span> {overview.telemetry?.length ?? 0}</p>
-              {execution?.error || job?.lastError ? <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-red-500/30 bg-red-500/5 p-2 text-[10px] text-red-200">{execution?.error ?? job?.lastError}</pre> : null}
+              {rawError && friendlyError ? (
+                <div className="mt-3 flex flex-col gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+                  <p className="text-xs leading-relaxed text-red-200">{friendlyError.error}</p>
+                  <p className="font-mono text-[10px] text-[var(--text-muted)]">ref: {friendlyError.ref}</p>
+                  <div className="flex flex-col gap-2">
+                    <button type="button" onClick={() => setShowErrorDetails((value) => !value)} className="self-start rounded-lg border border-[var(--border)] px-3 py-1 text-[11px] text-[var(--text-secondary)]">{showErrorDetails ? "Ocultar detalhes" : "Ver detalhes"}</button>
+                    {showErrorDetails ? <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--border)] bg-[var(--base)] p-2 text-[10px] text-[var(--text-secondary)]">{errorDetails}</pre> : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </section>
         </div>

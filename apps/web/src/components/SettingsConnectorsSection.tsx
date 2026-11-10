@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConnectorPublicView } from "@plutao/domain";
 import type { ConnectorManifest } from "@/lib/connectors/manifests/types";
+import { sanitizeError } from "@/lib/security/sanitize";
 
 const STATUS_LABEL: Record<string, string> = {
   disconnected: "Desconectado",
@@ -515,7 +516,9 @@ export function SettingsConnectorsSection({
                           <span>Falha na conexão</span>
                         </div>
                         <p className="text-[11px] text-red-300/90 leading-relaxed font-mono">
-                          {view?.lastError || "Ocorreu um erro ao conectar este serviço. Clique em 'Tentar novamente' para autenticar de novo."}
+                          {view?.lastError
+                            ? sanitizeError(view.lastError, "Ocorreu um erro ao conectar este serviço. Clique em 'Tentar novamente' para autenticar de novo.")
+                            : "Ocorreu um erro ao conectar este serviço. Clique em 'Tentar novamente' para autenticar de novo."}
                         </p>
                       </div>
                     ) : null}
