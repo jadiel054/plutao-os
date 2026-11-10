@@ -66,9 +66,18 @@ async function seedJob(overrides: Record<string, unknown> = {}) {
   const res = await pool.query(SEED_JOB_SQL);
   const row = res.rows[0];
   // Backdate available_at em 1s: evita corrida de microssegundos entre
-  // now() do PostgreSQL (precisao us) e o parametro Date (precisao ms) do claim.
+  // now() do PostgreSQL (precisão us) e o parâmetro Date (precisão ms) do claim.
   await pool.query('UPDATE "runtime_jobs" SET "available_at" = now() - interval ' + Q('1 second') + ' WHERE "id" = $1', [row.id]);
   const keys = Object.keys(overrides);
+  if (keys.length > 0) {
+    const sets = keys.map((k, i) => '"' + k + '" = $' + (i + 1)).join(", ");
+    await pool.query(
+      'UPDATE "runtime_jobs" SET ' + sets + ' WHERE "id" = $' + (keys.length + 1),
+      [...Object.values(overrides), row.id]
+    );
+  }
+  return row;
+}
 
 async function updateExecution(id: string, sets: Record<string, unknown>) {
   const keys = Object.keys(sets);
@@ -216,7 +225,7 @@ d("retry e terminal", () => {
 
     // retryRuntimeJob re-agenda com available_at = now + 30s; reabrimos com 1s
     // de folga para o segundo claim imediato (o agendamento em si é validado
-    // pelo delay de 30s aplicado pelo retry).
+    // pelo delay aplicado pelo retry).
     await pool.query('UPDATE "runtime_jobs" SET "available_at" = now() - interval ' + Q('1 second') + ' WHERE "id" = $1', [
       claimed.id,
     ]);
