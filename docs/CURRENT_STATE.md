@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-10-15 (docs sincronizados com `main` pós PRs #148–#155: chat tool-first, timeline de cards de ferramenta, APK com GGUF on-device; piloto serial de missão e smokes de produção seguem pendentes)
+**Última atualização:** 2026-11-10 (B-01 fechado via #185 — `retryRuntimeJob` sem erro de tipo SQL; piloto serial e smokes de produção seguem pendentes)
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -29,7 +29,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | **X2 — Identidade do agente aplicada (autorizado pelo fundador)** | **IMPLEMENTED** (2026-10-07) | Perfil de Configurações > Agente (`name`/`identity`/`personality`) era carregado e descartado no chat; o MCP usava persona hardcoded diferente. Agora `lib/agente/identity.ts` alimenta chat e MCP com a mesma identidade e os mesmos princípios operacionais. Default permanece idêntico a `NIX_IDENTITY`. |
 | **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate. **BUG 2:** Validação de nome do projeto Vercel. **BUG 3:** Label amigável em `/api/model/status` e Cockpit. |
 | **Fix & Hardening Runtime de Missões (#109+#110+#111)** | **IMPLEMENTED** (2026-10-03) | Catch FASE 3 grava evidência `model_error`; `maxDuration = 300` no resume pós-gate; sanitização de payload no boundary de `client.ts`. **Pendente:** smoke formal em produção de missão completa. |
-| **Worker durável de missões** | **IMPLEMENTED — probe verificado; cadência/execução real não verificada** | `POST /api/missions/:id/autonomous-run` enfileira execution/job; workflow `runtime_worker.yml` (cron `*/2`). Health probe OK. Smoke serial ainda sem execution `COMPLETED` (timeout/cancel sem checkpoint de nó). |
+| **Worker durável de missões** | **IMPLEMENTED — probe verificado; cadência/execução real não verificada** | `POST /api/missions/:id/autonomous-run` enfileira execution/job; workflow `runtime_worker.yml` (cron `*/2`). Health probe OK. **B-01 fechado (#185):** `retryRuntimeJob` não quebra mais com erro de tipo SQL (Date → timestamptz); decisão de status/completedAt em JS. Smoke serial ainda sem execution `COMPLETED` (timeout/cancel sem checkpoint de nó). |
 | **Entrada única + grafo versionado V2 serial** | **IMPLEMENTED — intake/configuração parcialmente verificados; execução serial pendente** | Intake, replay deduplicado, conflito `409`, ownership básico verificados. Enqueue cria job; Write Gate, DoD/evidence por nó e paralelismo sem evidência completa. |
 | **Preferência de modelo server-side + Resiliência a Rate Limit (#112)** | **IMPLEMENTED** (2026-10-03) | `preferredModel` em preferences; retry com backoff/`Retry-After`. Smoke produção pendente. |
 | **Modelos GGUF locais no APK (vitrine + chat)** | **IMPLEMENTED — uso em device parcial** (2026-10-15, PRs #152–#155) | Download/import SAF; `LocalModelPlugin`; llama.cpp oficial (submodule); CI Android Debug verde + artifact `plutao-debug-apk` (arm64-v8a/x86_64). ChatML Qwen, stop EOG/`<|im_end|>`, maxTokens 96, `n_threads≤4`, sampler top_k/top_p/temp, throttle, cancel. **Pendente:** polimento device; preload; unload smoke. Browser não executa GGUF. |
@@ -67,6 +67,11 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | TypeScript monorepo | **ALIGNED** | |
 
 ---
+
+## Atualização 2026-11-10
+
+- **B-01 fechado (#185):** `retryRuntimeJob` deixa de usar SQL `CASE` com parâmetro `Date` (erro de inferência text/timestamptz no Postgres). Agora lê `attempts`/`maxAttempts`, decide status e `completedAt` em JS e faz update com valores planos. Testes unitários cobrem PENDING, FAILED e lock perdido. CI (test + build) verde no PR.
+- **Ainda pendente no caminho crítico do runtime:** worker persistente (B-12), smoke serial até execution `COMPLETED` (I-01), feedback de write-gate no chat (I-02), erros amigáveis na UI (B-02).
 
 ## Atualização 2026-10-15 (código em `main`, docs)
 
