@@ -37,3 +37,37 @@ jobs:
           else
             echo "WARN: package-lock.json missing — commit after first successful local npm install"
           fi
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: plutao
+          POSTGRES_PASSWORD: plutao
+          POSTGRES_DB: plutao_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://plutao:plutao@localhost:5432/plutao_test
+      RUN_PG_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Integration tests (real PostgreSQL)
+        run: npx vitest run apps/web/src/lib/runtime/__tests__/pg
