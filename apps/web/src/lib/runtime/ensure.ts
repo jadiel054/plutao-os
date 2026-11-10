@@ -3,11 +3,30 @@ import { neon } from "@neondatabase/serverless";
 let ensured = false;
 
 /**
- * Idempotent DDL so prod works before operator runs drizzle migrate.
- * CREATE IF NOT EXISTS only — never drops.
+ * A-03: DDL em runtime é um mecanismo de bootstrap legado. Em produção, o
+ * esquema deve vir exclusivamente de migrations versionadas (packages/db/drizzle).
+ * O bootstrap permanece ativo fora de produção (dev local sem migrate) ou
+ * quando RUNTIME_DDL_BOOTSTRAP=true for definido explicitamente.
+ */
+export function isRuntimeDdlEnabled(): boolean {
+  const flag = process.env.RUNTIME_DDL_BOOTSTRAP;
+  if (flag === "true") return true;
+  if (flag === "false") return false;
+  return process.env.VERCEL_ENV !== "production";
+}
+
+/**
+ * Idempotent DDL so dev environments work before the operator runs drizzle
+ * migrate. CREATE IF NOT EXISTS only — never drops. Disabled by default in
+ * production (see isRuntimeDdlEnabled).
  */
 export async function ensureExecutionsTable(): Promise<void> {
   if (ensured) return;
+  if (!isRuntimeDdlEnabled()) {
+    // Esquema gerenciado por migrations; nada a criar em runtime.
+    ensured = true;
+    return;
+  }
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
   const sql = neon(url);
@@ -33,4 +52,9 @@ export async function ensureExecutionsTable(): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS "executions_status_idx" ON "executions" ("status")`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS "executions_idempotency_key_uidx" ON "executions" ("idempotency_key")`;
   ensured = true;
+}
+
+/** Test helper: reseta o cache do bootstrap. */
+export function resetRuntimeDdlForTests(): void {
+  ensured = false;
 }
