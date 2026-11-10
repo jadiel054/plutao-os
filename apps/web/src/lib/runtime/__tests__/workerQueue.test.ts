@@ -45,14 +45,14 @@ describe("runtime worker queue wake signals", () => {
   it("sends only a version and bounded reason, with the requested retry delay", async () => {
     sendMock.mockResolvedValue({ messageId: "opaque-message-id" });
     await expect(
-      publishRuntimeWorkerWake("graph_continued", { delaySeconds: 2 })
+      publishRuntimeWorkerWake("job_retry", { delaySeconds: 30 })
     ).resolves.toBe("published");
 
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith(
       RUNTIME_WORKER_QUEUE_TOPIC,
-      { version: 1, reason: "graph_continued" },
-      { delaySeconds: 2 }
+      { version: 1, reason: "job_retry" },
+      { delaySeconds: 30 }
     );
     const serialized = JSON.stringify(sendMock.mock.calls[0]);
     expect(serialized).not.toContain("missionId");
@@ -67,6 +67,17 @@ describe("runtime worker queue wake signals", () => {
     expect(send).toHaveBeenCalledWith(RUNTIME_WORKER_QUEUE_TOPIC, {
       version: 1,
       reason: "write_gate_resolved",
+    });
+  });
+
+  it("sends graph continuation wakes immediately (delay 0)", async () => {
+    sendMock.mockResolvedValue({ messageId: "opaque-message-id" });
+    await expect(
+      publishRuntimeWorkerWake("graph_continued", { delaySeconds: 0 })
+    ).resolves.toBe("published");
+    expect(send).toHaveBeenCalledWith(RUNTIME_WORKER_QUEUE_TOPIC, {
+      version: 1,
+      reason: "graph_continued",
     });
   });
 
