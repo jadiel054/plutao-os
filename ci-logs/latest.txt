@@ -1,1 +1,3 @@
-sem log de teste
+=== vitest.log ===
+(nenhum)
+=== gh run view --log-failed ===
