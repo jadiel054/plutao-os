@@ -65,6 +65,26 @@ async function nextSeq(conversationId: string): Promise<number> {
   return (typeof last === "number" ? last : Number(last || 0)) + 1;
 }
 
+/** Percorre a cadeia de causes (Drizzle/Neon embrulham o erro real). */
+function describeError(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  let depth = 0;
+  while (current && depth < 5) {
+    if (current instanceof Error) {
+      const causeCode = (current as { code?: string }).code;
+      if (typeof causeCode === 'string') parts.push(causeCode);
+      parts.push(current.message);
+      current = current.cause;
+    } else {
+      parts.push(String(current));
+      current = undefined;
+    }
+    depth++;
+  }
+  return parts.join(' | ');
+}
+
 export async function appendConversationEvent(
   input: AppendConversationEventInput
 ): Promise<ConversationEventDTO | null> {
@@ -129,7 +149,8 @@ export async function appendConversationEvent(
       if (!row) return null;
       return toDto(row);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      // include deep cause: Drizzle/Neon escondem o erro real em .cause
+      const msg = describeError(err);
       // unique violation → retry com novo seq
       if (/unique|duplicate|conversation_events_conversation_id_seq/i.test(msg)) {
         continue;
