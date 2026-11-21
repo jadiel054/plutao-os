@@ -100,13 +100,19 @@ async function releaseUserApprovalJobs(userId: string) {
   return released;
 }
 
-export async function processUserRuntimeJobs(userId: string, maxJobs = 3) {
+/** Mesma janela segura do worker cron (Vercel Pro maxDuration 300s). */
+const WORKER_TIME_BUDGET_MS = 260_000;
+
+export async function processUserRuntimeJobs(userId: string, maxJobs = 8) {
   const processed: Array<Record<string, unknown>> = [];
+  const startedAt = Date.now();
   const releasedApprovals = await releaseUserApprovalJobs(userId);
   // Also run global release for gates this user resolved (safe no-op for others)
   await releaseResolvedApprovalJobs(20).catch(() => null);
 
   for (let i = 0; i < maxJobs; i += 1) {
+    // Orçamento de parede: para de reivindicar novos jobs perto do teto da plataforma.
+    if (Date.now() - startedAt > WORKER_TIME_BUDGET_MS) break;
     const job = await claimNextJobForUser(userId);
     if (!job) break;
 

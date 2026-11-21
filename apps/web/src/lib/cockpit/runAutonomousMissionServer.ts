@@ -33,7 +33,6 @@ import {
   startExecution,
   writeCheckpoint,
 } from "@/lib/runtime/service";
-import { MAX_ITERATIONS } from "@/lib/runtime/agent-loop";
 import { nextStatuses } from "@/lib/missions/lifecycle";
 import { ensurePersistedMissionGraph } from "@/lib/missions/graphPersistence";
 import { runNextMissionGraphNodeSerial } from "@/lib/missions/serialMissionExecutor";
@@ -104,8 +103,10 @@ export async function runAutonomousMissionServer(opts: {
   heartbeat?: () => Promise<boolean>;
 }): Promise<AutonomousRunResult> {
   const { missionId, userId } = opts;
+  // Default mais generoso: 50 iterações por invocação (antes 20), suficiente
+  // para nós de construção com várias ferramentas em sequência.
   const maxIterations = Math.min(
-    Math.max(1, opts.maxIterations ?? MAX_ITERATIONS),
+    Math.max(1, opts.maxIterations ?? 50),
     50
   );
 
