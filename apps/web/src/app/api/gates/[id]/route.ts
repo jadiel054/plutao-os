@@ -5,6 +5,7 @@ import {
   approveGate,
   markGateRejected,
   failUnconsumedGate,
+  finalizeGateExecution,
 } from "@/lib/connectors/gates";
 import { runGithub } from "@/lib/runtime/tools/github";
 import { runVercel } from "@/lib/runtime/tools/vercel";
