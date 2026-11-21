@@ -19,8 +19,8 @@ function result(usage?: ModelStepResult["usage"]): ModelStepResult {
 
 describe("Agent loop budgets", () => {
   it("mantém teto acumulado de iterações e tokens", () => {
-    expect(MAX_TOTAL_ITERATIONS).toBe(60);
-    expect(MAX_TOTAL_TOKENS).toBe(120_000);
+    expect(MAX_TOTAL_ITERATIONS).toBe(200);
+    expect(MAX_TOTAL_TOKENS).toBe(400_000);
   });
 
   it("soma prompt e completion tokens reportados", () => {
