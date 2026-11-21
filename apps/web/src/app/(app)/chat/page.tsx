@@ -495,6 +495,61 @@ function ChatPageInner() {
 
   useEffect(() => { void init(); }, [init]);
 
+  // Polling de gates pendentes: o gate em lote de missão é criado pelo worker
+  // durável DEPOIS do fim da resposta do chat. Sem polling, o card de
+  // aprovação nunca apareceria na conversa.
+  useEffect(() => {
+    if (isGuest || !userEmail) return;
+    let alive = true;
+    const pullGates = async () => {
+      try {
+        const res = await fetch("/api/gates", { cache: "no-store" });
+        if (!res.ok || !alive) return;
+        const data = await res.json().catch(() => ({}));
+        if (!Array.isArray(data.gates)) return;
+        const incoming: PendingWriteGate[] = data.gates
+          .map((g: Record<string, unknown>) => ({
+            id: String(g.id ?? ""),
+            provider: String(g.provider ?? "github"),
+            capability: String(g.capability ?? ""),
+            target: String(g.target ?? ""),
+            summary: String(g.summary ?? ""),
+            contentPreview: g.contentPreview ? String(g.contentPreview) : null,
+            status: String(g.status ?? "pending"),
+            missionId: g.missionId ? String(g.missionId) : null,
+            createdAt: g.createdAt ? String(g.createdAt) : undefined,
+          }))
+          .filter(
+            (g: PendingWriteGate) => g.id.length > 0 && g.status === "pending"
+          );
+        setPendingGates((prev) => {
+          const incomingIds = new Set(incoming.map((g) => g.id));
+          // Mantém apenas gates ainda pendentes no servidor (remove aprovados,
+          // recusados, executados ou expirados desde o último poll).
+          const kept = prev.filter((g) => incomingIds.has(g.id));
+          const keptIds = new Set(kept.map((g) => g.id));
+          const additions = incoming.filter((g) => !keptIds.has(g.id));
+          if (additions.length > 0) {
+            void dispatchAppNotification({
+              category: "alerts",
+              title: "Aprovação necessária",
+              body: additions[0].summary || `${additions[0].provider}: ${additions[0].capability}` ,
+              data: { gateId: additions[0].id, conversationId: activeConversationId },
+            });
+          }
+          return [...kept, ...additions];
+        });
+      } catch { /* ignore */ }
+    };
+    void pullGates();
+    const timer = setInterval(() => { void pullGates(); }, 15000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGuest, userEmail, activeConversationId]);
+
   // Guest 15-minute countdown timer
   useEffect(() => {
     if (!isGuest || guestSecondsRemaining === null || guestSecondsRemaining <= 0 || guestLimitReached) return;
