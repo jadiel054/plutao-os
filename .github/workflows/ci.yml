@@ -10,6 +10,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -26,17 +28,28 @@ jobs:
           set -o pipefail
           npm run test 2>&1 | tee /tmp/vitest.log
 
-      - name: Publish failure log tail as commit status
+      - name: Publish failure test log to ci/logs branch
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
         run: |
-          TAIL="$( (tail -c 1200 /tmp/vitest.log 2>/dev/null || echo 'sem log de teste') | tr -d '\r\n' | cut -c1-1100 )"
-          curl -s -X POST \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -d "{\"state\":\"failure\",\"context\":\"CI log tail\",\"description\":\"${TAIL}\"}"
+          tail -c 12000 /tmp/vitest.log > /tmp/vitest-tail.txt 2>/dev/null || echo 'sem log de teste' > /tmp/vitest-tail.txt
+          git config user.name "ci-logs-bot"
+          git config user.email "ci-logs-bot@users.noreply.github.com"
+          RESET_SHA="$(git rev-parse origin/main)"
+          BASE_SHA="$(git rev-parse origin/main:$(git show -s --format='%T' origin/main) >/dev/null 2>&1 && echo ok || echo ok)"
+          if git ls-remote --exit-code origin "refs/heads/ci/logs-tail" >/dev/null 2>&1; then
+            git fetch --depth=1 origin ci/logs-tail && git checkout -B ci/logs-tail FETCH_HEAD
+          else
+            git checkout -B ci/logs-tail "$RESET_SHA"
+          fi
+          mkdir -p ci-logs
+          cp /tmp/vitest-tail.txt "ci-logs/latest.txt"
+          printf 'commit: %s\n' "$SHA" >> cic-logs.tmp 2>/dev/null || true
+          git add ci-logs
+          git commit -m "ci: log de teste (commit $SHA)"
+          git push origin "ci/logs-tail:ci/logs-tail" --force 2>&1 || echo "push falhou"
 
       - name: Build web
         run: npm run build -w apps/web
