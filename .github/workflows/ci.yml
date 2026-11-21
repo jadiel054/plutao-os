@@ -22,7 +22,21 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Test
-        run: npm run test
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee /tmp/vitest.log
+
+      - name: Publish failure log tail as commit status
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAIL="$( (tail -c 1200 /tmp/vitest.log 2>/dev/null || echo 'sem log de teste') | tr -d '\r\n' | cut -c1-1100 )"
+          curl -s -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d "{\"state\":\"failure\",\"context\":\"CI log tail\",\"description\":\"${TAIL}\"}"
 
       - name: Build web
         run: npm run build -w apps/web
