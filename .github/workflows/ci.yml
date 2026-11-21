@@ -34,7 +34,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
         run: |
-          tail -c 12000 /tmp/vitest.log > /tmp/vitest-tail.txt 2>/dev/null || echo 'sem log de teste' > /tmp/vitest-tail.txt
+          {
+            echo '=== vitest.log ==='
+            cat /tmp/vitest.log 2>/dev/null || echo '(nenhum)'
+            echo '=== gh run view --log-failed ==='
+            gh run view "${{ github.run_id }}" --log-failed 2>/dev/null | tail -c 8000 || echo '(indisponível)'
+          } > /tmp/vitest-tail.txt
           git config user.name "ci-logs-bot"
           git config user.email "ci-logs-bot@users.noreply.github.com"
           RESET_SHA="$(git rev-parse origin/main)"
