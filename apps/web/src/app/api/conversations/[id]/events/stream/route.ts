@@ -5,6 +5,11 @@ import { listConversationEvents } from "@/lib/events/appendConversationEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Encerra o SSE ANTES do teto serverless; o cliente reconecta via Last-Event-ID. */
+export const maxDuration = 280;
+
+/** Teto de vida da conexão dentro do request (evita Vercel Runtime Timeout). */
+const STREAM_MAX_MS = 240_000;
 
 /**
  * GET /api/conversations/:id/events/stream
@@ -70,7 +75,13 @@ export async function GET(
         send("ready", { cursor });
 
         // Live poll (sem infra de pub/sub nesta fase)
+        const streamStartedAt = Date.now();
         while (!closed) {
+          if (Date.now() - streamStartedAt > STREAM_MAX_MS) {
+            // Fim limpo: o EventSource reconecta e retoma do último seq.
+            send("end", { cursor, reason: "stream_recycled" });
+            break;
+          }
           await new Promise((r) => setTimeout(r, 1500));
           if (closed) break;
           const more = await listConversationEvents({
