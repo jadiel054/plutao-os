@@ -1,3 +1,32 @@
-=== vitest.log ===
+=== install.log (cauda) ===
+npm warn deprecated tar@6.2.1: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated glob@9.3.5: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm error code 1
+npm error path /home/runner/work/plutao-os/plutao-os/node_modules/onnxruntime-node
+npm error command failed
+npm error command sh -c node ./script/install
+npm error Downloading "https://github.com/microsoft/onnxruntime/releases/download/v1.21.0/onnxruntime-linux-x64-gpu-1.21.0.tgz"...
+npm error `nvcc` not found. Assuming CUDA 12.
+npm error /home/runner/work/plutao-os/plutao-os/node_modules/onnxruntime-node/script/install.js:112
+npm error         throw new Error(`Failed to download the binaries: ${res.statusCode} ${res.statusMessage}.
+npm error         ^
+npm error
+npm error Error: Failed to download the binaries: 404 Not Found.
+npm error
+npm error Use "--onnxruntime-node-install-cuda=skip" to skip the installation. You will still be able to use ONNX Runtime, but the CUDA EP will not be available.
+npm error     at ClientRequest.<anonymous> (/home/runner/work/plutao-os/plutao-os/node_modules/onnxruntime-node/script/install.js:112:15)
+npm error     at Object.onceWrapper (node:events:634:26)
+npm error     at ClientRequest.emit (node:events:519:28)
+npm error     at ClientRequest.emit (node:domain:489:12)
+npm error     at HTTPParser.parserOnIncomingClient [as onIncoming] (node:_http_client:780:27)
+npm error     at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+npm error     at TLSSocket.socketOnData (node:_http_client:615:22)
+npm error     at TLSSocket.emit (node:events:519:28)
+npm error     at TLSSocket.emit (node:domain:489:12)
+npm error     at addChunk (node:internal/streams/readable:561:12)
+npm error
+npm error Node.js v22.23.5
+npm error A complete log of this run can be found in: /home/runner/.npm/_logs/2026-11-21T09_26_13_861Z-debug-0.log
+=== vitest.log (cauda) ===
 (nenhum)
 === gh run view --log-failed ===
