@@ -240,9 +240,12 @@ export async function runNextMissionGraphNodeSerial(opts: {
   }
 
   let totalIterations = 0;
+  // Orçamento por nó: não encolhe demais em grafos grandes (causa de nós
+  // travando por falta de iterações). Piso de 20 iterações por nó; o teto
+  // global MAX_TOTAL_ITERATIONS em runAgentLoop continua protegendo.
   const perNodeIterationBudget = Math.max(
     1,
-    Math.min(opts.maxIterations, Math.floor(MAX_TOTAL_ITERATIONS / order.length))
+    Math.min(opts.maxIterations, Math.max(20, Math.ceil(MAX_TOTAL_ITERATIONS / (3 * order.length))))
   );
 
   if (await hasUnresolvedWriteGate(opts.executionId, opts.userId)) {

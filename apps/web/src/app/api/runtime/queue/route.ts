@@ -30,14 +30,14 @@ export async function GET() {
 
 /**
  * POST /api/runtime/queue — processa até N jobs PENDING do próprio usuário.
- * Body opcional: { maxJobs?: number } (1–5, default 3).
+ * Body opcional: { maxJobs?: number } (1–8, default 8).
  */
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
     const body = await req.json().catch(() => ({}));
-    const raw = typeof body.maxJobs === "number" ? body.maxJobs : 3;
-    const maxJobs = Math.max(1, Math.min(5, Math.floor(raw)));
+    const raw = typeof body.maxJobs === "number" ? body.maxJobs : 8;
+    const maxJobs = Math.max(1, Math.min(8, Math.floor(raw)));
 
     const result = await processUserRuntimeJobs(user.id, maxJobs);
     const queue = await getUserRuntimeJobHealth(user.id);

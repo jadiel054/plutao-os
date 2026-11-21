@@ -15,6 +15,7 @@ import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
+import { maybeCreateAutoMission } from "@/lib/missions/autoMissionFromChat";
 import { recordModelError } from "@/lib/missions/recordModelError";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
@@ -265,6 +266,7 @@ export async function POST(req: NextRequest) {
 
     const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
     const lastUserText = lastUserMsg?.content || "";
+    const lastAssistantMsg = [...history].reverse().find((m) => m.role === "assistant");
 
     const db = getDb();
     const activeConversationId = await getOrCreateConversation(
@@ -389,6 +391,33 @@ export async function POST(req: NextRequest) {
       }
     }
 
+
+    // Criação automática de missão a partir do chat: quando o usuário pede uma
+    // construção (site, app, sistema) ou confirma um plano proposto, o sistema
+    // cria a missão e enfileira a execução durável — sem delegar ao Cockpit.
+    let autoMissionNotice = "";
+    if (!user.isGuest) {
+      try {
+        const auto = await maybeCreateAutoMission({
+          userId: user.id,
+          conversationId: activeConversationId,
+          userText: lastUserText,
+          history: history.slice(-10),
+          lastAssistantText: lastAssistantMsg?.content ?? "",
+        });
+        if (auto) {
+          autoMissionNotice =
+            "\nRUNTIME NOTICE: Uma missão durável foi " +
+            (auto.created ? "criada e enfileirada" : "já existente (deduplicada)") +
+            " automaticamente pelo sistema (id " + auto.missionId + ", objetivo: " + JSON.stringify(auto.objective) + ")." +
+            " Informe ao usuário que a missão foi criada e está em execução (aguardando a única aprovação em lote, se aplicável)." +
+            " NUNCA peça para o usuário criar/executar a missão no Cockpit — a criação já aconteceu.";
+        }
+      } catch (e) {
+        console.error("[chat auto mission]", e);
+      }
+    }
+
     // Identidade do agente — perfil de Configurações > Agente.
     // Antes: os valores eram carregados e DESCARTADOS (só o nome aparecia na
     // mensagem de fallback sem chave de API), então personalizar identidade ou
@@ -450,14 +479,14 @@ Nota: O fluxo formal de missão abaixo aplica-se APENAS quando o usuário solici
 4. Sugira um plano em passos numerados curtos (3–7 passos), um por linha, no formato:
    1. Título do passo
    2. Título do passo
-5. Para missões formais multi-passo, peça confirmação antes de executar. Para consultas, análises e leituras de repositórios existentes, entregue diretamente o valor e os dados.
+5. NUNCA delegue execução ao usuário: nunca diga "Crie a missão no Cockpit", "clique em Executar missão" ou similar. Quando o usuário pedir uma construção (site, app, sistema) ou confirmar o plano, o próprio sistema cria a missão e enfileira a execução — você apenas informa que ela foi criada e está em execução (ou aguardando a única aprovação em lote). Para consultas, análises e leituras de repositórios existentes, entregue diretamente o valor e os dados.
 Nunca invente capacidades que o runtime ainda não tem. Seja objetivo e competente.
 
 FALHAS E QUALIDADE:
 Se algo falhar na execução, o sistema exige: Falha → Causa → Inspecionar → Corrigir → Testar → Passed.
 Não incentive pular erros.
 
-${OPERATOR_GOLDEN_RULE}
+${OPERATOR_GOLDEN_RULE}${autoMissionNotice}
 
 Após listar projetos/repositórios com tool de conector: em 1–2 frases, destaque o item mais relevante (ex.: plutao-os ou o mais recente) e convide o usuário a ir a fundo — sem listas genéricas de 'próximos passos'.
 
