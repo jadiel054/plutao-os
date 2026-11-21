@@ -15,8 +15,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -26,44 +24,10 @@ jobs:
           cache: npm
 
       - name: Install
-        run: |
-          set -o pipefail
-          npm install --no-audit --no-fund 2>&1 | tee /tmp/install.log
+        run: npm install --no-audit --no-fund
 
       - name: Test
-        run: |
-          set -o pipefail
-          npm run test 2>&1 | tee /tmp/vitest.log
-
-      - name: Publish failure test log to ci/logs branch
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
-        run: |
-          {
-            echo '=== install.log (cauda) ==='
-            tail -c 6000 /tmp/install.log 2>/dev/null || echo '(nenhum)'
-            echo '=== vitest.log (cauda) ==='
-            tail -c 6000 /tmp/vitest.log 2>/dev/null || echo '(nenhum)'
-            echo '=== gh run view --log-failed ==='
-            gh run view "${{ github.run_id }}" --log-failed 2>/dev/null | tail -c 8000 || echo '(indisponível)'
-          } > /tmp/vitest-tail.txt
-          git config user.name "ci-logs-bot"
-          git config user.email "ci-logs-bot@users.noreply.github.com"
-          RESET_SHA="$(git rev-parse origin/main)"
-          BASE_SHA="$(git rev-parse origin/main:$(git show -s --format='%T' origin/main) >/dev/null 2>&1 && echo ok || echo ok)"
-          if git ls-remote --exit-code origin "refs/heads/ci/logs-tail" >/dev/null 2>&1; then
-            git fetch --depth=1 origin ci/logs-tail && git checkout -B ci/logs-tail FETCH_HEAD
-          else
-            git checkout -B ci/logs-tail "$RESET_SHA"
-          fi
-          mkdir -p ci-logs
-          cp /tmp/vitest-tail.txt "ci-logs/latest.txt"
-          printf 'commit: %s\n' "$SHA" >> cic-logs.tmp 2>/dev/null || true
-          git add ci-logs
-          git commit -m "ci: log de teste (commit $SHA)"
-          git push origin "ci/logs-tail:ci/logs-tail" --force 2>&1 || echo "push falhou"
+        run: npm run test
 
       - name: Build web
         run: npm run build -w apps/web
