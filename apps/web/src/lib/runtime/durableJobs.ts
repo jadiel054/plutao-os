@@ -8,7 +8,7 @@ import { queueExecution } from "./service";
 export const RUNTIME_JOB_LEASE_MS = 8 * 60 * 1000;
 export const RUNTIME_JOB_RETRY_DELAY_MS = 30 * 1000;
 export const RUNTIME_JOB_CONTINUATION_DELAY_MS = 1_000;
-export const RUNTIME_JOB_MAX_ATTEMPTS = 5;
+export const RUNTIME_JOB_MAX_ATTEMPTS = 40;
 
 export type RuntimeJobStatus = "PENDING" | "RUNNING" | "WAITING_APPROVAL" | "SUCCEEDED" | "FAILED" | "CANCELLED";
 export type RuntimeJobTerminalStatus = "SUCCEEDED" | "FAILED" | "CANCELLED";

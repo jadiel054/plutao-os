@@ -32,9 +32,9 @@ import type { ModelMessage, ModelStepResult } from "./model/types";
 // Limite de iterações para prevenir loop infinito (missões multi-arquivo)
 export const MAX_ITERATIONS = 20;
 /** H6 — teto acumulado por execution (somando retomadas). */
-export const MAX_TOTAL_ITERATIONS = 60;
+export const MAX_TOTAL_ITERATIONS = 200;
 /** H6 — teto acumulado de tokens reportados pelo provedor por execution. */
-export const MAX_TOTAL_TOKENS = 120_000;
+export const MAX_TOTAL_TOKENS = 400_000;
 /** H6 — teto de tempo de parede do loop dentro de um único request. */
 export const MAX_LOOP_DURATION_MS = 240_000;
 /** H6 — quantas vezes o mesmo output pode se repetir antes de parar. */

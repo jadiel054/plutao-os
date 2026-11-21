@@ -18,7 +18,8 @@ import { createWriteGate, consumeGateForWrite, finalizeGateExecution, approveGat
 import { computeGatePayloadHash } from "./gatePayload";
 import { evaluateCapability } from "@/lib/capabilities/registry";
 import { sanitizeError } from "@/lib/security/sanitize";
-import { isAutoApproveCapable, loadAutonomyMode } from "@/lib/agente/autonomy";
+import { isAutoApproveCapable, loadAutonomyMode, isDestructiveCapability } from "@/lib/agente/autonomy";
+import { hasMissionBatchGrant } from "@/lib/missions/missionApproval";
 
 const WRITE_RATE_LIMIT = 20;
 const WRITE_WINDOW_MS = 60_000;
@@ -130,7 +131,13 @@ export async function guardWrite(opts: {
       });
 
       const autonomyMode = await loadAutonomyMode(opts.userId);
-      if (isAutoApproveCapable(opts.capability, autonomyMode)) {
+      // Aprovação única em lote: com o plano da missão autorizado, escritas
+      // não destrutivas executam sem novas interrupções (auditoria mantida).
+      const missionGranted =
+        !!opts.missionId &&
+        !isDestructiveCapability(opts.capability) &&
+        (await hasMissionBatchGrant(opts.missionId, opts.userId));
+      if (isAutoApproveCapable(opts.capability, autonomyMode) || missionGranted) {
         const approved = await approveGate(gate.id, opts.userId);
         if (approved) {
           const payloadHash = computeGatePayloadHash(opts.provider, opts.capability, opts.payload);

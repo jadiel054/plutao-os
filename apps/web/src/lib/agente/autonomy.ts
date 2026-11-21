@@ -44,7 +44,7 @@ export const AUTO_APPROVE_DENYLIST = new Set<string>([
 /** @deprecated use AUTO_APPROVE_DENYLIST */
 export const ELEVATED_WRITE_DENYLIST = AUTO_APPROVE_DENYLIST;
 
-function isDestructiveCapability(capability: string): boolean {
+export function isDestructiveCapability(capability: string): boolean {
   if (AUTO_APPROVE_DENYLIST.has(capability)) return true;
   const lower = capability.toLowerCase();
   return /(delete|destroy|drop|truncate|force.?push|production)/.test(lower);

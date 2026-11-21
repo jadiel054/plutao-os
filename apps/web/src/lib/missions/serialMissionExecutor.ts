@@ -11,6 +11,7 @@ import { getDb } from "@/lib/db";
 import { getOwnedMission, parseEvidence } from "@/lib/missions/ownership";
 import { listWriteGatesForExecution } from "@/lib/connectors/gates";
 import { verifyDefinitionOfDone } from "@/lib/missions/dod";
+import { MISSION_BATCH_CAPABILITY } from "@/lib/missions/missionApproval";
 import { selectMissionNodeEvidence } from "@/lib/missions/missionNodeEvidence";
 import { resolveSpecialistPolicy } from "@/lib/missions/specialistProfiles";
 import {
@@ -44,19 +45,16 @@ async function persistRuntime(
 
 async function hasUnresolvedWriteGate(
   executionId: string,
-  userId: string,
-  evidence: ReturnType<typeof parseEvidence>
+  userId: string
 ) {
   const gates = await listWriteGatesForExecution(executionId, userId);
-  const evidenceGateIds = new Set(
-    evidence
-      .map((item) => item.metadata?.writeGateId)
-      .filter((value): value is string => typeof value === "string")
-  );
+  // Apenas gates aguardando decisão/execução bloqueiam. O gate em lote da
+  // missão é a própria autorização e nunca pausa o worker aqui. Gates
+  // `executed` deixam de travar indevidamente (causa de pausas eternas).
   return gates.some(
     (gate) =>
-      ["pending", "approved", "executing"].includes(String(gate.status)) ||
-      (gate.status === "executed" && !evidenceGateIds.has(gate.id))
+      gate.capability !== MISSION_BATCH_CAPABILITY &&
+      ["pending", "approved", "executing"].includes(String(gate.status))
   );
 }
 
@@ -247,7 +245,7 @@ export async function runNextMissionGraphNodeSerial(opts: {
     Math.min(opts.maxIterations, Math.floor(MAX_TOTAL_ITERATIONS / order.length))
   );
 
-  if (await hasUnresolvedWriteGate(opts.executionId, opts.userId, parseEvidence(mission.evidence))) {
+  if (await hasUnresolvedWriteGate(opts.executionId, opts.userId)) {
     return { kind: "waiting_approval", iterations: 0, nodeId: node.id };
   }
 
@@ -275,7 +273,7 @@ export async function runNextMissionGraphNodeSerial(opts: {
       opts.executionId,
       node.id
     );
-    if (await hasUnresolvedWriteGate(opts.executionId, opts.userId, parseEvidence(freshMission?.evidence))) {
+    if (await hasUnresolvedWriteGate(opts.executionId, opts.userId)) {
       return { kind: "waiting_approval", iterations: totalIterations, nodeId: node.id };
     }
     const nodeDod = verifyDefinitionOfDone({

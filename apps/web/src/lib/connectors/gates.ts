@@ -42,6 +42,8 @@ export type CreateGateInput = {
   summary: string;
   payload: Record<string, unknown>;
   contentPreview?: string | null;
+  /** TTL opcional em ms (usa o padrão de 15 min quando ausente). */
+  ttlMs?: number;
 };
 
 export async function createWriteGate(input: CreateGateInput): Promise<WriteGateRow> {
@@ -62,7 +64,7 @@ export async function createWriteGate(input: CreateGateInput): Promise<WriteGate
         payloadHash,
         contentPreview: input.contentPreview ?? null,
         status: "pending",
-        expiresAt: new Date(Date.now() + WRITE_GATE_TTL_MS),
+        expiresAt: new Date(Date.now() + (input.ttlMs ?? WRITE_GATE_TTL_MS)),
       })
       .returning();
     if (!row) throw new Error("failed to create write_gate");
@@ -106,7 +108,7 @@ export async function listPendingGates(userId: string, missionId?: string | null
 export async function listWriteGatesForExecution(executionId: string, userId: string) {
   const db = createDb();
   return db
-    .select({ id: writeGates.id, status: writeGates.status })
+    .select({ id: writeGates.id, status: writeGates.status, capability: writeGates.capability })
     .from(writeGates)
     .where(and(eq(writeGates.executionId, executionId), eq(writeGates.userId, userId)))
     .limit(100);

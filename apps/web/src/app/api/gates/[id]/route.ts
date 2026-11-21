@@ -22,6 +22,7 @@ import { parseEvidence, type EvidenceItem } from "@/lib/missions/ownership";
 import { sanitizeText } from "@/lib/security/sanitize";
 import { getOwnedExecution } from "@/lib/runtime/service";
 import { releaseRuntimeJobAfterApproval as releaseDurableRuntimeJob } from "@/lib/runtime/durableJobs";
+import { MISSION_BATCH_CAPABILITY } from "@/lib/missions/missionApproval";
 import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
 
 export const runtime = "nodejs";
@@ -167,6 +168,40 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   if (decision !== "approve") {
     return NextResponse.json({ error: "invalid_decision" }, { status: 400 });
+  }
+
+  // Aprovação única em lote: não há provider a executar; o gate aprovado é
+  // finalizado imediatamente e libera a missão inteira de uma vez.
+  if (gate.capability === MISSION_BATCH_CAPABILITY) {
+    const approved = await approveGate(id, user.id);
+    if (!approved) {
+      return NextResponse.json({ error: "gate_not_pending", status: gate.status }, { status: 409 });
+    }
+    await finalizeGateExecution(id, user.id, {
+      ok: true,
+      output: "Plano da missão autorizado de ponta a ponta.",
+    });
+    await appendEvidence(
+      gate.missionId,
+      user.id,
+      "plano da missão aprovado (autorização única em lote)",
+      "decision",
+      gate.executionId,
+      gate.id
+    );
+    if (gate.executionId) {
+      await releaseRuntimeJobAfterApproval(gate.executionId, user.id);
+    } else if (gate.missionId) {
+      try {
+        await runAutonomousMissionServer({ missionId: gate.missionId, userId: user.id });
+      } catch (e) {
+        console.error(
+          "[api/gates/[id]/route] erro ao retomar missão após autorização em lote:",
+          sanitizeText(e instanceof Error ? e.message : String(e))
+        );
+      }
+    }
+    return NextResponse.json({ ok: true, status: "executed", output: "Plano da missão autorizado." });
   }
 
   const provider = String(gate.provider || "");

@@ -38,6 +38,7 @@ import { nextStatuses } from "@/lib/missions/lifecycle";
 import { ensurePersistedMissionGraph } from "@/lib/missions/graphPersistence";
 import { runNextMissionGraphNodeSerial } from "@/lib/missions/serialMissionExecutor";
 import { resolveUserCloudModelConfig } from "@/lib/runtime/model/resolveUserConfig";
+import { ensureMissionBatchApprovalGate } from "@/lib/missions/missionApproval";
 
 export type AutonomousRunResult = {
   ok: boolean;
@@ -53,6 +54,8 @@ export type AutonomousRunResult = {
   dod?: unknown;
   continuation?: boolean;
   waitingApproval?: boolean;
+  /** Gate único de autorização em lote que a missão aguarda. */
+  approvalGateId?: string;
   graphNodeId?: string;
 };
 
@@ -103,7 +106,7 @@ export async function runAutonomousMissionServer(opts: {
   const { missionId, userId } = opts;
   const maxIterations = Math.min(
     Math.max(1, opts.maxIterations ?? MAX_ITERATIONS),
-    20
+    50
   );
 
   const mission = await getOwnedMission(missionId, userId);
@@ -260,6 +263,31 @@ export async function runAutonomousMissionServer(opts: {
       executionId: null,
       error: "NO_EXECUTION",
       message: "Não foi possível iniciar execução",
+    };
+  }
+
+  // Autorização única em lote: exatamente UMA aprovação humana no início da
+  // missão cobre todas as escritas previstas (exceto destrutivas).
+  const batchGate = await ensureMissionBatchApprovalGate(missionId, userId, {
+    executionId,
+    objective: String(mission.objective ?? ""),
+    nodeTitles:
+      getMissionGraphSerialOrder(missionGraph)?.map((node) => node.title) ?? [],
+  });
+  if (batchGate) {
+    return {
+      ok: false,
+      missionId,
+      finalStatus: status,
+      allowedTransitions: nextStatuses(status),
+      stepsOk: 0,
+      completed: false,
+      executionId,
+      stopReason: "MISSION_BATCH_APPROVAL_REQUIRED",
+      waitingApproval: true,
+      approvalGateId: batchGate.id,
+      message:
+        "Plano pronto. Aprove uma única vez para autorizar todas as escritas desta missão; depois ela executa sem novas pausas.",
     };
   }
 
