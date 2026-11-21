@@ -21,7 +21,9 @@ jobs:
           cache: npm
 
       - name: Install
-        run: npm install --no-audit --no-fund
+        run: |
+          set -o pipefail
+          npm install --no-audit --no-fund 2>&1 | tee /tmp/install.log
 
       - name: Test
         run: |
@@ -35,8 +37,10 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           {
-            echo '=== vitest.log ==='
-            cat /tmp/vitest.log 2>/dev/null || echo '(nenhum)'
+            echo '=== install.log (cauda) ==='
+            tail -c 6000 /tmp/install.log 2>/dev/null || echo '(nenhum)'
+            echo '=== vitest.log (cauda) ==='
+            tail -c 6000 /tmp/vitest.log 2>/dev/null || echo '(nenhum)'
             echo '=== gh run view --log-failed ==='
             gh run view "${{ github.run_id }}" --log-failed 2>/dev/null | tail -c 8000 || echo '(indisponível)'
           } > /tmp/vitest-tail.txt
