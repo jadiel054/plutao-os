@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resolveRuntimeJobOutcome } from "../durableJobs";
+import { resolveRuntimeJobOutcome, RUNTIME_JOB_CONTINUATION_DELAY_MS } from "../durableJobs";
+import {
+  finishSerialMissionGraphNode,
+  initializeMissionGraphRuntime,
+  nextSerialMissionGraphNode,
+  startSerialMissionGraphNode,
+} from "@/lib/missions/serialGraphRuntime";
 import { processUserRuntimeJobs } from "../processUserJobs";
 import { runAutonomousMissionServer } from "@/lib/cockpit/runAutonomousMissionServer";
 import * as clientModule from "@/lib/runtime/model/client";
@@ -411,3 +417,254 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
     });
   });
 });
+
+  describe("I-01 — missão multi-nó dependente até COMPLETED com evidência (prova serial do grafo v2)", () => {
+    const twoNodeGraph = {
+      version: 2 as const,
+      nodes: [
+        {
+          id: "node-1",
+          kind: "work" as const,
+          title: "Nó 1: pesquisa e registro",
+          description: "Registra a base da operação",
+          definitionOfDone: "fila-a",
+          specialistProfileId: null,
+          requiredCapabilities: [],
+          dependsOn: [] as string[],
+          retryPolicy: { maxAttempts: 2, timeoutSeconds: 300 },
+        },
+        {
+          id: "node-2",
+          kind: "work" as const,
+          title: "Nó 2: execução dependente do nó 1",
+          description: "Consome o resultado do nó 1",
+          definitionOfDone: "fila-b",
+          specialistProfileId: null,
+          requiredCapabilities: [],
+          dependsOn: ["node-1"],
+          retryPolicy: { maxAttempts: 2, timeoutSeconds: 300 },
+        },
+      ],
+    };
+
+    function buildSerialMockDb(state: {
+      storedMission: Record<string, unknown>;
+      storedExecution: Record<string, unknown>;
+      storedJob: Record<string, unknown>;
+    }) {
+      return {
+        select: vi.fn().mockImplementation(() => {
+          return {
+            from: vi.fn().mockImplementation((table: unknown) => {
+              const name = getTableName(table);
+              const getResult = () => {
+                if (name === "missions") return [state.storedMission];
+                if (name === "executions") return [state.storedExecution];
+                if (name === "runtime_jobs") return [state.storedJob];
+                if (name === "users") return [{ id: "u1", preferredModel: "openai/gpt-4o" }];
+                return [];
+              };
+              return {
+                where: vi.fn().mockImplementation(() => ({
+                  orderBy: vi.fn().mockImplementation(() => ({
+                    limit: vi.fn().mockImplementation(async () => getResult()),
+                  })),
+                  limit: vi.fn().mockImplementation(async () => getResult()),
+                })),
+                innerJoin: vi.fn().mockReturnThis(),
+                orderBy: vi.fn().mockReturnThis(),
+                limit: vi.fn().mockImplementation(async () => getResult()),
+              };
+            }),
+          };
+        }),
+        update: vi.fn().mockImplementation((table: unknown) => {
+          const name = getTableName(table);
+          return {
+            set: (patch: Record<string, unknown>) => ({
+              where: (_cond: unknown) => {
+                if (name === "executions") {
+                  const nextCheckpoint = parseSqlCheckpoint(patch.checkpoint, state.storedExecution.checkpoint);
+                  state.storedExecution = { ...state.storedExecution, ...patch, checkpoint: nextCheckpoint };
+                  return { returning: async () => [state.storedExecution] };
+                }
+                if (name === "missions") {
+                  state.storedMission = { ...state.storedMission, ...patch };
+                  return { returning: async () => [state.storedMission] };
+                }
+                if (name === "runtime_jobs") {
+                  state.storedJob = { ...state.storedJob, ...patch };
+                  return { returning: async () => [state.storedJob] };
+                }
+                return { returning: async () => [] };
+              },
+            }),
+          };
+        }),
+      };
+    }
+
+    it("dois nós dependentes: nó 1 → continuation → nó 2 → execution COMPLETED → mission COMPLETED → job SUCCEEDED", async () => {
+      vi.spyOn(clientModule, "chatCompletion")
+        .mockResolvedValueOnce({
+          provider: "openai",
+          model: "gpt-4o",
+          content: "Iniciando nó 1 e registrando fase fila-a.",
+          toolProposal: { name: "note", input: "fila-a registrada pelo nó 1" },
+          usage: { promptTokens: 10, completionTokens: 10 },
+          latencyMs: 10,
+        })
+        .mockResolvedValueOnce({
+          provider: "openai",
+          model: "gpt-4o",
+          content: "Nó 1 concluído; fase fila-a registrada.",
+          toolProposal: null,
+          usage: { promptTokens: 10, completionTokens: 10 },
+          latencyMs: 10,
+        })
+        .mockResolvedValueOnce({
+          provider: "openai",
+          model: "gpt-4o",
+          content: "Iniciando nó 2 com a base do nó 1; fase fila-b.",
+          toolProposal: { name: "note", input: "fila-b executada após fila-a" },
+          usage: { promptTokens: 10, completionTokens: 10 },
+          latencyMs: 10,
+        })
+        .mockResolvedValueOnce({
+          provider: "openai",
+          model: "gpt-4o",
+          content: "Nó 2 concluído; fase fila-b registrada.",
+          toolProposal: null,
+          usage: { promptTokens: 10, completionTokens: 10 },
+          latencyMs: 10,
+        });
+
+      const state = {
+        storedMission: {
+          id: "m1",
+          userId: "u1",
+          objective: "Prova serial: dois nós dependentes",
+          definitionOfDone: null,
+          evidence: [] as unknown[],
+          status: "EXECUTING",
+          graphVersion: 2,
+          missionGraph: twoNodeGraph,
+          plan: null,
+        },
+        storedExecution: {
+          id: "exec-1",
+          userId: "u1",
+          missionId: "m1",
+          currentTaskId: null,
+          status: "RUNNING",
+          checkpoint: {} as Record<string, unknown>,
+          checkpointAt: new Date(),
+          idempotencyKey: "k-i01",
+          error: null as string | null,
+          startedAt: new Date(),
+          updatedAt: new Date(),
+          completedAt: null as Date | null,
+          createdAt: new Date(),
+        },
+        storedJob: {
+          id: "job-1",
+          userId: "u1",
+          missionId: "m1",
+          executionId: "exec-1",
+          kind: "mission_execution",
+          status: "PENDING",
+          payload: {},
+          attempts: 0,
+          maxAttempts: 5,
+          availableAt: new Date(Date.now() - 1000),
+          lockedAt: null as Date | null,
+          lockToken: null as string | null,
+          lastError: null as string | null,
+          completedAt: null as Date | null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      };
+
+      vi.spyOn(dbModule, "getDb").mockReturnValue(
+        buildSerialMockDb(state) as unknown as ReturnType<typeof dbModule.getDb>
+      );
+
+      // ── Invocation 1: worker reivindica o job e executa apenas o nó 1 ──
+      const firstProcess = await processUserRuntimeJobs("u1", 1);
+      expect(firstProcess.processed).toHaveLength(1);
+      expect(firstProcess.processed[0]).toMatchObject({
+        id: "job-1",
+        status: "CONTINUED",
+        executionStatus: "RUNNING",
+      });
+
+      const checkpointAfterFirst = state.storedExecution.checkpoint as Record<string, unknown>;
+      const runtimeAfterFirst = checkpointAfterFirst.missionGraphRuntime as {
+        version: number;
+        nodes: Record<string, { status: string }>;
+      };
+      expect(runtimeAfterFirst.version).toBe(2);
+      expect(runtimeAfterFirst.nodes["node-1"]?.status).toBe("PASSED");
+      expect(runtimeAfterFirst.nodes["node-2"]?.status === "PASSED").toBe(false);
+
+      // Evidência do nó 1 existe e está escopada a ele; nó 2 ainda não produziu evidência.
+      const evidenceAfterFirst = (state.storedMission.evidence as Array<Record<string, unknown>>).filter(
+        (item) => item.executionId === "exec-1"
+      );
+      expect(evidenceAfterFirst.length).toBeGreaterThan(0);
+      const nodeScoped = (nodeId: string) =>
+        evidenceAfterFirst.filter((item) => (item.metadata as Record<string, unknown>)?.missionNodeId === nodeId);
+      expect(nodeScoped("node-1").length).toBeGreaterThan(0);
+      expect(nodeScoped("node-2")).toHaveLength(0);
+
+      // ── Invocation 2: continuation devolveu o job à fila (delay 1s); worker executa o nó 2 ──
+      await new Promise((resolve) => setTimeout(resolve, RUNTIME_JOB_CONTINUATION_DELAY_MS + 150));
+      const secondProcess = await processUserRuntimeJobs("u1", 1);
+      expect(secondProcess.processed).toHaveLength(1);
+      expect(secondProcess.processed[0]).toMatchObject({
+        id: "job-1",
+        status: "SUCCEEDED",
+        executionStatus: "COMPLETED",
+      });
+
+      // ── Estado final persistido ──
+      expect(state.storedExecution.status).toBe("COMPLETED");
+      expect(state.storedJob.status).toBe("SUCCEEDED");
+      expect(state.storedJob.completedAt).toBeTruthy();
+      expect(state.storedJob.lastError).toBeNull();
+      expect(state.storedMission.status).toBe("COMPLETED");
+
+      const runtimeFinal = (state.storedExecution.checkpoint as Record<string, unknown>)
+        .missionGraphRuntime as { nodes: Record<string, { status: string }> };
+      expect(runtimeFinal.nodes["node-1"]?.status).toBe("PASSED");
+      expect(runtimeFinal.nodes["node-2"]?.status).toBe("PASSED");
+
+      const node1Ev = nodeScoped("node-1");
+      const node2Ev = (state.storedMission.evidence as Array<Record<string, unknown>>).filter(
+        (item) => (item.metadata as Record<string, unknown>)?.missionNodeId === "node-2"
+      );
+      expect(node2Ev.length).toBeGreaterThan(0);
+      const firstNode2At = Math.min(...node2Ev.map((e) => new Date(String(e.createdAt)).getTime()));
+      const lastNode1At = Math.max(...node1Ev.map((e) => new Date(String(e.createdAt)).getTime()));
+      expect(firstNode2At).toBeGreaterThanOrEqual(lastNode1At);
+    });
+
+    it("nó dependente não é liberado antes do anterior PASSED (scheduler serial)", () => {
+      const runtime = initializeMissionGraphRuntime(twoNodeGraph, null)!;
+      const next = nextSerialMissionGraphNode(twoNodeGraph, runtime);
+      expect(next?.id).toBe("node-1");
+      expect(isNodeReady(twoNodeGraph, runtime, "node-2")).toBe(false);
+
+      const started = startSerialMissionGraphNode(twoNodeGraph, runtime, "node-1")!;
+      const done = finishSerialMissionGraphNode(started, "node-1", { status: "PASSED" })!;
+      expect(isNodeReady(twoNodeGraph, done, "node-2")).toBe(true);
+      expect(nextSerialMissionGraphNode(twoNodeGraph, done)?.id).toBe("node-2");
+    });
+  });
+
+function isNodeReady(graph: { nodes: Array<{ id: string; dependsOn: string[] }> }, runtime: { nodes: Record<string, { status: string }> }, nodeId: string): boolean {
+  const node = graph.nodes.find((n) => n.id === nodeId);
+  if (!node) return false;
+  return node.dependsOn.every((dep) => runtime.nodes[dep]?.status === "PASSED");
+}

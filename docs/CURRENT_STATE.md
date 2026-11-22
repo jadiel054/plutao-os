@@ -1,6 +1,6 @@
 # CURRENT_STATE.md — Plutão
 
-**Última atualização:** 2026-11-10 (B-01 #185, B-02 #186, B-12 #187 fechados; próximo: smoke serial I-01 até execution `COMPLETED`)
+**Última atualização:** prova local I-01 adicionada (dois nós dependentes ponta a ponta até `execution COMPLETED` / `job SUCCEEDED`); smoke em produção de I-01 continua pendente
 
 Este documento registra o estado observado no repositório e em produção.
 Capacidade só é **VERIFICADA** com evidência de uso real (não só código no `main`).
@@ -29,7 +29,7 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 | **X2 — Identidade do agente aplicada (autorizado pelo fundador)** | **IMPLEMENTED** (2026-10-07) | Perfil de Configurações > Agente (`name`/`identity`/`personality`) era carregado e descartado no chat; o MCP usava persona hardcoded diferente. Agora `lib/agente/identity.ts` alimenta chat e MCP com a mesma identidade e os mesmos princípios operacionais. Default permanece idêntico a `NIX_IDENTITY`. |
 | **Hardening de escrita no chat (Bugs 1, 2 e 3)** | **VERIFICADO** (2026-10-03) | **BUG 1:** Captura e tratamento de erros no pipeline tool -> write gate. **BUG 2:** Validação de nome do projeto Vercel. **BUG 3:** Label amigável em `/api/model/status` e Cockpit. |
 | **Fix & Hardening Runtime de Missões (#109+#110+#111)** | **IMPLEMENTED** (2026-10-03) | Catch FASE 3 grava evidência `model_error`; `maxDuration = 300` no resume pós-gate; sanitização de payload no boundary de `client.ts`. **Pendente:** smoke formal em produção de missão completa. |
-| **Worker durável de missões** | **IMPLEMENTED — código de cadência melhorado; execução real ainda não verificada** | Enfileira via autonomous-run; worker autenticado `POST /api/cron/runtime-worker`. **B-01 (#185):** retry sem erro SQL. **B-02 (#186):** UI sem erro cru. **B-12 (#187):** drain de continuations na mesma invocation (até 8 jobs / 260s) + wake `graph_continued` com delay 0; Vercel Queues continua opt-in (`RUNTIME_WORKER_QUEUE_ENABLED`); GitHub Actions como recovery. **I-01 pendente:** provar 1 missão até execution `COMPLETED` / job `SUCCEEDED`. |
+| **Worker durável de missões** | **IMPLEMENTED — prova local I-01 (2 nós dependentes) verde; smoke produção pendente** | Enfileira via autonomous-run; worker autenticado `POST /api/cron/runtime-worker`. **B-01 (#185):** retry sem erro SQL. **B-02 (#186):** UI sem erro cru. **B-12 (#187):** drain de continuations na mesma invocation (até 8 jobs / 260s) + wake `graph_continued` com delay 0; Vercel Queues continua opt-in (`RUNTIME_WORKER_QUEUE_ENABLED`); GitHub Actions como recovery. **I-01:** provada localmente por teste E2E com dois nós dependentes até `COMPLETED`/`SUCCEEDED` com evidência e DoD; falta o smoke formal em produção. |
 | **Entrada única + grafo versionado V2 serial** | **IMPLEMENTED — intake/configuração parcialmente verificados; execução serial pendente** | Intake, replay deduplicado, conflito `409`, ownership básico verificados. Enqueue cria job; Write Gate, DoD/evidence por nó e paralelismo sem evidência completa. |
 | **Preferência de modelo server-side + Resiliência a Rate Limit (#112)** | **IMPLEMENTED** (2026-10-03) | `preferredModel` em preferences; retry com backoff/`Retry-After`. Smoke produção pendente. |
 | **Modelos GGUF locais no APK (vitrine + chat)** | **IMPLEMENTED — uso em device parcial** (2026-10-15, PRs #152–#155) | Download/import SAF; `LocalModelPlugin`; llama.cpp oficial (submodule); CI Android Debug verde + artifact `plutao-debug-apk` (arm64-v8a/x86_64). ChatML Qwen, stop EOG/`<|im_end|>`, maxTokens 96, `n_threads≤4`, sampler top_k/top_p/temp, throttle, cancel. **Pendente:** polimento device; preload; unload smoke. Browser não executa GGUF. |
@@ -68,12 +68,18 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ---
 
+## Atualização 2026-11-22 (prova local I-01)
+
+- **I-01 em nível local: PROVADO por teste automatizado** (`apps/web/src/lib/runtime/__tests__/serialWorkerPipeline.test.ts`, bloco "I-01"): missão com dois nós **dependentes** (nó 2 `dependsOn` nó 1) atravessa o pipeline durável real (`processUserRuntimeJobs` → claim → `runAutonomousMissionServer` → `runNextMissionGraphNodeSerial` → `runAgentLoop` → tool `note` → DoD por nó → `continueRuntimeJob` → claim 2 → nó 2 → `completeExecution(COMPLETED)` → DoD global → missão `COMPLETED` → job `SUCCEEDED`), com checkpoint `missionGraphRuntime` persistido (ambos os nós `PASSED`), evidência por nó em `missions.evidence` com `metadata.missionNodeId` e ordem temporal nó 1 → nó 2 comprovada.
+  - O que **não** está coberto por esta prova: banco real (usa mock fiel do Drizzle, no padrão dos demais testes) e provedor de modelo real (`chatCompletion` mockado de forma determinística; o stub determinístico da tool `note` é real). Smoke **em produção** (Neon + modelo) continua pendente.
+- **Typecheck de `main` restaurado:** `autoMissionRules.test.ts` sem import dos globals do Vitest (25 erros TS) e `runtimeJobs.pg.integration.test.ts` com cast incompatível de `Pool` no `drizzle()` — ambos corrigidos; `npm run typecheck` volta a sair 0.
+- **Próximo (I-01 produção):** smoke em produção de missão multi-nó até `executions.COMPLETED` e `runtime_jobs.SUCCEEDED` com evidência e DoD reais. Ops: considerar `RUNTIME_WORKER_QUEUE_ENABLED=true` em Production.
+
 ## Atualização 2026-11-10
 
 - **B-01 fechado (#185):** `retryRuntimeJob` sem SQL CASE+Date; decisão em JS; testes unitários.
 - **B-02 fechado (#186):** UI de missão/conectores sem erro cru; `sanitizeErrorForClient` + detalhes colapsáveis.
 - **B-12 fechado (#187):** worker drena continuations de grafo na mesma invocation (até 8 jobs / 260s); wake `graph_continued` delay 0; docs de fila vs GitHub recovery atualizadas.
-- **Próximo (I-01):** provar em produção uma missão multi-nó até `executions.COMPLETED` e `runtime_jobs.SUCCEEDED`, com evidência e DoD. Ops: considerar `RUNTIME_WORKER_QUEUE_ENABLED=true` em Production.
 
 ## Atualização 2026-10-15 (código em `main`, docs)
 
@@ -108,7 +114,8 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 - [x] Smoke write gate — 2026-09-25; feedback no chat pendente
 - [x] Smoke voz comportamental — 2026-09-27; kill-test M3/M5 pendentes
 - [x] Smoke MCP fase 2 — 2026-09-27
-- [ ] **I-01 Smoke runtime serial:** missão multi-nó → job SUCCEEDED + execution COMPLETED
+- [ ] **I-01 Smoke runtime serial (produção):** missão multi-nó → job SUCCEEDED + execution COMPLETED
+- [x] **I-01 prova local:** teste E2E de dois nós dependentes (pipeline durável completo, evidência por nó, DoD) — 2026-11-22
 
 ### Produto (próximo ciclo — ordem de prioridade)
 
