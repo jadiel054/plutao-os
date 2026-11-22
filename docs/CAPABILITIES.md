@@ -165,6 +165,7 @@ Também avaliadas de forma fail-closed pelo dispatcher (`evaluateInternalTool`).
 | --- | --- |
 | `note` | `capability_allowlist`, `output_sanitization` |
 | `filesystem` | `capability_allowlist`, `input_sanitization`, `output_sanitization`, `sandbox_isolation`, `path_validation`, `audit_trail` |
+| `process` | `capability_allowlist`, `input_sanitization`, `output_sanitization`, `sandbox_isolation`, `path_validation`, `audit_trail` |
 | `files.export_pdf` | `capability_allowlist`, `output_sanitization`, `sandbox_isolation` |
 | `files.export_xlsx` | `capability_allowlist`, `output_sanitization`, `sandbox_isolation` |
 | `files.export_markdown` | `capability_allowlist`, `output_sanitization`, `sandbox_isolation` |

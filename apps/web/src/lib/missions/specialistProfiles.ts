@@ -37,6 +37,7 @@ export const MISSION_SPECIALIST_PROFILES = Object.freeze({
     allowedTools: [
       "note",
       "filesystem",
+      "process",
       "github",
       "vercel",
       "artemis",

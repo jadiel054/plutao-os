@@ -68,7 +68,20 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ---
 
-## Atualização 2026-11-22 (prova local I-01)
+## Atualização 2026-11-22 (FASE 2 núcleo — Software Factory)
+
+- **Tool `process` real implementada** (`apps/web/src/lib/runtime/tools/process.ts`, registrada no dispatcher, capability registry, perfil `software_engineer` e prompt do Nix): spawn **sem shell** com allowlist de binários (`node`, `npm`, `npx`, `git`, `ls`, `cat`, `echo`, `mkdir`, `touch`, `mv`, `cp`), denylist reforçada, recusa de metacaracteres de shell, timeout (default 30 s, teto 120 s) com kill de grupo POSIX (SIGTERM→SIGKILL), teto de saída de 64 KB e **ambiente limpo** no processo filho (apenas `PATH`/`HOME`/`LANG`; nenhum secret do servidor é propagado).
+- **Fail-closed duplo:** a tool `process` só executa com `SOFTWARE_FACTORY_PROCESS_ENABLED=1` **e** storage backend `LocalFilesystemStorage` (flag desligada ou backend in-memory ⇒ recusa). Workspace é o mesmo diretório da tool `filesystem` (cwd relativa confinada ao workspace; escape recusado). 11 testes novos cobrindo gating, allowlist/denylist, metacaracteres, execução real, workspace compartilhado, timeout e truncamento (`tools/__tests__/process.test.ts`).
+- **Limitação honesta:** confinamento é workspace + allowlist, **não isolamento de SO** — processos rodam no mesmo host que a aplicação. Em produção serverless (Vercel) o backend local + execução handicapped; para FASE 2 completa recomenda-se container/VM dedicado. Documentado em `docs/SOFTWARE_FACTORY.md`.
+- **Ferramentas da Lista H9:** `docs/CAPABILITIES.md` regenerado (`npm run docs:capabilities`) com a nova tool `process`; `apps/web/sandbox/` agora no `.gitignore`.
+
+## Atualização 2026-11-22 (smoke I-01 com Neon — AGUARDANDO APROVAÇÃO)
+
+- **Procedimento pronto, não executado:** `docs/testes/I-01-smoke/PROCEDIMENTO.md` define preparação (branch Neon efêmera + migrations via `DATABASE_URL_UNPOOLED`), execução (runner gated `RUN_I01_SMOKE=1` + `SMOKE_DATABASE_URL` + credencial de modelo real) e evidências esperadas (relatório JSON com `runtime_jobs.SUCCEEDED`, `executions.COMPLETED`, evidência por nó em `metadata.missionNodeId`, checkpoint PASSED).
+- **Runner implementado** (`apps/web/src/lib/runtime/__tests__/pg/i01SerialSmoke.pg.test.ts`): guard anti-produção recusa `SMOKE_DATABASE_URL` igual a `DATABASE_URL`; `beforeAll` valida tabelas via `to_regclass` antes de semear; cleanup é apenas `DELETE` do usuário semeado (cascade), sem DROP/TRUNCATE. Sem envs, o teste é pulado (verificado).
+- Nenhuma credencial real foi usada: execução depende de aprovação explícita do dono.
+
+### Atualização 2026-11-22 (prova local I-01)
 
 - **I-01 em nível local: PROVADO por teste automatizado** (`apps/web/src/lib/runtime/__tests__/serialWorkerPipeline.test.ts`, bloco "I-01"): missão com dois nós **dependentes** (nó 2 `dependsOn` nó 1) atravessa o pipeline durável real (`processUserRuntimeJobs` → claim → `runAutonomousMissionServer` → `runNextMissionGraphNodeSerial` → `runAgentLoop` → tool `note` → DoD por nó → `continueRuntimeJob` → claim 2 → nó 2 → `completeExecution(COMPLETED)` → DoD global → missão `COMPLETED` → job `SUCCEEDED`), com checkpoint `missionGraphRuntime` persistido (ambos os nós `PASSED`), evidência por nó em `missions.evidence` com `metadata.missionNodeId` e ordem temporal nó 1 → nó 2 comprovada.
   - O que **não** está coberto por esta prova: banco real (usa mock fiel do Drizzle, no padrão dos demais testes) e provedor de modelo real (`chatCompletion` mockado de forma determinística; o stub determinístico da tool `note` é real). Smoke **em produção** (Neon + modelo) continua pendente.

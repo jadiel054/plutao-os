@@ -257,6 +257,17 @@ export class LocalFilesystemStorage implements StorageBackend {
     // ponto representa a raiz porque o helper rejeita string vazia.
     return resolveSandboxPath(path || ".", executionRoot);
   }
+
+  /**
+   * Software Factory — diretório real do workspace de um namespace (criado sob
+   * demanda, com verificação de escape por symlink). Usado pela tool `process`
+   * para executar comandos confinados no MESMO diretório vido pela tool
+   * `filesystem` (o modelo escreve arquivos e os comandos enxergam os mesmos
+   * arquivos — sem cópia espelhada entre caminhos diferentes).
+   */
+  async workspaceRoot(executionId: string): Promise<string> {
+    return this.ensureExecutionPath(executionId);
+  }
   
   private sanitizePath(path: string): string {
     // Remove qualquer tentativa de traversal

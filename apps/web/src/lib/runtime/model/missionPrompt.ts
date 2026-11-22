@@ -88,6 +88,11 @@ or
       `{"tool":"filesystem","input":"{\\"action\\":\\"list\\",\\"payload\\":{\\"path\\":\\"dir\\"}}"}`
     );
   }
+  if (profile.allowedTools.includes("process")) {
+    examples.push(
+      `{"tool":"process","input":"{\\"cmd\\":\\"node\\",\\"args\\":[\\"--version\\"]}"}`
+    );
+  }
   if (profile.allowedTools.includes("artemis")) {
     examples.push(
       `{"tool":"artemis","input":"{\\"prompt\\":\\"Abra o app e valide o fluxo\\",\\"profile\\":\\"flash\\",\\"nonce\\":\\"<uuid-novo>\\",\\"missionId\\":\\"<missionId>\\"}"}`
@@ -135,6 +140,7 @@ export function buildSystemPrompt(
     : `Available tools (dispatched by the runtime):
 - note — record a note
 - filesystem — actions: list | read | write | mkdir | stat (payload.path)
+- process — execute an allowlisted command inside the mission workspace sandbox (SOFTWARE_FACTORY, disabled unless the environment declares SOFTWARE_FACTORY_PROCESS_ENABLED=1); input JSON {cmd, args?, cwd?, timeoutMs?}; no shell, no network commands, no destructive binaries
 - github — requires GitHub OAuth connected
 - vercel — requires Vercel connector connected
 - supabase — requires Supabase connector connected
@@ -168,6 +174,7 @@ Rules:
 - Stay consistent with the agent identity and specialist profile above.
 - Prefer a tool call only when it helps the mission.
 - For filesystem: valid JSON with action (list/read/write/mkdir/stat) and payload.path
+- For process: valid JSON with cmd (single allowlisted binary), args (array; no shell metacharacters), optional cwd relative to the workspace and timeoutMs (≤120000)
 - For connector tools: valid JSON with action and owner/repo/number when required.
 - For artemis: always generate a fresh UUID nonce; the tool returns immediately after dispatch and the final proof arrives later as mission evidence.
 - Never invent other tool names.
