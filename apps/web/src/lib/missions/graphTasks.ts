@@ -24,8 +24,12 @@ export async function ensureGraphNodeTasks(
     .from(tasks)
     .where(eq(tasks.missionId, missionId))
     .limit(200);
-  const present = new Set(existing.map((row) => row.graphNodeId));
-  if (present.size >= graphNodes.length) return true;
+  const present = new Set(
+    existing
+      .map((row) => row.graphNodeId)
+      .filter((id): id is string => typeof id === "string")
+  );
+  if (graphNodes.every((node) => present.has(node.id))) return true;
   for (const node of graphNodes) {
     if (present.has(node.id)) continue;
     await db
