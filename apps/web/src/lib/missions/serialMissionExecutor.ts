@@ -25,6 +25,7 @@ import {
 } from "@/lib/missions/serialGraphRuntime";
 import { MAX_TOTAL_ITERATIONS, runAgentLoop } from "@/lib/runtime/agent-loop";
 import { getOwnedExecution, writeCheckpoint } from "@/lib/runtime/service";
+import { logProjectionError, syncGraphNodeTask } from "@/lib/missions/graphTasks";
 
 type SerialGraphResult =
   | { kind: "complete"; iterations: number }
@@ -237,6 +238,11 @@ export async function runNextMissionGraphNodeSerial(opts: {
         stopReason: "MISSION_PLAN_STEP_TRANSITION_FAILED",
       };
     }
+    try {
+      await syncGraphNodeTask(opts.missionId, node, "RUNNING");
+    } catch (error) {
+      logProjectionError("RUNNING", error);
+    }
   }
 
   let totalIterations = 0;
@@ -294,6 +300,11 @@ export async function runNextMissionGraphNodeSerial(opts: {
           error: "MISSION_PLAN_STEP_TRANSITION_FAILED",
           stopReason: "MISSION_PLAN_STEP_TRANSITION_FAILED",
         };
+      }
+      try {
+        await syncGraphNodeTask(opts.missionId, node, "PASSED");
+      } catch (error) {
+        logProjectionError("PASSED", error);
       }
       const completed = finishSerialMissionGraphNode(runtime, node.id, { status: "PASSED" });
       if (!completed || !(await persistRuntime(opts.executionId, opts.userId, completed))) {

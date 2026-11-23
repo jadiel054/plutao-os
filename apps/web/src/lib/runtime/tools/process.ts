@@ -65,8 +65,10 @@ const COMMAND_DENYLIST = new Set([
   "pkill",
 ]);
 
-/** Metacaracteres/contains que indicariam shell injection se escapassem. */
-const SHELL_METACHAR = /[;&`$\\]/;
+/** Metacaracteres que indicariam shell injection se um shell escapassem.
+ * `|` é a gap clássica de pipe; `(`/`)`/newline são seguros com shell:false
+ * (args literais, ex.: `node -e` usa parênteses) e não são recusados. */
+const SHELL_METACHAR = /[;&|`$\\]/;
 
 export function isProcessToolEnabled(): boolean {
   return process.env.SOFTWARE_FACTORY_PROCESS_ENABLED === "1";

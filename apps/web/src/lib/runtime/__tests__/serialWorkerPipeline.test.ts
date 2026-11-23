@@ -51,6 +51,32 @@ function getTableName(table: unknown): string {
   return String(table);
 }
 
+/** Extrai o graphNodeId de uma condição eq(tasks.graphNodeId, "node-x") mockada. */
+function conditionGraphNodeId(cond: unknown): string | null {
+  const seen = new Set<unknown>();
+  const stack: unknown[] = [cond];
+  const candidates: string[] = [];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === null || current === undefined) continue;
+    if (typeof current === "string") {
+      if (/^node-\d+$/.test(current)) candidates.push(current);
+      continue;
+    }
+    if (typeof current !== "object" || seen.has(current)) continue;
+    seen.add(current);
+    for (const value of Object.values(current as Record<string, unknown>)) stack.push(value);
+  }
+  return candidates[0] ?? null;
+}
+
+
+function scopeTasks<T extends Record<string, unknown>>(rows: T[], cond: unknown): T[] {
+  const nodeId = conditionGraphNodeId(cond);
+  const scoped = nodeId ? rows.filter((t) => t.graphNodeId === nodeId) : [];
+  return scoped.length > 0 ? scoped : rows;
+}
+
 function parseSqlCheckpoint(
   patchCheckpoint: unknown,
   existingCheckpoint: unknown
@@ -175,6 +201,8 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
         updatedAt: new Date(),
       };
 
+      const storedTasks: Array<Record<string, unknown>> = [];
+
       const mockDb = {
         select: vi.fn().mockImplementation(() => {
           return {
@@ -185,15 +213,17 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
                 if (name === "executions") return [storedExecution];
                 if (name === "runtime_jobs") return [storedJob];
                 if (name === "users") return [{ id: "u1", preferredModel: "openai/gpt-4o" }];
+                if (name === "tasks") return storedTasks;
                 return [];
               };
               return {
-                where: vi.fn().mockImplementation(() => {
+                where: vi.fn().mockImplementation((cond: unknown) => {
+                  const scopedResult = name === "tasks" ? () => scopeTasks(storedTasks, cond) : getResult;
                   return {
                     orderBy: vi.fn().mockImplementation(() => ({
-                      limit: vi.fn().mockImplementation(async () => getResult()),
+                      limit: vi.fn().mockImplementation(async () => scopedResult()),
                     })),
-                    limit: vi.fn().mockImplementation(async () => getResult()),
+                    limit: vi.fn().mockImplementation(async () => scopedResult()),
                   };
                 }),
                 innerJoin: vi.fn().mockReturnThis(),
@@ -221,7 +251,28 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
                   storedJob = { ...storedJob, ...patch };
                   return { returning: async () => [storedJob] };
                 }
+                if (name === "tasks") {
+                  const scoped = conditionGraphNodeId(_cond);
+                  for (const task of storedTasks) {
+                    if (scoped === null || task.graphNodeId === scoped) Object.assign(task, patch);
+                  }
+                  return { returning: async () => [] };
+                }
                 return { returning: async () => [] };
+              },
+            }),
+          };
+        }),
+        insert: vi.fn().mockImplementation((table: unknown) => {
+          const name = getTableName(table);
+          return {
+            values: (vals: Record<string, unknown>) => ({
+              onConflictDoNothing: async () => {
+                if (name === "tasks") {
+                  const scoped = storedTasks.find((t) => t.graphNodeId === vals.graphNodeId);
+                  if (!scoped) storedTasks.push({ id: `task-${storedTasks.length + 1}`, status: "CREATED", ...vals });
+                }
+                return [];
               },
             }),
           };
@@ -309,6 +360,8 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
         updatedAt: new Date(),
       };
 
+      const storedTasks: Array<Record<string, unknown>> = [];
+
       const mockDb = {
         select: vi.fn().mockImplementation(() => {
           return {
@@ -319,15 +372,17 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
                 if (name === "executions") return [storedExecution];
                 if (name === "runtime_jobs") return [storedJob];
                 if (name === "users") return [{ id: "u1", preferredModel: "openai/gpt-4o" }];
+                if (name === "tasks") return storedTasks;
                 return [];
               };
               return {
-                where: vi.fn().mockImplementation(() => {
+                where: vi.fn().mockImplementation((cond: unknown) => {
+                  const scopedResult = name === "tasks" ? () => scopeTasks(storedTasks, cond) : getResult;
                   return {
                     orderBy: vi.fn().mockImplementation(() => ({
-                      limit: vi.fn().mockImplementation(async () => getResult()),
+                      limit: vi.fn().mockImplementation(async () => scopedResult()),
                     })),
-                    limit: vi.fn().mockImplementation(async () => getResult()),
+                    limit: vi.fn().mockImplementation(async () => scopedResult()),
                   };
                 }),
                 innerJoin: vi.fn().mockReturnThis(),
@@ -355,7 +410,28 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
                   storedJob = { ...storedJob, ...patch };
                   return { returning: async () => [storedJob] };
                 }
+                if (name === "tasks") {
+                  const scoped = conditionGraphNodeId(_cond);
+                  for (const task of storedTasks) {
+                    if (scoped === null || task.graphNodeId === scoped) Object.assign(task, patch);
+                  }
+                  return { returning: async () => [] };
+                }
                 return { returning: async () => [] };
+              },
+            }),
+          };
+        }),
+        insert: vi.fn().mockImplementation((table: unknown) => {
+          const name = getTableName(table);
+          return {
+            values: (vals: Record<string, unknown>) => ({
+              onConflictDoNothing: async () => {
+                if (name === "tasks") {
+                  const scoped = storedTasks.find((t) => t.graphNodeId === vals.graphNodeId);
+                  if (!scoped) storedTasks.push({ id: `task-${storedTasks.length + 1}`, status: "CREATED", ...vals });
+                }
+                return [];
               },
             }),
           };
@@ -451,6 +527,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
       storedMission: Record<string, unknown>;
       storedExecution: Record<string, unknown>;
       storedJob: Record<string, unknown>;
+      tasks: Array<Record<string, unknown>>;
     }) {
       return {
         select: vi.fn().mockImplementation(() => {
@@ -462,15 +539,19 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
                 if (name === "executions") return [state.storedExecution];
                 if (name === "runtime_jobs") return [state.storedJob];
                 if (name === "users") return [{ id: "u1", preferredModel: "openai/gpt-4o" }];
+                if (name === "tasks") return state.tasks;
                 return [];
               };
               return {
-                where: vi.fn().mockImplementation(() => ({
-                  orderBy: vi.fn().mockImplementation(() => ({
-                    limit: vi.fn().mockImplementation(async () => getResult()),
-                  })),
-                  limit: vi.fn().mockImplementation(async () => getResult()),
-                })),
+                where: vi.fn().mockImplementation((_cond: unknown) => {{
+                  const scopedResult = name === "tasks" ? () => scopeTasks(state.tasks, _cond) : getResult;
+                  return {
+                    orderBy: vi.fn().mockImplementation(() => ({
+                      limit: vi.fn().mockImplementation(async () => scopedResult()),
+                    })),
+                    limit: vi.fn().mockImplementation(async () => scopedResult()),
+                  };
+                }}),
                 innerJoin: vi.fn().mockReturnThis(),
                 orderBy: vi.fn().mockReturnThis(),
                 limit: vi.fn().mockImplementation(async () => getResult()),
@@ -496,7 +577,28 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
                   state.storedJob = { ...state.storedJob, ...patch };
                   return { returning: async () => [state.storedJob] };
                 }
+                if (name === "tasks") {
+                  const scoped = conditionGraphNodeId(_cond);
+                  for (const task of state.tasks) {
+                    if (scoped === null || task.graphNodeId === scoped) Object.assign(task, patch);
+                  }
+                  return { returning: async () => [] };
+                }
                 return { returning: async () => [] };
+              },
+            }),
+          };
+        }),
+        insert: vi.fn().mockImplementation((table: unknown) => {
+          const name = getTableName(table);
+          return {
+            values: (vals: Record<string, unknown>) => ({
+              onConflictDoNothing: async () => {
+                if (name === "tasks") {
+                  const scoped = state.tasks.find((t) => t.graphNodeId === vals.graphNodeId);
+                  if (!scoped) state.tasks.push({ id: `task-${state.tasks.length + 1}`, status: "CREATED", ...vals });
+                }
+                return [];
               },
             }),
           };
@@ -584,6 +686,7 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
           createdAt: new Date(),
           updatedAt: new Date(),
         },
+        tasks: [] as Array<Record<string, unknown>>,
       };
 
       vi.spyOn(dbModule, "getDb").mockReturnValue(
@@ -648,6 +751,120 @@ describe("Serial Worker Pipeline End-to-End Integration", () => {
       const firstNode2At = Math.min(...node2Ev.map((e) => new Date(String(e.createdAt)).getTime()));
       const lastNode1At = Math.max(...node1Ev.map((e) => new Date(String(e.createdAt)).getTime()));
       expect(firstNode2At).toBeGreaterThanOrEqual(lastNode1At);
+
+      // ── Projeção Cockpit: um task por nó do grafo, idempotente, com 
+      // status sincronizado e ordem serial em nível de task ──
+      const graphTasks = state.tasks.filter((t) => typeof t.graphNodeId === "string");
+      expect(graphTasks).toHaveLength(2);
+      expect(graphTasks.map((t) => t.graphNodeId).sort()).toEqual(["node-1", "node-2"]);
+      expect(new Set(graphTasks.map((t) => t.id)).size).toBe(2);
+      const taskByNode = Object.fromEntries(graphTasks.map((t) => [t.graphNodeId, t])) as Record<
+        string,
+        { status: string; startedAt: Date | null; completedAt: Date | null }
+      >;
+      expect(taskByNode["node-1"]?.status).toBe("COMPLETED");
+      expect(taskByNode["node-2"]?.status).toBe("COMPLETED");
+      expect(taskByNode["node-1"]?.startedAt).toBeTruthy();
+      expect(taskByNode["node-1"]?.completedAt).toBeTruthy();
+      expect(taskByNode["node-2"]?.completedAt).toBeTruthy();
+      expect(new Date(String(taskByNode["node-2"]?.startedAt)).getTime()).toBeGreaterThanOrEqual(
+        new Date(String(taskByNode["node-1"]?.completedAt)).getTime()
+      );
+    });
+
+    it("materialização de tasks do grafo é idempotente entre invocações do worker", async () => {
+      vi.spyOn(clientModule, "chatCompletion")
+        .mockResolvedValueOnce({
+          provider: "openai",
+          model: "gpt-4o",
+          content: "Iniciando nó 1 e registrando fase fila-a.",
+          toolProposal: { name: "note", input: "fila-a registrada pelo nó 1" },
+          usage: { promptTokens: 10, completionTokens: 10 },
+          latencyMs: 10,
+        })
+        .mockResolvedValueOnce({
+          provider: "openai",
+          model: "gpt-4o",
+          content: "Nó 1 concluído; fase fila-a registrada.",
+          toolProposal: null,
+          usage: { promptTokens: 10, completionTokens: 10 },
+          latencyMs: 10,
+        })
+        .mockResolvedValueOnce({
+          provider: "openai",
+          model: "gpt-4o",
+          content: "Iniciando nó 2; fase fila-b.",
+          toolProposal: { name: "note", input: "fila-b executada após fila-a" },
+          usage: { promptTokens: 10, completionTokens: 10 },
+          latencyMs: 10,
+        })
+        .mockResolvedValueOnce({
+          provider: "openai",
+          model: "gpt-4o",
+          content: "Nó 2 concluído; fase fila-b registrada.",
+          toolProposal: null,
+          usage: { promptTokens: 10, completionTokens: 10 },
+          latencyMs: 10,
+        });
+
+      const state = {
+        storedMission: {
+          id: "m1",
+          userId: "u1",
+          objective: "Prova serial: dois nós dependentes",
+          definitionOfDone: null,
+          evidence: [] as unknown[],
+          status: "EXECUTING",
+          graphVersion: 2,
+          missionGraph: twoNodeGraph,
+          plan: null,
+        },
+        storedExecution: {
+          id: "exec-1",
+          userId: "u1",
+          missionId: "m1",
+          currentTaskId: null,
+          status: "RUNNING",
+          checkpoint: {} as Record<string, unknown>,
+          checkpointAt: new Date(),
+          idempotencyKey: "k-i01-idem",
+          error: null as string | null,
+          startedAt: new Date(),
+          updatedAt: new Date(),
+          completedAt: null as Date | null,
+          createdAt: new Date(),
+        },
+        storedJob: {
+          id: "job-1",
+          userId: "u1",
+          missionId: "m1",
+          executionId: "exec-1",
+          kind: "mission_execution",
+          status: "PENDING",
+          payload: {},
+          attempts: 0,
+          maxAttempts: 5,
+          availableAt: new Date(Date.now() - 1000),
+          lockedAt: null as Date | null,
+          lockToken: null as string | null,
+          lastError: null as string | null,
+          completedAt: null as Date | null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        tasks: [] as Array<Record<string, unknown>>,
+      };
+
+      vi.spyOn(dbModule, "getDb").mockReturnValue(
+        buildSerialMockDb(state) as unknown as ReturnType<typeof dbModule.getDb>
+      );
+
+      await processUserRuntimeJobs("u1", 1);
+      await new Promise((resolve) => setTimeout(resolve, RUNTIME_JOB_CONTINUATION_DELAY_MS + 150));
+      await processUserRuntimeJobs("u1", 1);
+
+      const nodeTasks = state.tasks.filter((t) => typeof t.graphNodeId === "string");
+      expect(nodeTasks).toHaveLength(2);
     });
 
     it("nó dependente não é liberado antes do anterior PASSED (scheduler serial)", () => {

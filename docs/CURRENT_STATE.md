@@ -68,7 +68,16 @@ Capacidade só é **VERIFICADA** com evidência de uso real (não só código no
 
 ---
 
-## Atualização 2026-11-22 (FASE 2 núcleo — Software Factory)
+## Atualização 2026-11-22 (FASE 2 — fechamento: auditoria pós-prova em produção)
+
+- **Prova I-01 em produção (Cockpit, 2026-11-22):** `executions.COMPLETED` + `runtime_jobs.SUCCEEDED` + DoD `PASSED` + 6 evidências + Write Gate aprovado e retomada pós-aprovação. [BLOQUEIO REMOVIDO DA MATRIZ.]
+- **Divergência do Cockpit investigada (TASKS=0, grafo com 1 item):** causa raiz confirmada em código — (1) o intake cria **grafo unitário v2** por design (`missionObjectiveToGraphV2`, docs/MISSION_GRAPH_V2.md), então 1 item no grafo é o esperado; (2) **nenhuma parte do runtime do grafo gravava em `tasks`** (tabela só recebia criação manual) — TASKS=0 era estrutural, e as 6 evidências vinham do dispatcher de tools dentro do nó único.
+- **Corrigido — projeção grafo→tasks (0030):** nova migration **aditiva** `tasks.graph_node_id` + índice único `(mission_id, graph_node_id)` (tasks manuais/NULL não são tocadas); `apps/web/src/lib/missions/graphTasks.ts` materializa uma task por nó do grafo (idempotente, best-effort, nunca bloqueia a execução) e sincroniza `RUNNING`/`COMPLETED` com o scheduler serial (`startedAt`/`completedAt` reais). O Cockpit passa a mostrar as etapas reais da missão.
+- **Corrigido — hardening da tool `process`:** metacaractere `|` adicionado ao recusador de shell injection (testes: pipe recusado; parênteses aceitos para `node -e` com `shell:false`).
+- **Testes novos (I-01 endurecido):** asserções de 2 nós distintos, dependência explícita (`dependsOn`), ordem serial em nível de evidência **e** de task (`node-2.startedAt >= node-1.completedAt`), evidência individual por `missionNodeId` e idempotência da materialização entre invocações do worker (`serialWorkerPipeline.test.ts` — 642 testes passando).
+- **Pendente (auditoria externa separada, fora desta sessão):** verificar em Neon a linha `tasks.graph_node_id` após migration 0030 em produção; auditoria de custo/dados no banco real.
+
+### Atualização 2026-11-22 (FASE 2 núcleo — Software Factory)
 
 - **Tool `process` real implementada** (`apps/web/src/lib/runtime/tools/process.ts`, registrada no dispatcher, capability registry, perfil `software_engineer` e prompt do Nix): spawn **sem shell** com allowlist de binários (`node`, `npm`, `npx`, `git`, `ls`, `cat`, `echo`, `mkdir`, `touch`, `mv`, `cp`), denylist reforçada, recusa de metacaracteres de shell, timeout (default 30 s, teto 120 s) com kill de grupo POSIX (SIGTERM→SIGKILL), teto de saída de 64 KB e **ambiente limpo** no processo filho (apenas `PATH`/`HOME`/`LANG`; nenhum secret do servidor é propagado).
 - **Fail-closed duplo:** a tool `process` só executa com `SOFTWARE_FACTORY_PROCESS_ENABLED=1` **e** storage backend `LocalFilesystemStorage` (flag desligada ou backend in-memory ⇒ recusa). Workspace é o mesmo diretório da tool `filesystem` (cwd relativa confinada ao workspace; escape recusado). 11 testes novos cobrindo gating, allowlist/denylist, metacaracteres, execução real, workspace compartilhado, timeout e truncamento (`tools/__tests__/process.test.ts`).

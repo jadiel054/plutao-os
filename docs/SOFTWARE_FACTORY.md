@@ -60,6 +60,27 @@ aprová-la e se o perfil do especialista autorizou (`tool:process`).
 - Suíte completa: 639 testes em 113 arquivos passando; `npm run typecheck`, `npm run lint`
   e `npm run build` limpos nesta branch.
 
+## Auditoria FASE 2 (2026-11-22, pós-prova em produção)
+
+Prova real em produção (Cockpit): `execution COMPLETED`, `runtime_job SUCCEEDED`, DoD `PASSED`, 6 evidências, Write Gate aprovado com retomada.
+
+### Achados e correções desta auditoria
+
+1. **TASKS=0 no Cockpit (estrutural, corrigido):** o runtime do grafo v2 nunca populava a tabela `tasks` (só criação manual via API). Corrigido com a migration **aditiva** 0030 (`tasks.graph_node_id` + índice único parcial via `NULLS DISTINCT` — tasks manuais não são tocadas) e a projeção idempotente `graphTasks.ts` (uma task por nó, status sincronizado `RUNNING`→`COMPLETED` pelo scheduler serial, sempre best-effort: falha de projeção nunca trava a missão).
+2. **Grafo com 1 item (por design, documentado):** `missionObjectiveToGraphV2` cria grafo unitário no intake (docs/MISSION_GRAPH_V2.md). As 6 evidências eram tool calls do dispatcher dentro do nó único. Planejamento automático multi-nó por modelo permanece pendente (FASE 4 — Especialistas).
+3. **Shell injection hardening (corrigido):** metacaractere `|` foi adicionado ao recusador de argumentos da tool `process` (teste novo). Parênteses/newlines continuam aceitos por serem literais com `shell:false` (necessários para `node -e`.
+
+### Escopo real do fluxo Software Factory hoje
+
+| Etapa | Estado |
+| --- | --- |
+| Recebimento (intake/idempotência) | Real, testado, em produção |
+| Planejamento (grafo v2) | Grafo unitário + grafo via plano alinhado no chat; planejador automático multi-nó pendente |
+| Execução (worker serial durável) | Real, provado local + produção (I-01) |
+| Evidências/Checkpoints/Write Gate | Reais (dispatcher + gates + checkpoint); status por nó agora também projetado em tasks |
+| Terminal (tool `process`) | Real, confinado, fail-closed duplo; execução de builds/installs válida em ambiente com storage local |
+| Entrega (artefatos/preview) | Parcial — exports existem; preview/servidor longo pendente (requer infra dedicada) |
+
 ## Limitação de segurança (explícita)
 
 O confinamento atual é **workspace + allowlist + timeout**, **não isolamento de sistema

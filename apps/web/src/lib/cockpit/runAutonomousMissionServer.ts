@@ -23,6 +23,7 @@ import {
 } from "@plutao/domain";
 import { getDb } from "@/lib/db";
 import { transitionMissionStatus } from "@/lib/missions/transition";
+import { ensureGraphNodeTasks, logProjectionError } from "@/lib/missions/graphTasks";
 import { getOwnedMission, parseEvidence } from "@/lib/missions/ownership";
 import { verifyDefinitionOfDone } from "@/lib/missions/dod";
 import {
@@ -200,6 +201,14 @@ export async function runAutonomousMissionServer(opts: {
       error: "MISSION_GRAPH_SERIAL_LIMIT",
       message: "O worker serial aceita até 20 nós por execução nesta etapa.",
     };
+  }
+
+  // Projeção Cockpit: cada nó do grafo vira uma task (idempotente, best-effort).
+  // Falha aqui NUNCA bloqueia a execução — é leitura, não autoridade.
+  try {
+    await ensureGraphNodeTasks(missionId, missionGraph.nodes);
+  } catch (error) {
+    logProjectionError("ensure", error);
   }
 
   for (const next of PATH_TO_EXECUTING) {

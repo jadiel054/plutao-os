@@ -51,6 +51,8 @@ A atribuição usa `PATCH /api/missions/:id/plan` com `action: "assign_specialis
 
 ## Persistência e execução serial implementadas
 
+- **Projeção Cockpit (2026-11-22):** o scheduler serial materializa uma `task` por nó do grafo (idempotente via `tasks.graph_node_id`, migration 0030 aditiva) e sincroniza `RUNNING`/`COMPLETED` com `started_at`/`completed_at` reais. A projeção é best-effort — a autoridade de estado continua sendo o checkpoint `missionGraphRuntime` da execution; falha de projeção nunca trava a missão. Tasks manuais (`graph_node_id` NULL) não são tocadas.
+
 - `/api/missions` é o intake comum de chat, Cockpit e reconciliação offline: autenticação, ownership opcional da conversa, chave idempotente e origem são validados no servidor.
 - `missions.graphVersion` e `missions.missionGraph` guardam a topologia versionada; o estado de execução por nó fica no checkpoint da execution, não na definição imutável.
 - `/api/missions/:id/plan` cria/alinha o plano V1 e persiste a representação V2 validada; gravações pré-alinhamento e alinhamento comparam estado/grafo esperado para recusar corridas concorrentes. Depois de alinhar/iniciar, a topologia fica imutável.
