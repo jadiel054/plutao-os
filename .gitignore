@@ -17,3 +17,6 @@ apps/android/node_modules/
 *.keystore
 *.jks
 *.p12
+
+# Sandboxes de execução do agente (Software Factory)
+apps/web/sandbox/

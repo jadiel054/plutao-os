@@ -1,6 +1,6 @@
 # VERIFICATION.md — Plutão Verification Matrix & Criteria
 
-**Last Updated:** 2026-10-08
+**Last Updated:** 2026-11-22
 **Status:** Multi-Layer Verification Operational (`Foundation` → `Runtime` → `Autonomia V1.1` → `DoD Gate` → `Production`)
 
 This document tracks verified capabilities across all architectural layers of Project Plutão. Status transitions from **IMPLEMENTED** → **VERIFIED** only when real evidence (automated test green, production response, or documented mobile/e2e proof) exists.
@@ -90,6 +90,7 @@ For the Mission Graph V2 rollout, the minimum authenticated Cockpit E2E passed i
 - [x] **Single-Click Execution:** **▶ Executar missão** in Cockpit UI triggers automated end-to-end mission loop (`runAutonomousMission.ts`).
 - [x] **Automated Lifecycle Chain:** Transitions through `EXECUTING` → `runAgentLoop` → Model Steps → Runtime Complete → `VERIFYING` → `DoD Check` → `COMPLETED`.
 - [x] **Production Evidence:** Mission `AUTO_V11` (`notes/auto-v11.txt`) executed and transitioned to `COMPLETED` without manual interventions.
+- [x] **Serial Multi-Node Dependency (I-01, local proof — 2026-11-22):** automated E2E in `serialWorkerPipeline.test.ts` proves the full durable pipeline with **two dependent nodes** (`node-2` dependsOn `node-1`): `processUserRuntimeJobs` claim → execution resume → `runAutonomousMissionServer` → `runNextMissionGraphNodeSerial` → `runAgentLoop` (deterministic model stub, real deterministic `note` tool) → per-node DoD → `missionGraphRuntime` checkpoint persisted with `node-1 PASSED` → `continueRuntimeJob` requeues (delay 1s) → second claim executes `node-2` only after `node-1 PASSED` → `completeExecution(COMPLETED)` → mission-level DoD → mission `COMPLETED` → job `SUCCEEDED`. Evidence recorded per node via `metadata.missionNodeId` with temporal ordering asserted. **Limitations:** in-memory Drizzle-faithful mock (no real Postgres in this run) and mocked `chatCompletion`; production smoke (Neon + real model) remains pending.
 
 ---
 

@@ -1,6 +1,7 @@
 export type ToolName =
   | "note"
   | "filesystem"
+  | "process"
   | "github"
   | "vercel"
   | "supabase"
@@ -43,6 +44,7 @@ export type ToolResult = ToolSuccess | ToolFailure;
 export const KNOWN_TOOLS: readonly ToolName[] = [
   "note",
   "filesystem",
+  "process",
   "github",
   "vercel",
   "supabase",

@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Pool } from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle, type NodePgClient } from "drizzle-orm/node-postgres";
 
 /** Envolve um literal em aspas simples para embutir em SQL de forma segura. */
 function Q(s: string) {
@@ -96,7 +96,7 @@ beforeAll(async () => {
   if (!RUN) return;
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
   await pool.query(BOOTSTRAP);
-  env.db = drizzle(pool) as unknown as object;
+  env.db = drizzle(pool as unknown as NodePgClient) as unknown as object;
 });
 
 beforeEach(async () => {

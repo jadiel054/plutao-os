@@ -8,6 +8,7 @@ import { getOwnedExecution } from "@/lib/runtime/service";
 import { RECOVERABLE, type ExecutionStatus } from "@/lib/runtime/types";
 import { runNote } from "./note";
 import { runFilesystem } from "./filesystem";
+import { runProcess } from "./process";
 import { runGithub } from "./github";
 import { runVercel } from "./vercel";
 import { runSupabase } from "./supabase";
@@ -37,6 +38,8 @@ async function dispatchLocal(
       return runNote(input);
     case "filesystem":
       return await runFilesystem(input, opts.executionId, opts.userId);
+    case "process":
+      return await runProcess(input, opts.executionId, opts.userId);
     case "github":
       return await runGithub(input, opts.userId, opts.executionId);
     case "vercel":
