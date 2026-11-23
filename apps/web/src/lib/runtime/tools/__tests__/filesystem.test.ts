@@ -420,6 +420,86 @@ describe("Filesystem Tool - Security Tests", () => {
     });
   });
 
+  describe("Relative Root Paths", () => {
+    it("should list the sandbox root with path '.'", async () => {
+      await filesystemWrite("root.txt", "raiz", TEST_EXECUTION_ID, TEST_USER_ID);
+      await filesystemWrite("notes/readme.txt", "notes content", TEST_EXECUTION_ID, TEST_USER_ID);
+
+      const result = await runFilesystem(
+        JSON.stringify({ action: "list", payload: { path: "." } }),
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const output = JSON.parse(result.output) as { entries: Array<{ name: string; type: string }> };
+      const names = output.entries.map((e) => e.name);
+      expect(names).toContain("root.txt");
+      expect(names).toContain("notes");
+    });
+
+    it("should return root listing consistent between '.' and ''", async () => {
+      await filesystemWrite("a.txt", "conteudo", TEST_EXECUTION_ID, TEST_USER_ID);
+
+      const withDot = await runFilesystem(
+        JSON.stringify({ action: "list", payload: { path: "." } }),
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
+      );
+      const withEmpty = await runFilesystem(
+        JSON.stringify({ action: "list", payload: { path: "" } }),
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
+      );
+
+      expect(withDot.ok).toBe(true);
+      expect(withEmpty.ok).toBe(true);
+      if (!withDot.ok || !withEmpty.ok) return;
+      const dotNames = JSON.parse(withDot.output).entries.map((e: { name: string }) => e.name).sort();
+      const emptyNames = JSON.parse(withEmpty.output).entries.map((e: { name: string }) => e.name).sort();
+      expect(dotNames).toEqual(emptyNames);
+    });
+
+    it("should reject absolute root '/' in list operation", async () => {
+      const result = await runFilesystem(
+        JSON.stringify({ action: "list", payload: { path: "/" } }),
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toBe("PATH_OUTSIDE_SANDBOX");
+      expect(result.message).toContain("relativos");
+    });
+
+    it("should expose recovery message on list rejection of '/'", async () => {
+      const arrowResult = await runFilesystem(
+        JSON.stringify({ action: "list", payload: { path: "/" } }),
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
+      );
+
+      expect(arrowResult.ok).toBe(false);
+      if (arrowResult.ok) return;
+      expect(arrowResult.error).toBe("PATH_OUTSIDE_SANDBOX");
+      expect(arrowResult.message).toContain("'.' ou ''");
+    });
+
+    it("should block relative parent traversal '../' in list operation", async () => {
+      const result = await runFilesystem(
+        JSON.stringify({ action: "list", payload: { path: "../" } }),
+        TEST_EXECUTION_ID,
+        TEST_USER_ID
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toBe("PATH_TRAVERSAL");
+    });
+  });
+
   describe("Absolute Path Protection", () => {
     it("should block absolute Unix paths", async () => {
       const result = await runFilesystem(

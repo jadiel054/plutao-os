@@ -77,7 +77,7 @@ function toolCallFormatSection(profile?: MissionSpecialistProfile | null): strin
 2) Propose exactly one tool call as JSON only:
 {"tool":"note","input":"text to record"}
 or
-{"tool":"filesystem","input":"{\\\"action\\\":\\\"list\\\",\\\"payload\\\":{\\\"path\\\":\\\"dir\\\"}}"}
+{"tool":"filesystem","input":"{\\\"action\\\":\\\"list\\\",\\\"payload\\\":{\\\"path\\\":\\\".\\\"}}"}
 or
 {"tool":"github","input":"{\\\"action\\\":\\\"repo_create\\\",\\\"name\\\":\\\"my-repo\\\",\\\"private\\\":false,\\\"missionId\\\":\\\"<missionId>\\\"}"}`;
   }
@@ -85,7 +85,7 @@ or
   const examples = [`{"tool":"${profile.allowedTools[0]}","input":"..."}`];
   if (profile.allowedTools.includes("filesystem")) {
     examples.push(
-      `{"tool":"filesystem","input":"{\\"action\\":\\"list\\",\\"payload\\":{\\"path\\":\\"dir\\"}}"}`
+      `{"tool":"filesystem","input":"{\\"action\\":\\"list\\",\\"payload\\":{\\"path\\":\\".\\"}}"}`
     );
   }
   if (profile.allowedTools.includes("process")) {
@@ -140,6 +140,7 @@ export function buildSystemPrompt(
     : `Available tools (dispatched by the runtime):
 - note — record a note
 - filesystem — actions: list | read | write | mkdir | stat (payload.path)
+  FILESYSTEM PATHS: all payload.path values MUST be RELATIVE to the mission sandbox. "" or "." refers to the sandbox root (use it to list the root). Never use absolute paths ("/", "/etc", "/tmp", "C:\\") — they are rejected; traversal ("../") is blocked.
 - process — execute an allowlisted command inside the mission workspace sandbox (SOFTWARE_FACTORY, disabled unless the environment declares SOFTWARE_FACTORY_PROCESS_ENABLED=1); input JSON {cmd, args?, cwd?, timeoutMs?}; no shell, no network commands, no destructive binaries
 - github — requires GitHub OAuth connected
 - vercel — requires Vercel connector connected
@@ -173,7 +174,7 @@ ${writeSafetySection(Boolean(specialist))}
 Rules:
 - Stay consistent with the agent identity and specialist profile above.
 - Prefer a tool call only when it helps the mission.
-- For filesystem: valid JSON with action (list/read/write/mkdir/stat) and payload.path
+- For filesystem: valid JSON with action (list/read/write/mkdir/stat) and payload.path; payload.path is ALWAYS relative to the sandbox root ("." or "" = root; absolute paths like "/" are rejected by the sandbox)
 - For process: valid JSON with cmd (single allowlisted binary), args (array; no shell metacharacters), optional cwd relative to the workspace and timeoutMs (≤120000)
 - For connector tools: valid JSON with action and owner/repo/number when required.
 - For artemis: always generate a fresh UUID nonce; the tool returns immediately after dispatch and the final proof arrives later as mission evidence.
