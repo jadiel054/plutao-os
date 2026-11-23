@@ -247,6 +247,7 @@ export const tasks = pgTable(
     parentTaskId: uuid("parent_task_id"),
     title: text("title").notNull(),
     description: text("description"),
+    graphNodeId: text("graph_node_id"),
     status: text("status").notNull().default("CREATED"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -256,6 +257,7 @@ export const tasks = pgTable(
   (t) => [
     index("tasks_mission_id_idx").on(t.missionId),
     index("tasks_status_idx").on(t.status),
+    uniqueIndex("tasks_mission_graph_node_uidx").on(t.missionId, t.graphNodeId),
   ]
 );
 

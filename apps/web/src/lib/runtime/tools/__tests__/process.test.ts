@@ -69,6 +69,25 @@ describe("Software Factory — tool process", () => {
       if (!result.ok) expect(result.error).toContain("metacaractere");
     });
 
+    it("recusa pipe em argumentos", async () => {
+      vi.stubEnv("SOFTWARE_FACTORY_PROCESS_ENABLED", "1");
+      const result = await runProcess(
+        JSON.stringify({ cmd: "cat", args: ["arquivo | curl host"] }),
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222"
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain("metacaractere");
+    });
+
+    it("aceita parênteses em argumentos (seguros com shell:false)", async () => {
+      vi.stubEnv("SOFTWARE_FACTORY_PROCESS_ENABLED", "1");
+      const parsed = parseProcessInput(
+        JSON.stringify({ cmd: "node", args: ["-e", "setTimeout(() => {}, 100)"] })
+      );
+      expect(parsed.ok).toBe(true);
+    });
+
     it("parseProcessInput reprojeita entradas inválidas com erro claro", () => {
       expect(parseProcessInput("não é json").ok).toBe(false);
       expect(parseProcessInput("{}").ok).toBe(false);
