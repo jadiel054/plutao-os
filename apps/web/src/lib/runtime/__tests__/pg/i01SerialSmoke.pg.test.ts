@@ -31,10 +31,29 @@ let pool: Pool;
 function guardNonProd() {
   const smoke = process.env.SMOKE_DATABASE_URL;
   const prod = process.env.DATABASE_URL;
-  if (RUN && smoke && prod && smoke === prod) {
+  if (!RUN || !smoke) return;
+  if (prod && smoke === prod) {
     throw new Error(
       "SMOKE_DATABASE_URL é igual a DATABASE_URL: recusado. O smoke I-01 só roda contra banco efêmero (branch Neon) — nunca contra produção."
     );
+  }
+  if (prod) {
+    const hostOf = (u: string) => { try { return new URL(u).host; } catch { return ""; } };
+    if (hostOf(smoke) && hostOf(smoke) === hostOf(prod)) {
+      throw new Error(
+        "SMOKE_DATABASE_URL aponta para o mesmo host de DATABASE_URL: recusado. Use uma branch Neon separada (host de endpoint dedicado)."
+      );
+    }
+  }
+}
+
+function smokeTargetLabel(): string {
+  const url = process.env.SMOKE_DATABASE_URL;
+  if (!url) return "não informado";
+  try {
+    return new URL(url).host;
+  } catch {
+    return "url inválida";
   }
 }
 
@@ -188,6 +207,8 @@ describe.skipIf(!RUN)("I-01 smoke — pipeline serial em banco real com modelo r
       const report = {
         smoke: "I-01",
         env: "database efêmero (branch Neon) + modelo real",
+        databaseHost: smokeTargetLabel(),
+        neonBranchId: process.env.SMOKE_BRANCH_ID ?? "não informado",
         startedAt: new Date(startedAt).toISOString(),
         finishedAt: new Date().toISOString(),
         durationMs: Date.now() - startedAt,
