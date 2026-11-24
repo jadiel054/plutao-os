@@ -33,7 +33,7 @@ import {
   stopLocalChatCompletion,
   type InstalledModel,
 } from "@/lib/models/localModelManager";
-import { normalizeToolCallGate } from "@/lib/chat/gateStatus";
+import { filterGatesForContext, normalizeToolCallGate } from "@/lib/chat/gateStatus";
 import { dispatchAppNotification } from "@/lib/notifications/notifyService";
 
 type PendingWriteGate = {
@@ -469,19 +469,22 @@ function ChatPageInner() {
           const gData = await gRes.json();
           if (Array.isArray(gData.gates)) {
             setPendingGates(
-              gData.gates
-                .map((g: Record<string, unknown>) => ({
-                  id: String(g.id ?? ""),
-                  provider: String(g.provider ?? "github"),
-                  capability: String(g.capability ?? ""),
-                  target: String(g.target ?? ""),
-                  summary: String(g.summary ?? ""),
-                  contentPreview: g.contentPreview ? String(g.contentPreview) : null,
-                  status: String(g.status ?? "pending"),
-                  missionId: g.missionId ? String(g.missionId) : null,
-                  createdAt: g.createdAt ? String(g.createdAt) : undefined,
-                }))
-                .filter((g: PendingWriteGate) => g.id.length > 0)
+              filterGatesForContext(
+                gData.gates
+                  .map((g: Record<string, unknown>) => ({
+                    id: String(g.id ?? ""),
+                    provider: String(g.provider ?? "github"),
+                    capability: String(g.capability ?? ""),
+                    target: String(g.target ?? ""),
+                    summary: String(g.summary ?? ""),
+                    contentPreview: g.contentPreview ? String(g.contentPreview) : null,
+                    status: String(g.status ?? "pending"),
+                    missionId: g.missionId ? String(g.missionId) : null,
+                    createdAt: g.createdAt ? String(g.createdAt) : undefined,
+                  }))
+                  .filter((g: PendingWriteGate) => g.id.length > 0),
+                "chat"
+              )
             );
           }
         }

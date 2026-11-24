@@ -5,6 +5,35 @@
 
 const MAX_OBJECTIVE_LENGTH = 200;
 
+/**
+ * Pedido EXPLICITO de missão operacional (execução durável do Cockpit).
+ * "Crie um site" NÃO é missão; "Crie uma missão para auditar..." é.
+ */
+const MISSION_EXPLICIT = /\bmiss\w*[ãa]\w*\b|\bmissions?\b/i;
+const MISSION_CREATE_VERB =
+  /\b(crie|criar|cria|abra|abrir|inicie|iniciar|monte|montar|registre|registrar|execute|executar|rode|rodar|enqueue|orquestre|orquest\w*)\b/i;
+
+export function detectExplicitMissionRequest(userText: string): boolean {
+  const clean = (userText ?? "").trim();
+  if (clean.length < 10) return false;
+  return MISSION_EXPLICIT.test(clean) && MISSION_CREATE_VERB.test(clean);
+}
+
+/**
+ * Continuidade do desenvolvimento numa conversa do Chat: corrigir/estender um
+ * sistema que já está sendo construído na Software Factory da conversa.
+ */
+const CONTINUATION_VERB =
+  /\b(corrija|corrigir|conserta|consertar|melhore|melhorar|amplie|ampliar|adiciona|adicione|adicionar|mude|mudar|altere|alterar|modifique|modificar|atualize|atualizar|refatore|refatorar|extenda|extender|continue|continua|remove|remova|remover|fix|improve|extend|refactor|update)\b/i;
+
+export function detectBuildContinuation(userText: string): boolean {
+  const clean = (userText ?? "").trim();
+  if (clean.length < 8 || clean.length > 800) return false;
+  if (NON_BUILD.test(clean)) return false;
+  if (MISSION_EXPLICIT.test(clean)) return false;
+  return CONTINUATION_VERB.test(clean) && BUILD_NOUN.test(clean);
+}
+
 /** Verbos de construção (pt/en). */
 const BUILD_VERB =
   /\b(crie|criar|cria|construa|construir|constr[óo]i|desenvolva|desenvolver|desenvolve|fa[çc]a|fazer|monte|montar|gere|gerar|implemente|implementar|quero um|quero uma|preciso de um|preciso de uma)\b/i;

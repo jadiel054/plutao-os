@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   extractGateId,
+  filterGatesForContext,
+  gateApprovalContext,
   mapGateStatusToUi,
   normalizeToolCallGate,
+  type GateWithContext,
   type WriteGateMinimalRow,
 } from "../gateStatus";
 
@@ -117,4 +120,41 @@ describe("gateStatus unit tests", () => {
       expect(norm.gateId).toBeUndefined();
     });
   });
+
+  describe("aprovações contextuais", () => {
+    it("gate com missionId pertence ao Cockpit", () => {
+      expect(gateApprovalContext({ id: "g-m", missionId: "mission-1" })).toBe("cockpit");
+    });
+
+    it("gate sem missionId pertence ao Chat", () => {
+      expect(gateApprovalContext({ id: "g-c", missionId: null })).toBe("chat");
+      expect(gateApprovalContext({ id: "g-c2" })).toBe("chat");
+    });
+
+    it("filterGatesForContext separa gates de missão dos gates do Chat", () => {
+      const gates: GateWithContext[] = [
+        { id: "g-chat", status: "pending", missionId: null },
+        { id: "g-cockpit", status: "pending", missionId: "mission-7" },
+      ];
+      expect(filterGatesForContext(gates, "chat").map((g) => g.id)).toEqual(["g-chat"]);
+      expect(filterGatesForContext(gates, "cockpit").map((g) => g.id)).toEqual(["g-cockpit"]);
+    });
+
+    it("nenhum gate aparece nos dois contextos ao mesmo tempo", () => {
+      const gates: GateWithContext[] = [
+        { id: "g-1", status: "pending" },
+        { id: "g-2", status: "pending", missionId: "m-1" },
+        { id: "g-3", status: "pending", missionId: "m-2" },
+      ];
+      const chatIds = filterGatesForContext(gates, "chat").map((g) => g.id);
+      const cockpitIds = filterGatesForContext(gates, "cockpit").map((g) => g.id);
+      for (const id of chatIds) {
+        expect(cockpitIds).not.toContain(id);
+      }
+      for (const id of cockpitIds) {
+        expect(chatIds).not.toContain(id);
+      }
+    });
+  });
+
 });

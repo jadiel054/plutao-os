@@ -210,7 +210,7 @@ export async function detectAndExecuteVercelTool(opts: {
     if (gitRepo) payload.gitRepo = gitRepo;
     if (/\bnext\b/i.test(userText)) payload.framework = "nextjs";
     else if (/\bvite\b/i.test(userText)) payload.framework = "vite";
-    if (opts.missionId) payload.missionId = opts.missionId;
+    // Origem contextual: escrita pedida no Chat gera gate no Chat (sem missionId no payload)
 
     const res = await runVercel(JSON.stringify(payload), userId);
     const isGatePending = Boolean(res.ok && res.output?.includes("GATE_PENDING"));
@@ -257,7 +257,7 @@ export async function detectAndExecuteVercelTool(opts: {
       name: candidateName,
     };
     if (gitRepo) payload.gitRepo = gitRepo;
-    if (opts.missionId) payload.missionId = opts.missionId;
+    // Origem contextual: escrita pedida no Chat gera gate no Chat (sem missionId no payload)
 
     const res = await runVercel(JSON.stringify(payload), userId);
     const isGatePending = Boolean(res.ok && res.output?.includes("GATE_PENDING"));
