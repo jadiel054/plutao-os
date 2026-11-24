@@ -1,8 +1,17 @@
 # Computador do Plutão — arquitetura
 
-> Estado atual: plano de controle da sessão IMPLEMENTADO (no PR #203).
-> Controle remoto real de Chromium: REQUER INFRA DEDICADA — especificado aqui,
-> não implementado. Não apresentar como concluído até validar uma sessão real.
+> Estado atual (fases 1–5 do Computador real):
+>  - ABSTRAÇÃO de provedor implementada (`ComputerProvider`): browserless E
+>    self-hosted, trocável por ambiente sem mexer no Chat.
+>  - ADAPTADOR Browserless Free implementado (CDP/Playwright, screencast real,
+>    input real). Válido APENAS com BROWSERLESS_API_TOKEN configurado no
+>    servidor; sem token o produto permanece no modo preview de sandbox.
+>  - Sessão REAL AINDA NÃO VALIDADA em execução com token — o teste de
+>    integração real existe (apps/web/src/lib/computer/__tests__/
+>    browserlessIntegration.test.ts) e roda com token. Não apresentar como
+>    concluído até validar uma sessão real de ponta a ponta no Vercel.
+>  - Migração `computer_sessions`: NÃO aplicada (proposta em
+>    docs/DB_PROPOSTA_COMPUTER_SESSIONS.md — auditoria pelo ChatGPT).
 
 ## O que já está implementado e é real
 
@@ -86,3 +95,102 @@ A arquitetura proposta:
    sandbox e interação direta no preview do app (não é navegador remoto).
 3. Lock de build entre instâncias distintas: garantia total exigiria a fila
    durável; o lock em-processo cobre o caso dominante.
+
+---
+
+## Fases 1–5 — implementação do Computador real (esta PR)
+
+### Contrato independente de provedor (Fase 1)
+
+`apps/web/src/lib/computer/provider.ts` — `ComputerProvider` único para
+`browserless` e `self-hosted`: criar sessão, snapshot de estado, reconectar,
+encerrar, info de conexão autorizada, ações reais de navegador (mouse humano,
+teclado, scroll, navegação), screencast real (frames) e CAS exclusivo de
+controle agente × humano. O Chat conhece APENAS este contrato; trocar de
+provedor é mudar `PLUTAO_COMPUTER_PROVIDER` — nenhum ajuste de UI/fluxo.
+
+### Adaptador Browserless Free (Fase 2) — capacidades verificadas na documentação oficial (docs.browserless.io, nov/2026)
+
+| Capacidade | Free | Como o Plutão usa |
+|---|---|---|
+| Chromium real via CDP | ✅ | `wss://…/chromium?token=` + `playwright-core.connectOverCDP` |
+| Screencast (tela em movimento) | ✅ (CDP padrão) | `Page.startScreencast` frames JPEG → SSE autenticado do Plutão |
+| Mouse/teclado humanos | ✅ (CDP padrão) | `Input.dispatchMouseEvent`/`dispatchKeyEvent` recebidos do usuário autorizado |
+| Reconexão | ⚠️ | No Free a reconexão ABRE UM NAVEGADOR NOVO e o estado do navegador NÃO sobrevive (sessões persistentes são de plano pago). Estado que sobrevive: sandbox de arquivos da conversa |
+| Duração da sessão | ⚠️ 2 min por conexão | TTL do Plutão (110s) abaixo do teto; renovação via nova conexão |
+| Concorrência | 2 navegadores | O Plutão usa 1 sessão simultânea por instalação |
+| Cota | 1.000 unidades/mês (≈8h; 1 un = 30s) | Sem overage: conexões novas são RECUSADAS (429) — o gerenciador bloqueia novas sessões (QUOTA_EXHAUSTED) |
+| Live URL interativo | ✅ existe no Free | NÃO usado: é URL pública por portador; abriria canal de controle fora do controle de acesso do Plutão |
+| Screen Recording (WebM) | ❌ pago | Não usado |
+
+### Experiência no Chat (Fase 3)
+
+`RealComputerView` (dentro do computador da conversa): estado da conexão,
+tela real do Chromium (frames CDP via `/api/computer/:id/screen/stream` SSE),
+atividade do agente (eventos duráveis existentes), assumir/devolver controle,
+encerrar com confirmação, estado de reconexão/erro. Input humano real só com
+controle humano ativo (`/api/computer/:id/session/input` → CDP). O bloco
+“Preview do app · sandbox da conversa” **continua sendo preview**, rotulado
+como preview — nunca como computador real.
+
+### Segurança e limites (Fase 4)
+
+- 1 sessão simultânea por instalação: reserva atômica no `sessionManager`
+  (seção síncrona do event-loop + marca `reserving` que fecha a janela de
+  corrida do await).
+- Autorização por usuário + conversa em TODA rota (ownership).
+- Segredos apenas no servidor; `view()`/`connectionInfoFor()` não contêm
+  token, host do provedor nem URL com credencial (testado).
+- Exclusividade de controle por compare-and-set — o last-write-wins dos
+  eventos do PR #203 é APENAS o acompanhamento observável, não a garantia.
+- Lease/TTL: sessões abandonadas expiram (padrão 110s, teto do Free 2 min) e
+  são encerradas; encerramento é verificado por todos os acesso.
+- Cota: `PLUTAO_COMPUTER_MONTHLY_UNITS` (default 1.000) acumula unidades por
+  encerramento/expiração; acima disso novas sessões são bloqueadas. Sem
+  cobrança automática em nenhum caminho.
+- Confirmação (window.confirm) para encerrar sessão; navegação restrita a
+  http/https.
+
+**Limitação honesta (cross-instance):** a exclusividade de UMA sessão por
+instalação entre instâncias serverless distintas exige o registro durável
+proposto (`computer_sessions`, INSERT condicional). Sem a migration, a
+garantia forte é por instância — com o agravante de que o plano Free tem 1
+navegador por vez de qualquer forma: a segunda conexão é recusada pelo
+Browserless (429), que atua como salvaguarda real de concorrência.
+
+### Preparação para mini PC (Fase 5)
+
+`providers/self-hosted.ts` fala o MESMO protocolo CDP (browserless docker no
+mini PC). Configuração only: `SELF_HOSTED_COMPUTER_ENDPOINT` (+ token
+opcional, `SELF_HOSTED_MAX_SESSION_MS`). Enquanto o endpoint não existir,
+reserva recusa com `PROVIDER_UNCONFIGURED`. Nenhuma infra foi provisionada
+de propósito.
+
+### Variáveis de ambiente (apenas NOMES — valores sempre no servidor)
+
+- `PLUTAO_COMPUTER_PROVIDER` — `browserless` (default) | `self-hosted`
+- `BROWSERLESS_API_TOKEN` — token do Browserless (server-only)
+- `BROWSERLESS_ENDPOINT` — default `wss://production-sfo.browserless.io/chromium`
+- `BROWSERLESS_MAX_SESSION_MS` — default 110000 (teto do Free: 120000)
+- `PLUTAO_COMPUTER_MONTHLY_UNITS` — default 1000 (orçamento do Free)
+- `SELF_HOSTED_COMPUTER_ENDPOINT`, `SELF_HOSTED_COMPUTER_TOKEN`,
+  `SELF_HOSTED_MAX_SESSION_MS` — futuro mini PC
+
+### Testes (requisito 9) — o que foi validado DE VERDADE
+
+| # | Requisito | Status | Onde |
+|---|---|---|---|
+| A | criar/encerrar sessão | ✅ real na lógica (mock do provedor); navegação real coberta no teste de integração real | sessionManager.test.ts |
+| B | bloquear 2ª sessão simultânea | ✅ inclui janela de corrida (reserving) | sessionManager.test.ts |
+| C | acesso negado a outra conversa/usuário | ✅ | sessionManager.test.ts |
+| D | agente pausa no controle humano | ✅ no loop real do buildRunner (sessão remota mockada) | computerRealSession.test.ts |
+| E | agente retoma após devolver | ✅ mesmo caminho | computerRealSession.test.ts |
+| F | nenhum controle simultâneo | ✅ CAS | sessionManager.test.ts |
+| G | desconexão/reconexão | ⚠️ lógica + contrato; rede real só no teste de integração | sessionManager + browserlessIntegration |
+| H | cota gratuita esgota → bloqueia | ✅ | sessionManager.test.ts |
+| I | nenhum segredo no frontend/logs/eventos | ✅ view/connectionInfo sem token/host (assertions sobre String serializada) | sessionManager.test.ts |
+| J | trocar Browserless → self-hosted sem mudar o Chat | ✅ | sessionManager.test.ts |
+| — | Chromium real E2E | ✅ teste de integração real (roda só com `BROWSERLESS_API_TOKEN`; pulado sem token — honesto sobre isso) | browserlessIntegration.test.ts |
+
+Executado nesta sandbox: 89 testes passando (nenhum com token). A validação
+real rede+Chromium fica explícita como pendência para execução com token.

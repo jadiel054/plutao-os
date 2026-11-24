@@ -29,6 +29,7 @@ import {
   tryAcquireConversationBuild,
   releaseConversationBuild,
 } from "./computer";
+import { computerSessions } from "@/lib/computer/sessionManager";
 import {
   emitAction,
   emitObservation,
@@ -86,6 +87,21 @@ export type ChatBuildSkip =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+/**
+ * PAUSA DO AGENTE (fonte única): humano no controle — via evento durável
+ * (legível por qualquer instância) OU via sessão remota ativa do Computador
+ * (coordenação atomicamente exclusiva do sessionManager).
+ */
+export async function isHumanInControl(
+  conversationId: string | null | undefined,
+  userId: string
+): Promise<boolean> {
+  if (!conversationId) return false;
+  if ((await getComputerController(conversationId)) === "human") return true;
+  const session = computerSessions.activeFor(conversationId, userId);
+  return session ? session.snapshot().controller === "human" : false;
 }
 
 /** Extrai arquivos escritos/gerados de um ToolResult bem-sucedido. */
@@ -194,15 +210,13 @@ export async function runChatBuildFlow(opts: {
     await emitComputerState(opts.conversationId, "working", "fluxo de criação iniciado");
   }
 
+  const loopConversationId = opts.conversationId;
   while (iterations < CHAT_BUILD_MAX_ITERATIONS) {
     if (Date.now() - startedAt > CHAT_BUILD_MAX_DURATION_MS) break;
-    if (
-      opts.conversationId &&
-      (await getComputerController(opts.conversationId)) === "human"
-    ) {
+    if (loopConversationId && (await isHumanInControl(loopConversationId, opts.userId))) {
       pausedForHuman = true;
       await emitComputerState(
-        opts.conversationId,
+        loopConversationId,
         "human_control",
         "usuário assumiu o controle; agente pausado na fronteira de passo"
       );
@@ -240,13 +254,10 @@ export async function runChatBuildFlow(opts: {
     // CORRIDA NA PAUSA: re-checagem imediatamente antes de executar a tool.
     // Se o usuário assumir o controle DURANTE a chamada ao modelo, a tool
     // proposta NÃO é executada — exclusividade agente × humano é obrigatória.
-    if (
-      opts.conversationId &&
-      (await getComputerController(opts.conversationId)) === "human"
-    ) {
+    if (loopConversationId && (await isHumanInControl(loopConversationId, opts.userId))) {
       pausedForHuman = true;
       await emitComputerState(
-        opts.conversationId,
+        loopConversationId,
         "human_control",
         "usuário assumiu o controle durante o passo; tool proposta não executada"
       );

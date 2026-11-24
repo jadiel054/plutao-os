@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { filterWorkEvents, dedupeBySeq } from "@/lib/events/workEvents";
 import { MissionGraphView } from "@/components/MissionGraphView";
+import { RealComputerView } from "@/components/RealComputerView";
 
 export type AgentEvent = {
   id: string;
@@ -524,10 +525,18 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
               </p>
             ) : null}
             <p className="text-[10px] text-[var(--text-muted)] mb-1.5">
-              Assumir controle PAUSA o agente e libera terminal + arquivos reais.
-              Controle total de navegador remoto (Chromium ao vivo) requer worker
-              dedicado — ver docs/COMPUTADOR_DO_PLUTAO.md.
+              Assumir controle PAUSA o agente e libera terminal + arquivos reais +
+              mouse/teclado no navegador real. Este bloco é PREVIEW do app de
+              sandbox — a tela do Chromium real fica no bloco &quot;Navegador real&quot;.
             </p>
+            {conversationId ? (
+              <div className="mb-2">
+                <RealComputerView
+                  conversationId={conversationId}
+                  controller={controller}
+                />
+              </div>
+            ) : null}
             {screenHtml ? (
               <iframe
                 title="Tela do Computador do Plutão"
