@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { checkConversationOwnership } from "@/app/api/conversations/[id]/route";
 import {
-  isComputerActionAllowed,
   emitComputerState,
   getComputerController,
 } from "@/lib/chat/computer";
@@ -35,13 +34,14 @@ export async function POST(
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
 
-  if (!isComputerActionAllowed(conversationId)) {
+  const currentController = await getComputerController(conversationId);
+  if (currentController !== "human") {
     return NextResponse.json(
       {
         error: "NOT_HUMAN_CONTROLLED",
         message:
           "Assuma o controle da máquina antes de interagir com mouse e teclado.",
-        controller: getComputerController(conversationId),
+        controller: currentController,
       },
       { status: 409 }
     );

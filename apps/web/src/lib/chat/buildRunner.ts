@@ -26,14 +26,32 @@ import { buildChatBuildSystemPrompt } from "./buildPrompt";
 import {
   emitComputerState,
   getComputerController,
+  tryAcquireConversationBuild,
+  releaseConversationBuild,
 } from "./computer";
 import {
   emitAction,
   emitObservation,
 } from "@/lib/events/appendConversationEvent";
 
-export const CHAT_BUILD_MAX_ITERATIONS = 10;
-export const CHAT_BUILD_MAX_DURATION_MS = 90_000;
+function envPositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+/**
+ * Limites do fluxo de criação no Chat. Configuráveis por ambiente (ex.: um
+ * worker dedicado pode subir bem mais); os defaults permitem builds reais de
+ * sistemas pequenos/médios com continuidade (o sandbox persiste entre mensagens).
+ */
+export const CHAT_BUILD_MAX_ITERATIONS = envPositiveInt(
+  process.env.CHAT_BUILD_MAX_ITERATIONS,
+  40
+);
+export const CHAT_BUILD_MAX_DURATION_MS = envPositiveInt(
+  process.env.CHAT_BUILD_MAX_DURATION_MS,
+  180_000
+);
 
 /** Tools disponíveis no fluxo de criação do Chat (sandboxadas). */
 export const CHAT_BUILD_TOOLS = [
@@ -63,7 +81,8 @@ export type ChatBuildResult = {
 
 export type ChatBuildSkip =
   | { executed: false; reason: "not_build_intent" }
-  | { executed: false; reason: "model_not_configured"; notice: string };
+  | { executed: false; reason: "model_not_configured"; notice: string }
+  | { executed: false; reason: "build_already_running"; notice: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -161,18 +180,28 @@ export async function runChatBuildFlow(opts: {
   let iterations = 0;
   let pausedForHuman = false;
 
+  if (opts.conversationId && !tryAcquireConversationBuild(opts.conversationId)) {
+    return {
+      executed: false,
+      reason: "build_already_running",
+      notice:
+        "RUNTIME NOTICE: já existe um fluxo de criação em andamento nesta conversa — aguarde a conclusão antes de iniciar outro.",
+    } as ChatBuildSkip;
+  }
+
+  try {
   if (opts.conversationId) {
-    void emitComputerState(opts.conversationId, "working", "fluxo de criação iniciado");
+    await emitComputerState(opts.conversationId, "working", "fluxo de criação iniciado");
   }
 
   while (iterations < CHAT_BUILD_MAX_ITERATIONS) {
     if (Date.now() - startedAt > CHAT_BUILD_MAX_DURATION_MS) break;
     if (
       opts.conversationId &&
-      getComputerController(opts.conversationId) === "human"
+      (await getComputerController(opts.conversationId)) === "human"
     ) {
       pausedForHuman = true;
-      void emitComputerState(
+      await emitComputerState(
         opts.conversationId,
         "human_control",
         "usuário assumiu o controle; agente pausado na fronteira de passo"
@@ -189,6 +218,13 @@ export async function runChatBuildFlow(opts: {
         ...toolContextMessages,
       ]);
     } catch (error) {
+      if (opts.conversationId) {
+        await emitComputerState(
+          opts.conversationId,
+          "error",
+          `falha na chamada ao modelo: ${error instanceof Error ? error.message : "desconhecida"}`
+        );
+      }
       return {
         executed: false,
         reason: "model_not_configured",
@@ -201,17 +237,36 @@ export async function runChatBuildFlow(opts: {
       break;
     }
 
-    // Eventos REAIS em tempo real: cada passo do runtime é refletido ao vivo
-    // no Computador do Plutão via conversation_events (SSE retomável).
+    // CORRIDA NA PAUSA: re-checagem imediatamente antes de executar a tool.
+    // Se o usuário assumir o controle DURANTE a chamada ao modelo, a tool
+    // proposta NÃO é executada — exclusividade agente × humano é obrigatória.
+    if (
+      opts.conversationId &&
+      (await getComputerController(opts.conversationId)) === "human"
+    ) {
+      pausedForHuman = true;
+      await emitComputerState(
+        opts.conversationId,
+        "human_control",
+        "usuário assumiu o controle durante o passo; tool proposta não executada"
+      );
+      break;
+    }
+
+    // Eventos REAIS em tempo real e EM ORDEM: action antes da execução e
+    // observation depois — awaited para que o seq monotônico preserve a ordem
+    // action → observation da MESMA etapa (best-effort: falha não quebra o fluxo).
     if (opts.conversationId) {
-      void emitAction({
-        conversationId: opts.conversationId,
-        tool: step.toolProposal.name,
-        inputSummary: step.toolProposal.input.slice(0, 200),
-        source: "chat_build",
-      }).catch(() => {
+      try {
+        await emitAction({
+          conversationId: opts.conversationId,
+          tool: step.toolProposal.name,
+          inputSummary: step.toolProposal.input.slice(0, 200),
+          source: "chat_build",
+        });
+      } catch {
         /* event log é best-effort */
-      });
+      }
     }
 
     const result = await dispatchChatBuildTool({
@@ -222,17 +277,19 @@ export async function runChatBuildFlow(opts: {
     });
 
     if (opts.conversationId) {
-      void emitObservation({
-        conversationId: opts.conversationId,
-        tool: step.toolProposal.name,
-        ok: result.ok,
-        outputOrError: result.ok
-          ? (result.output || "(ok)").slice(0, 500)
-          : `${result.error}${(result as { message?: string }).message ? ` — ${(result as { message?: string }).message}` : ""}`,
-        source: "chat_build",
-      }).catch(() => {
+      try {
+        await emitObservation({
+          conversationId: opts.conversationId,
+          tool: step.toolProposal.name,
+          ok: result.ok,
+          outputOrError: result.ok
+            ? (result.output || "(ok)").slice(0, 500)
+            : `${result.error}${(result as { message?: string }).message ? ` — ${(result as { message?: string }).message}` : ""}`,
+          source: "chat_build",
+        });
+      } catch {
         /* event log é best-effort */
-      });
+      }
     }
 
     const stepResult: BuildStep = {
@@ -258,9 +315,9 @@ export async function runChatBuildFlow(opts: {
   }
 
   if (!pausedForHuman && opts.conversationId) {
-    void emitComputerState(
+    await emitComputerState(
       opts.conversationId,
-      steps.some((s) => !s.ok) ? "error" : "completed",
+      steps.some((st) => !st.ok) ? "error" : "completed",
       `${steps.length} etapa(s) executada(s)`
     );
   }
@@ -269,7 +326,7 @@ export async function runChatBuildFlow(opts: {
     finalText = pausedForHuman
       ? "Controle assumido por você — o agente pausou. Devolva o controle e peça para continuar a criação."
       : steps.length
-        ? `Criação em andamento: ${steps.filter((s) => s.ok).length}/${steps.length} etapas concluídas.`
+        ? `Criação em andamento: ${steps.filter((st) => st.ok).length}/${steps.length} etapas concluídas.`
         : "Não foi possível iniciar a criação agora.";
   }
 
@@ -294,4 +351,7 @@ export async function runChatBuildFlow(opts: {
         ? ` O fluxo foi PAUSADO porque o usuário assumiu o controle do Computador (mouse/teclado dele); administre apenas o que já foi executado e NÃO invente etapas futuras. Quando o usuário devolver o controle e pedir, continue de onde parou usando o sandbox persistido.`
         : ""),
   };
+  } finally {
+    if (opts.conversationId) releaseConversationBuild(opts.conversationId);
+  }
 }

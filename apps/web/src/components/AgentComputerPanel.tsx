@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { filterWorkEvents } from "@/lib/events/workEvents";
+import { filterWorkEvents, dedupeBySeq } from "@/lib/events/workEvents";
 import { MissionGraphView } from "@/components/MissionGraphView";
 
 export type AgentEvent = {
@@ -192,11 +192,13 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
     const work = filterWorkEvents(incoming);
     if (work.length === 0) return;
     setEvents((prev) => {
-      const bySeq = new Map<number, AgentEvent>();
-      for (const e of prev) bySeq.set(e.seq, e);
-      for (const e of work) bySeq.set(e.seq, e);
-      const next = Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
-      if (next.length) lastSeqRef.current = next[next.length - 1]!.seq;
+      const next = dedupeBySeq([...prev, ...work]);
+      if (next.length) {
+        lastSeqRef.current = Math.max(
+          lastSeqRef.current,
+          next[next.length - 1]!.seq
+        );
+      }
       return next;
     });
   }, []);
@@ -493,7 +495,8 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
           <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--base)]/40 p-2.5">
             <div className="flex items-center justify-between gap-2 mb-1">
               <p className="text-[10px] font-mono uppercase text-[var(--text-muted)]">
-                Tela real{screenPath ? ` · ${screenPath}` : ""}
+                Preview do app · sandbox da conversa
+                {screenPath ? ` · ${screenPath}` : ""}
               </p>
               <span
                 className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border ${
@@ -520,6 +523,11 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
                 estado: {COMPUTADOR_STATE_LABELS[computerState] ?? computerState}
               </p>
             ) : null}
+            <p className="text-[10px] text-[var(--text-muted)] mb-1.5">
+              Assumir controle PAUSA o agente e libera terminal + arquivos reais.
+              Controle total de navegador remoto (Chromium ao vivo) requer worker
+              dedicado — ver docs/COMPUTADOR_DO_PLUTAO.md.
+            </p>
             {screenHtml ? (
               <iframe
                 title="Tela do Computador do Plutão"
@@ -539,7 +547,7 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
           {controller === "human" ? (
             <div className="rounded-xl border border-[var(--selo)]/40 bg-[var(--selo)]/5 p-2.5 space-y-2">
               <p className="text-[10px] font-mono uppercase text-[var(--selo)]">
-                Sob seu controle — clique e digite na tela acima; terminal abaixo
+                Sob seu controle — agente pausado. Terminal e arquivos abaixo; o preview acima é interativo (cliques/digitação direto no app)
               </p>
               <div className="flex items-center gap-1.5">
                 <input

@@ -42,6 +42,13 @@ import {
 } from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
+/**
+ * O fluxo de criação no Chat (buildRunner) roda dentro deste request ANTES do
+ * stream — o limite aqui precisa cobrir CHAT_BUILD_MAX_DURATION_MS + streaming.
+ * Em planos Vercel com teto menor, o runtime clampa e os limites do build
+ * (env CHAT_BUILD_MAX_*) devem ser reduzidos em conformidade.
+ */
+export const maxDuration = 300;
 
 type ChatInputMessage = {
   role: "user" | "assistant";

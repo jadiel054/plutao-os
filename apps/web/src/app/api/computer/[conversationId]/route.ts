@@ -28,7 +28,7 @@ export async function GET(
   if (check.status === 404) {
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
-  return NextResponse.json({ controller: getComputerController(conversationId) });
+  return NextResponse.json({ controller: await getComputerController(conversationId) });
 }
 
 export async function POST(
@@ -61,8 +61,8 @@ export async function POST(
 
   const controller =
     body.action === "takeover"
-      ? takeComputerControl(conversationId)
-      : releaseComputerControl(conversationId);
+      ? await takeComputerControl(conversationId)
+      : await releaseComputerControl(conversationId);
 
   await emitComputerState(
     conversationId,

@@ -1,32 +1,35 @@
 /**
- * COMPUTADOR DO PLUTÃO — sessão interativa por conversa.
+ * COMPUTADOR DO PLUTÃO — plano de controle da "máquina" da conversa.
  *
- * Não é um desktop remoto: é o plano de controle da "máquina" da conversa —
- * o sandbox de arquivos namespaceado por usuário+conversa (filesystem/process
- * no namespace `userId__conversationId`) combinado ao stream durável de
- * eventos (`conversation_events`, append-only, seq monotônico).
+ * Não é um desktop remoto: é o plano de controle da sessão — o sandbox de
+ * arquivos namespaceado por usuário+conversa (filesystem/process no namespace
+ * `userId__conversationId`) combinado ao stream durável de eventos
+ * (`conversation_events`, append-only, seq monotônico por conversa).
  *
- * O que é REAL e vem do runtime:
- *  - Tela: o HTML existente no sandbox é renderizado em iframe sandboxado
- *    (`/api/computer/:id/screen` lê o arquivo real da máquina).
- *  - Terminal: saída real da tool `process` (allowlist, sem shell, env limpo).
- *  - Eventos: cada passo do build flow emite action/observation/state_update
- *    em `conversation_events` — transmitidos ao vivo pelo SSE existente e
- *    retomáveis por cursor após reconexão.
+ * CONTROLE COMPARTILHADO (agente × humano) — NÃO é estado em memória:
+ *  - O controlador atual é o ÚLTIMO evento `state_update` com source
+ *    "computer" e payload.computer === true — gravado via appendConversationEvent
+ *    (Neon), então TODAS as instâncias serverless enxergam o mesmo controle.
+ *    Última escrita vence (seq monotônico, UNIQUE por conversa+seq).
+ *  - Takeover humano expira por TTL (emitido no payload `at`); após o TTL o
+ *    controle volta ao agente automaticamente em qualquer instância.
+ *  - Sem migration: usa a tabela conversation_events existente (type é text
+ *    livre; source="computer" particiona os eventos do computador).
  *
- * Controle exclusivo (agente × humano):
- *  - Estado em memória por conversa com TTL — quando o usuário assume,
- *    o build flow para na PRÓXIMA fronteira de passo (nunca interrompe uma
- *    tool em voo) e nada mais executa como agente até a devolução.
- *  - TTL de 30 min devolve para o agente automaticamente (sessões não ficam
- *    travadas nem máquinas rodando indefinidamente).
+ * Ações humanas na máquina só existem sob controle humano e passam pelos
+ * MESMOS guards das tools do build flow (sandbox, allowlist, sem rede).
  *
- * Limitação documentada (não vendida como concluída): a execução de
- * desenvolvimento do Chat é em-processo. Se o processo morrer, a execução em
- * curso é perdida — mas arquivos (sandbox em disco) e eventos (DB) persistem,
- * e a conversa retoma o trabalho com base nesse estado. Execução durável e
- * retomável passo-a-passo é o runtime de missões do Cockpit.
+ * Limitação documentada (não vendida como concluído): o controle remoto real
+ * de mouse/teclado sobre um navegador Chromium exige worker dedicado —
+ * arquitetura em docs/COMPUTADOR_DO_PLUTAO.md. O que existe aqui (real):
+ * pausa/exclusividade do agente, terminal allowlistado, editor de arquivos
+ * do sandbox e preview interativo do app construído.
  */
+
+import { and, desc, eq } from "drizzle-orm";
+import { conversationEvents } from "@plutao/db";
+import { getDb } from "@/lib/db";
+import { appendConversationEvent } from "@/lib/events/appendConversationEvent";
 
 export type ComputerController = "agent" | "human";
 
@@ -39,78 +42,101 @@ export type ComputerState =
   | "error"
   | "idle";
 
-import { appendConversationEvent } from "@/lib/events/appendConversationEvent";
+export const COMPUTER_CONTROL_TTL_MS = 30 * 60 * 1000;
 
-const COMPUTER_CONTROL_TTL_MS = 30 * 60 * 1000;
+/** Evento bruto mínimo para decidir o controlador — derivável de DB, SSE ou teste. */
+export type ComputerControlEvent = {
+  type: string;
+  source: string;
+  payload: Record<string, unknown>;
+  createdAt?: Date | string | null;
+};
 
-type ControlEntry = { controller: ComputerController; controlledAt: number };
-
-const controlByConversation = new Map<string, ControlEntry>();
-
-/** Remove entradas de controle expiradas. Retorna quantas foram limpas. */
-export function sweepExpiredComputerControl(now: number = Date.now()): number {
-  let removed = 0;
-  for (const [id, entry] of controlByConversation) {
-    if (now - entry.controlledAt > COMPUTER_CONTROL_TTL_MS) {
-      controlByConversation.delete(id);
-      removed++;
-    }
-  }
-  return removed;
-}
-
-function sweepIfNeeded(now: number = Date.now()): void {
-  if (controlByConversation.size === 0) return;
-  sweepExpiredComputerControl(now);
-}
-
-/** Controlador atual da máquina da conversa. Sem registro → agente. */
-export function getComputerController(
-  conversationId: string | null | undefined
+/**
+ * PURA — o controlador é decidido pelo ÚLTIMO evento do computador válida:
+ *  - payload.computer === true e controller reconhecido;
+ *  - TTL só se aplica a `human` (agente é sempre o default seguro);
+ *  - eventos de outros emitters não sobrepõem o estado do computador.
+ */
+export function readControlFromEvents(
+  events: ComputerControlEvent[],
+  now: number = Date.now()
 ): ComputerController {
-  if (!conversationId) return "agent";
-  sweepIfNeeded();
-  const entry = controlByConversation.get(conversationId);
-  if (!entry) return "agent";
-  if (Date.now() - entry.controlledAt > COMPUTER_CONTROL_TTL_MS) {
-    controlByConversation.delete(conversationId);
-    return "agent";
+  for (let i = (events ?? []).length - 1; i >= 0; i--) {
+    const e = events[i]!;
+    if (e.source !== "computer" || e.type !== "state_update") continue;
+    const payload = (e.payload ?? {}) as Record<string, unknown>;
+    if (payload.computer !== true) continue;
+    const controller = payload.controller;
+    if (controller !== "human" && controller !== "agent") continue;
+    if (controller === "human") {
+      const at =
+        typeof payload.at === "number"
+          ? payload.at
+          : e.createdAt
+            ? new Date(e.createdAt).getTime()
+            : Number.NaN;
+      if (Number.isFinite(at) && now - at > COMPUTER_CONTROL_TTL_MS) return "agent";
+    }
+    return controller;
   }
-  return entry.controller;
-}
-
-export function takeComputerControl(conversationId: string): ComputerController {
-  controlByConversation.set(conversationId, {
-    controller: "human",
-    controlledAt: Date.now(),
-  });
-  return "human";
-}
-
-export function releaseComputerControl(conversationId: string): ComputerController {
-  controlByConversation.set(conversationId, {
-    controller: "agent",
-    controlledAt: Date.now(),
-  });
   return "agent";
 }
 
-/** Ações humanas na máquina só existem quando o usuário está no controle. */
-export function isComputerActionAllowed(
-  conversationId: string | null | undefined
-): boolean {
-  return getComputerController(conversationId) === "human";
-}
-
-/** Reset apenas para testes — nunca use em código de produção. */
-export function resetComputerControlForTests(): void {
-  controlByConversation.clear();
+function toControlEvent(row: {
+  type: string;
+  source: string;
+  payload: unknown;
+  createdAt?: Date | string | null;
+}): ComputerControlEvent {
+  return {
+    type: row.type,
+    source: row.source,
+    payload: (row.payload ?? {}) as Record<string, unknown>,
+    createdAt:
+      row.createdAt instanceof Date
+        ? row.createdAt.toISOString()
+        : row.createdAt != null
+          ? String(row.createdAt)
+          : null,
+  };
 }
 
 /**
- * Estado da máquina como evento REAL do runtime (state_update em
- * conversation_events). Falha silenciosa: o build flow não pode quebrar por
- * causa do event log — o mesmo contrato dos demais emitters do projeto.
+ * Leitura COMPARTILHADA do controle direto do log durável — qualquer instância
+ * serverless chega ao mesmo resultado (não há estado local autoritativo).
+ * Em falha de leitura devolve "agent" (default seguro) — takeover/gravação
+ * continuam funcionando; nenhuma sessão fica travada.
+ */
+export async function getComputerController(
+  conversationId: string | null | undefined
+): Promise<ComputerController> {
+  if (!conversationId) return "agent";
+  try {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(conversationEvents)
+      .where(
+        and(
+          eq(conversationEvents.conversationId, conversationId),
+          eq(conversationEvents.source, "computer")
+        )
+      )
+      .orderBy(desc(conversationEvents.seq))
+      .limit(10);
+    // A consulta busca os 10 mais recentes (desc); readControlFromEvents
+    // espera ordem ASC (mesmo contrato de listConversationEvents).
+    return readControlFromEvents(rows.map(toControlEvent).reverse(), Date.now());
+  } catch {
+    return "agent";
+  }
+}
+
+/**
+ * Única fonte de escrita do estado da máquina: evento append-only.
+ * Concorrência entre instâncias: seq monotônico + UNIQUE garante que a última
+ * gravação vence; leitores veem a mesma ordem em qualquer instância.
  */
 export async function emitComputerState(
   conversationId: string,
@@ -118,16 +144,65 @@ export async function emitComputerState(
   detail?: string
 ): Promise<void> {
   try {
+    const controller = await getComputerController(conversationId);
     await appendConversationEvent({
       conversationId,
       type: "state_update",
       source: "computer",
       preview: `computador: ${state}${detail ? ` — ${detail}` : ""}`,
-      payload: { computer: true, state, detail: detail ?? null, controller: getComputerController(conversationId) },
+      payload: {
+        computer: true,
+        state,
+        detail: detail ?? null,
+        controller,
+        at: Date.now(),
+      },
     });
   } catch {
-    /* event log é best-effort */
+    /* event log é best-effort: a conversa não pode quebrar por evento */
   }
+}
+
+export async function takeComputerControl(
+  conversationId: string
+): Promise<ComputerController> {
+  await appendConversationEvent({
+    conversationId,
+    type: "state_update",
+    source: "computer",
+    preview: "computador: human_control — usuário assumiu (mouse e teclado dele)",
+    payload: {
+      computer: true,
+      state: "human_control",
+      controller: "human",
+      at: Date.now(),
+    },
+  }).catch(() => null);
+  return "human";
+}
+
+export async function releaseComputerControl(
+  conversationId: string
+): Promise<ComputerController> {
+  await appendConversationEvent({
+    conversationId,
+    type: "state_update",
+    source: "computer",
+    preview: "computador: working — controle devolvido ao agente",
+    payload: {
+      computer: true,
+      state: "working",
+      controller: "agent",
+      at: Date.now(),
+    },
+  }).catch(() => null);
+  return "agent";
+}
+
+export async function isComputerActionAllowed(
+  conversationId: string | null | undefined
+): Promise<boolean> {
+  return (await getComputerController(conversationId)) === "human";
 }
 
 /**
@@ -144,4 +219,28 @@ export function pickScreenFile(
   if (index) return index.name;
   if (html.length > 0) return html[0]!.name;
   return files.length > 0 ? files[0]!.name : null;
+}
+
+/*
+ * LOCK DE FLUXO DE CRIAÇÃO POR CONVERSA (anti-concorrência de requisições).
+ *
+ * Em-processo: impede dois build flows da MESMA conversa em paralelo na mesma
+ * instância (o caso dominante — uma conversa tem um usuário ativo). Entre
+ * instâncias distintas a garantia total exigiria a fila durável (runtime de
+ * missões); documentado como limitação real em docs/COMPUTADOR_DO_PLUTAO.md.
+ */
+const runningBuilds = new Set<string>();
+
+export function tryAcquireConversationBuild(conversationId: string): boolean {
+  if (runningBuilds.has(conversationId)) return false;
+  runningBuilds.add(conversationId);
+  return true;
+}
+
+export function releaseConversationBuild(conversationId: string): void {
+  runningBuilds.delete(conversationId);
+}
+
+export function isBuildRunning(conversationId: string): boolean {
+  return runningBuilds.has(conversationId);
 }
