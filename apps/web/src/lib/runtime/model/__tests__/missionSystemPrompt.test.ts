@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSystemPrompt } from "../missionPrompt";
+import { MISSION_SPECIALIST_PROFILES } from "@/lib/missions/specialistProfiles";
 
 describe("System prompt do runtime de missões inclui conectores e write gates", () => {
   const connectorBlock = [
@@ -35,6 +36,26 @@ describe("System prompt do runtime de missões inclui conectores e write gates",
     expect(prompt).toContain("note");
     expect(prompt).toContain("filesystem");
     expect(prompt).toContain("files.export_pdf");
+  });
+
+  it("orienta caminhos relativos ao sandbox para a tool filesystem (sem especialista)", () => {
+    const prompt = buildSystemPrompt(null, connectorBlock, "mission-123");
+    expect(prompt).toContain("payload.path is ALWAYS relative to the sandbox root");
+    expect(prompt).toContain("MUST be RELATIVE to the mission sandbox");
+    expect(prompt.replace(/\\/g, "")).toContain('"path":"."');
+    expect(prompt).toContain("absolute paths like \"/\" are rejected");
+    expect(prompt).not.toContain("path\":\"dir\"");
+  });
+
+  it("orienta caminhos relativos ao sandbox para a tool filesystem (com especialista)", () => {
+    const prompt = buildSystemPrompt(
+      null,
+      connectorBlock,
+      "mission-123",
+      MISSION_SPECIALIST_PROFILES.software_engineer
+    );
+    expect(prompt).toContain("payload.path is ALWAYS relative to the sandbox root");
+    expect(prompt.replace(/\\/g, "")).toContain('"path":"."');
   });
 
   it("usa a identidade canônica Nix no fallback de missão", () => {

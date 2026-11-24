@@ -36,6 +36,8 @@ export type ToolFailure = {
   tool: string;
   input: string;
   error: string;
+  /** Dica acionável devolvida ao modelo para autorrecuperação (ex.: usar caminho relativo). */
+  message?: string;
   durationMs: number;
 };
 

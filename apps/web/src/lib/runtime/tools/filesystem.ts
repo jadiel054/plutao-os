@@ -104,12 +104,18 @@ function validatePath(inputPath: string): string {
 
   // Rejeita caminhos absolutos diretos
   if (normalizedPath.startsWith(sep)) {
-    throw new SandboxSecurityError("PATH_OUTSIDE_SANDBOX", "Caminhos absolutos não são permitidos");
+    throw new SandboxSecurityError(
+      "PATH_OUTSIDE_SANDBOX",
+      "Caminhos absolutos não são permitidos. Use caminhos relativos à raiz do sandbox: '.' ou '' lista a raiz."
+    );
   }
 
   // Rejeita tentativas óbvias de traversal
   if (normalizedPath.includes(`..${sep}`) || normalizedPath === ".." || normalizedPath.startsWith(`..${sep}`)) {
-    throw new SandboxSecurityError("PATH_TRAVERSAL", "Tentativa de path traversal detectada");
+    throw new SandboxSecurityError(
+      "PATH_TRAVERSAL",
+      "Tentativa de path traversal detectada — Caminhos com '..' não são permitidos. Use caminhos relativos dentro do sandbox."
+    );
   }
 
   return normalizedPath;
@@ -365,6 +371,7 @@ export async function runFilesystem(
         tool: "filesystem",
         input,
         error: error.code,
+        message: error.message,
         durationMs: Date.now() - start,
       };
     }

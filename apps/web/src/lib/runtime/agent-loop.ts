@@ -75,10 +75,11 @@ function toolResultToMessage(
   isError: boolean
 ): ToolResultMessage {
   if (isError) {
-    const errorResult = result as { error: string };
+    const errorResult = result as { error: string; message?: string };
+    const detail = errorResult.message ? ` — ${errorResult.message}` : "";
     return {
       role: "user",
-      content: `Tool ${toolName} error: ${errorResult.error || "unknown error"}`,
+      content: `Tool ${toolName} error: ${errorResult.error || "unknown error"}${detail}`,
       source: "tool_result",
     };
   }
@@ -403,10 +404,11 @@ export async function runAgentLoop(
 
     const toolError = getToolDispatchError(toolDispatch);
     if (toolError) {
+      const dispatchResult = (toolDispatch as { result?: unknown }).result;
       toolContextMessages.push(
         toolResultToMessage(
           stepResult.model.toolProposal?.name || "unknown",
-          { error: toolError },
+          dispatchResult ?? { error: toolError },
           true
         )
       );
@@ -444,8 +446,13 @@ export async function runAgentLoop(
     }
 
     if (toolDispatch && stepResult.model.toolProposal) {
+      const dispatchResult = (toolDispatch as { result?: unknown }).result;
       toolContextMessages.push(
-        toolResultToMessage(stepResult.model.toolProposal.name, toolDispatch, false)
+        toolResultToMessage(
+          stepResult.model.toolProposal.name,
+          dispatchResult ?? toolDispatch,
+          false
+        )
       );
     }
 

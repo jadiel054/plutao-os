@@ -201,7 +201,7 @@ export async function loadConnectorRuntime(
   }
 
   const lines: string[] = [
-    "FERRAMENTAS NATIVAS DE EXPORTAÇÃO (sempre disponíveis, gravam em /exports/ no filesystem do usuário):",
+    "FERRAMENTAS NATIVAS DE EXPORTAÇÃO (sempre disponíveis; gravam em exports/ — caminho relativo à raiz do sandbox do usuário):",
     "- files.export_pdf: { filename, title, content } -> gera arquivo PDF real",
     "- files.export_xlsx: { filename, sheets: [{ name, rows }] } -> gera planilha Excel real",
     "- files.export_markdown: { filename, content, title, origin } -> gera arquivo Markdown com frontmatter",
