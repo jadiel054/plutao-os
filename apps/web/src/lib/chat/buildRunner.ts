@@ -23,6 +23,14 @@ import { runProcess } from "@/lib/runtime/tools/process";
 import { runExportTool } from "@/lib/runtime/tools/export";
 import type { ToolResult } from "@/lib/runtime/tools/types";
 import { buildChatBuildSystemPrompt } from "./buildPrompt";
+import {
+  emitComputerState,
+  getComputerController,
+} from "./computer";
+import {
+  emitAction,
+  emitObservation,
+} from "@/lib/events/appendConversationEvent";
 
 export const CHAT_BUILD_MAX_ITERATIONS = 10;
 export const CHAT_BUILD_MAX_DURATION_MS = 90_000;
@@ -49,6 +57,8 @@ export type ChatBuildResult = {
   files: Array<{ path: string; size?: number }>;
   finalText: string;
   notice: string;
+  /** True quando o usuário assumiu o controle e o fluxo parou na fronteira de passo. */
+  pausedForHuman?: boolean;
 };
 
 export type ChatBuildSkip =
@@ -149,9 +159,26 @@ export async function runChatBuildFlow(opts: {
 
   let finalText = "";
   let iterations = 0;
+  let pausedForHuman = false;
+
+  if (opts.conversationId) {
+    void emitComputerState(opts.conversationId, "working", "fluxo de criação iniciado");
+  }
 
   while (iterations < CHAT_BUILD_MAX_ITERATIONS) {
     if (Date.now() - startedAt > CHAT_BUILD_MAX_DURATION_MS) break;
+    if (
+      opts.conversationId &&
+      getComputerController(opts.conversationId) === "human"
+    ) {
+      pausedForHuman = true;
+      void emitComputerState(
+        opts.conversationId,
+        "human_control",
+        "usuário assumiu o controle; agente pausado na fronteira de passo"
+      );
+      break;
+    }
     iterations++;
 
     let step;
@@ -174,12 +201,39 @@ export async function runChatBuildFlow(opts: {
       break;
     }
 
+    // Eventos REAIS em tempo real: cada passo do runtime é refletido ao vivo
+    // no Computador do Plutão via conversation_events (SSE retomável).
+    if (opts.conversationId) {
+      void emitAction({
+        conversationId: opts.conversationId,
+        tool: step.toolProposal.name,
+        inputSummary: step.toolProposal.input.slice(0, 200),
+        source: "chat_build",
+      }).catch(() => {
+        /* event log é best-effort */
+      });
+    }
+
     const result = await dispatchChatBuildTool({
       name: step.toolProposal.name,
       input: step.toolProposal.input,
       userId: opts.userId,
       conversationId: opts.conversationId,
     });
+
+    if (opts.conversationId) {
+      void emitObservation({
+        conversationId: opts.conversationId,
+        tool: step.toolProposal.name,
+        ok: result.ok,
+        outputOrError: result.ok
+          ? (result.output || "(ok)").slice(0, 500)
+          : `${result.error}${(result as { message?: string }).message ? ` — ${(result as { message?: string }).message}` : ""}`,
+        source: "chat_build",
+      }).catch(() => {
+        /* event log é best-effort */
+      });
+    }
 
     const stepResult: BuildStep = {
       tool: step.toolProposal.name,
@@ -203,10 +257,20 @@ export async function runChatBuildFlow(opts: {
     });
   }
 
+  if (!pausedForHuman && opts.conversationId) {
+    void emitComputerState(
+      opts.conversationId,
+      steps.some((s) => !s.ok) ? "error" : "completed",
+      `${steps.length} etapa(s) executada(s)`
+    );
+  }
+
   if (!finalText) {
-    finalText = steps.length
-      ? `Criação em andamento: ${steps.filter((s) => s.ok).length}/${steps.length} etapas concluídas.`
-      : "Não foi possível iniciar a criação agora.";
+    finalText = pausedForHuman
+      ? "Controle assumido por você — o agente pausou. Devolva o controle e peça para continuar a criação."
+      : steps.length
+        ? `Criação em andamento: ${steps.filter((s) => s.ok).length}/${steps.length} etapas concluídas.`
+        : "Não foi possível iniciar a criação agora.";
   }
 
   const createdFiles = files.length
@@ -219,11 +283,15 @@ export async function runChatBuildFlow(opts: {
     steps,
     files,
     finalText,
+    ...(pausedForHuman ? { pausedForHuman: true } : {}),
     notice:
       `RUNTIME NOTICE (CRIAÇÃO NO CHAT): fluxo de criação executado NA CONVERSA via Software Factory sandboxada. ` +
       `Nenhuma missão foi criada — não cite missões nem o Cockpit. ` +
       `Etapas executadas: ${steps.map((s) => `${s.tool}:${s.ok ? "ok" : s.detail}`).join("; ") || "nenhuma"}. ` +
       `Arquivos no sandbox da conversa: ${createdFiles}. ` +
-      `Use esses dados reais para responder com o progresso e o resultado; convide o usuário a continuar/pedir ajustes na conversa.`,
+      `Use esses dados reais para responder com o progresso e o resultado; convide o usuário a continuar/pedir ajustes na conversa.` +
+      (pausedForHuman
+        ? ` O fluxo foi PAUSADO porque o usuário assumiu o controle do Computador (mouse/teclado dele); administre apenas o que já foi executado e NÃO invente etapas futuras. Quando o usuário devolver o controle e pedir, continue de onde parou usando o sandbox persistido.`
+        : ""),
   };
 }

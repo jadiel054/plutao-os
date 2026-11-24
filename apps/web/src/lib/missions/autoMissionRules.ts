@@ -40,7 +40,7 @@ const BUILD_VERB =
 
 /** Entregáveis de software detectáveis. */
 const BUILD_NOUN =
-  /\b(site|website|aplica[çc][ãa]o|aplicativo|app|sistema|p[áa]gina|landing|dashboard|loja|blog|api|plataforma|portal|extens[ãa]o|bot|automa[çc][ãa]o|crud|saas)\b/i;
+  /\b(site|website|aplica[çc][ãa]o|aplicativo|app|sistema|projeto|p[áa]gina|landing|dashboard|loja|blog|api|plataforma|portal|extens[ãa]o|bot|automa[çc][ãa]o|crud|saas)\b/i;
 
 /** Pedidos que NÃO devem virar missão durável (consulta/análise). */
 const NON_BUILD =

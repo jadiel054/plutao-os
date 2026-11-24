@@ -72,7 +72,7 @@ describe("AgentComputerPanel component rendering and state behavior", () => {
     render(<AgentComputerPanel conversationId="c1" missionId="m1" />);
 
     // Painel inicia fechado por padrão: a tela e o conteúdo expansível não aparecem
-    expect(screen.queryByText("Tela")).toBeNull();
+    expect(screen.queryByText(/Tela( real)?/)).toBeNull();
     expect(screen.getByText(/Computador ·/i)).toBeDefined();
     expect(screen.getByText("Aguardando trabalho do agente")).toBeDefined();
   });
@@ -80,18 +80,18 @@ describe("AgentComputerPanel component rendering and state behavior", () => {
   it("toggles open state to true when header button is clicked", () => {
     render(<AgentComputerPanel conversationId="c1" missionId="m1" />);
 
-    expect(screen.queryByText("Tela")).toBeNull();
+    expect(screen.queryByText(/Tela( real)?/)).toBeNull();
 
     const headerButton = screen.getByRole("button", { name: /Computador ·/i });
     fireEvent.click(headerButton);
 
     // Painel expandido após o clique
-    expect(screen.getByText("Tela")).toBeDefined();
+    expect(screen.getByText(/Tela( real)?/)).toBeDefined();
     expect(screen.getByText("Atividade")).toBeDefined();
 
     // Clique novamente fecha o painel
     fireEvent.click(headerButton);
-    expect(screen.queryByText("Tela")).toBeNull();
+    expect(screen.queryByText(/Tela( real)?/)).toBeNull();
   });
 });
 
