@@ -1,16 +1,18 @@
 /**
- * Criação automática de missão a partir do chat (sem delegar ao Cockpit).
- * O agente nunca deve pedir para o usuário criar/executar a missão: quando o
- * pedido de construção está claro, ou o usuário confirma um plano proposto,
- * o sistema cria a missão (source "chat") e enfileira a execução durável.
+ * Criação de missão a partir do chat — APENAS quando o usuário pede
+ * EXPLICITAMENTE uma missão operacional (ex.: "crie uma missão para auditar...").
+ *
+ * Criação de sistemas/sites/apps NÃO passa mais por aqui: o Chat executa a
+ * criação na própria conversa (ver lib/chat/buildRunner.ts). A separação é:
+ *  - Chat + pedido de criação → fluxo de desenvolvimento na conversa.
+ *  - Chat + pedido explícito de missão (ou confirmação de plano de missão) →
+ *    missão durável, executada pelo runtime do Cockpit.
  */
 import { createMissionRecord } from "@/lib/missions/createMissionRecord";
 import { enqueueMissionExecutionJob } from "@/lib/runtime/durableJobs";
 import {
   buildChatAutoIdempotencyKey,
-  detectAffirmativeConfirmation,
-  detectBuildIntent,
-  hasNumberedPlan,
+  detectExplicitMissionRequest,
   pickObjective,
 } from "./autoMissionRules";
 
@@ -33,12 +35,9 @@ export async function maybeCreateAutoMission(opts: {
   const userText = (opts.userText ?? "").trim();
   if (!opts.userId || !userText) return null;
 
-  const buildRequest = detectBuildIntent(userText);
-  const confirmation =
-    !buildRequest &&
-    detectAffirmativeConfirmation(userText) &&
-    hasNumberedPlan(opts.lastAssistantText ?? "");
-  if (!buildRequest && !confirmation) return null;
+  // Sem caminho de confirmação: respostas tipo "sim/pode seguir" no Chat
+  // retomam o FLUXO DE CRIAÇÃO da conversa (buildRunner), nunca uma missão.
+  if (!detectExplicitMissionRequest(userText)) return null;
 
   const objective = pickObjective(opts.history ?? [], userText);
   const idempotencyKey = buildChatAutoIdempotencyKey(opts.conversationId ?? "noconv", objective);

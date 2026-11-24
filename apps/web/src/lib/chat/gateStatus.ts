@@ -80,6 +80,34 @@ export function mapGateStatusToUi(
   return { status: dbStatus as GateUiStatus };
 }
 
+/**
+ * Aprovações contextuais: a origem da solicitação determina a tela da
+ * aprovação. Marcador persistido na própria linha do write_gate (missionId):
+ *  - missionId != null → gate da execução durável do Cockpit (aparece no
+ *    Cockpit; o Chat não pode exigi-lo).
+ *  - missionId == null → escrita originada no Chat (aprovação no próprio Chat).
+ * A vinculação é feita na CRIAÇÃO do gate e sobrevive a checkpoints,
+ * retomadas e mudanças de estado.
+ */
+export type GateApprovalContext = "chat" | "cockpit";
+
+export type GateWithContext = {
+  id: string;
+  missionId?: string | null;
+  [key: string]: unknown;
+};
+
+export function gateApprovalContext(gate: GateWithContext): GateApprovalContext {
+  return gate.missionId ? "cockpit" : "chat";
+}
+
+export function filterGatesForContext<T extends GateWithContext>(
+  gates: T[],
+  context: GateApprovalContext
+): T[] {
+  return gates.filter((gate) => gateApprovalContext(gate) === context);
+}
+
 export type NormalizeToolCallTarget = {
   status: string;
   summaryOutput?: string;

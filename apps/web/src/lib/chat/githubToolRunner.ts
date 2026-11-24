@@ -451,7 +451,10 @@ Para escritas (repo_create / push_files / github.files.write / github.branches.c
   if (base) payload.base = base;
   if (query) payload.query = query;
   if (tree_sha) payload.tree_sha = tree_sha;
-  if (opts.missionId) payload.missionId = opts.missionId;
+  // Origem contextual: escrita solicitada NO CHAT gera gate NO CHAT. Não
+  // vinculamos missionId ao payload (evitaria aprovação migrar para o Cockpit);
+  // a execução continua sendo registrada como evidência da missão quando
+  // opts.missionId existe, mas a aprovação fica no ambiente de origem.
 
   const rawInput = JSON.stringify(payload);
   const startedAt = new Date();

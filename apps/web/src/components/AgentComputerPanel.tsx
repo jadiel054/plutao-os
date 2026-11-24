@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { filterWorkEvents } from "@/lib/events/workEvents";
+import { filterWorkEvents, dedupeBySeq } from "@/lib/events/workEvents";
 import { MissionGraphView } from "@/components/MissionGraphView";
 
 export type AgentEvent = {
@@ -75,6 +75,18 @@ function focusEvent(events: AgentEvent[]): AgentEvent | null {
  * G3 — Computador do agente: só trabalho (action/observation/plan/state_update).
  * Chat messages ficam fora. SSE retoma via ?cursor= / Last-Event-ID no server.
  */
+export type ComputerControllerState = "agent" | "human";
+
+export const COMPUTADOR_STATE_LABELS: Record<string, string> = {
+  initializing: "inicializando",
+  working: "trabalhando",
+  human_control: "sob seu controle",
+  waiting_human: "aguardando você",
+  completed: "concluído",
+  error: "erro",
+  idle: "inativa",
+};
+
 export function AgentComputerPanel({ conversationId, missionId }: Props) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState<AgentEvent[]>([]);
@@ -90,6 +102,32 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
   const lastSeqRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
 
+  // Computador do Plutão — controle exclusivo agente × humano + tela real.
+  const [controller, setController] = useState<ComputerControllerState>("agent");
+  const [screenHtml, setScreenHtml] = useState<string>("");
+  const [screenPath, setScreenPath] = useState<string>("");
+  const [cmdText, setCmdText] = useState("");
+  const [cmdOutput, setCmdOutput] = useState<string>("");
+  const [editPath, setEditPath] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [controlBusy, setControlBusy] = useState(false);
+
+  const refreshController = useCallback(async () => {
+    if (!conversationId) return;
+    try {
+      const res = await fetch(
+        `/api/computer/${encodeURIComponent(conversationId)}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return;
+      const data = asRecord(await res.json());
+      if (data?.controller === "human" || data?.controller === "agent") {
+        setController(data.controller);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [conversationId]);
   useEffect(() => {
     if (!missionId) {
       setMissionGraph(null);
@@ -154,11 +192,13 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
     const work = filterWorkEvents(incoming);
     if (work.length === 0) return;
     setEvents((prev) => {
-      const bySeq = new Map<number, AgentEvent>();
-      for (const e of prev) bySeq.set(e.seq, e);
-      for (const e of work) bySeq.set(e.seq, e);
-      const next = Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
-      if (next.length) lastSeqRef.current = next[next.length - 1]!.seq;
+      const next = dedupeBySeq([...prev, ...work]);
+      if (next.length) {
+        lastSeqRef.current = Math.max(
+          lastSeqRef.current,
+          next[next.length - 1]!.seq
+        );
+      }
       return next;
     });
   }, []);
@@ -257,6 +297,139 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
     () => (events.length === 0 ? [] : events.slice(0, viewIndex + 1)),
     [events, viewIndex]
   );
+
+  // Estado do computador: último state_update REAL emitido pelo runtime.
+  const computerState = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i]!;
+      if (ev.type === "state_update" && ev.payload?.computer === true) {
+        return typeof ev.payload.state === "string" ? ev.payload.state : null;
+      }
+    }
+    return null;
+  }, [events]);
+
+  // Tela real da máquina: HTML atual do sandbox da conversa, re-renderizada
+  // a cada evolução do runtime (eventos novos) — não é screenshot simulado.
+  const refreshScreen = useCallback(async () => {
+    if (!conversationId) return;
+    try {
+      const res = await fetch(
+        `/api/computer/${encodeURIComponent(conversationId)}/screen`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return;
+      const data = asRecord(await res.json());
+      if (data?.found === true && typeof data.content === "string") {
+        setScreenHtml(data.content);
+        setScreenPath(typeof data.path === "string" ? data.path : "");
+      } else {
+        setScreenHtml("");
+        setScreenPath("");
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [conversationId]);
+
+  const setControl = useCallback(
+    async (action: "takeover" | "release") => {
+      if (!conversationId || controlBusy) return;
+      setControlBusy(true);
+      try {
+        const res = await fetch(
+          `/api/computer/${encodeURIComponent(conversationId)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          }
+        );
+        if (res.ok) {
+          const data = asRecord(await res.json());
+          if (data?.controller === "human" || data?.controller === "agent") {
+            setController(data.controller);
+          }
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        setControlBusy(false);
+      }
+    },
+    [conversationId, controlBusy]
+  );
+
+  const runHumanAction = useCallback(
+    async (payload: { tool: string; input: unknown }) => {
+      if (!conversationId) return null;
+      try {
+        const res = await fetch(
+          `/api/computer/${encodeURIComponent(conversationId)}/action`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }
+        );
+        const data = asRecord(await res.json());
+        if (!res.ok) {
+          return `${data?.error ?? "erro"}: ${typeof data?.message === "string" ? data.message : ""}`;
+        }
+        const out = typeof data?.output === "string" && data.output
+          ? data.output
+          : "(ok)";
+        return out.slice(0, 2000);
+      } catch {
+        return "(falha de rede ao executar a ação)";
+      }
+    },
+    [conversationId]
+  );
+
+  const runHumanCommand = useCallback(async () => {
+    const raw = cmdText.trim();
+    if (!raw) return;
+    const parts = raw.split(/\s+/);
+    setCmdOutput("(executando...)");
+    const res = await runHumanAction({
+      tool: "process",
+      input: { cmd: parts[0], args: parts.slice(1) },
+    });
+    setCmdOutput(res ?? "(sem resposta)");
+  }, [cmdText, runHumanAction]);
+
+  const saveHumanFile = useCallback(async () => {
+    if (!editPath.trim()) return;
+    setCmdOutput("(gravando arquivo...)");
+    const res = await runHumanAction({
+      tool: "filesystem",
+      input: {
+        action: "write",
+        payload: { path: editPath.trim(), content: editContent },
+      },
+    });
+    setCmdOutput(res ?? "(sem resposta)");
+    void refreshScreen();
+  }, [editPath, editContent, runHumanAction, refreshScreen]);
+
+  // Poll de controle + tela enquanto o painel está aberto. A tela também é
+  // atualizada automaticamente a cada lote de eventos do runtime.
+  useEffect(() => {
+    if (!open || !conversationId) return;
+    void refreshController();
+    void refreshScreen();
+    const interval = window.setInterval(() => void refreshController(), 4000);
+    return () => window.clearInterval(interval);
+  }, [open, conversationId, refreshController, refreshScreen]);
+
+  useEffect(() => {
+    if (!open || !conversationId) return;
+    if (events.length === 0) return;
+    void refreshScreen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events.length, open, conversationId]);
+
   const focus = focusEvent(visibleEvents);
   const recentActivity = useMemo(
     () => [...visibleEvents].reverse().slice(0, 8),
@@ -319,9 +492,115 @@ export function AgentComputerPanel({ conversationId, missionId }: Props) {
               specialistProfiles={specialistProfiles}
             />
           ) : null}
+          <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--base)]/40 p-2.5">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <p className="text-[10px] font-mono uppercase text-[var(--text-muted)]">
+                Preview do app · sandbox da conversa
+                {screenPath ? ` · ${screenPath}` : ""}
+              </p>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border ${
+                  controller === "human"
+                    ? "border-[var(--selo)]/50 bg-[var(--selo)]/10 text-[var(--selo)]"
+                    : "border-[var(--border)] text-[var(--text-muted)]"
+                }`}
+              >
+                {controller === "human"
+                  ? "CONTROLE: VOCÊ"
+                  : "CONTROLE: AGENTE"}
+              </span>
+              <button
+                type="button"
+                disabled={controlBusy}
+                onClick={() => void setControl(controller === "human" ? "release" : "takeover")}
+                className="ml-auto px-2.5 py-1 rounded-lg border border-[var(--border)] text-[11px] font-semibold disabled:opacity-40"
+              >
+                {controller === "human" ? "Devolver controle" : "Assumir controle"}
+              </button>
+            </div>
+            {computerState ? (
+              <p className="text-[10px] font-mono text-[var(--text-muted)] mb-1">
+                estado: {COMPUTADOR_STATE_LABELS[computerState] ?? computerState}
+              </p>
+            ) : null}
+            <p className="text-[10px] text-[var(--text-muted)] mb-1.5">
+              Assumir controle PAUSA o agente e libera terminal + arquivos reais.
+              Controle total de navegador remoto (Chromium ao vivo) requer worker
+              dedicado — ver docs/COMPUTADOR_DO_PLUTAO.md.
+            </p>
+            {screenHtml ? (
+              <iframe
+                title="Tela do Computador do Plutão"
+                sandbox="allow-scripts allow-forms allow-modals"
+                srcDoc={screenHtml}
+                className="w-full rounded-lg border border-[var(--border)]/60 bg-white"
+                style={{ height: 280 }}
+              />
+            ) : (
+              <p className="text-xs text-[var(--text-muted)] italic mb-1">
+                Nenhum HTML na máquina ainda — a tela aparece assim que o
+                desenvolvimento gravar um arquivo .html no sandbox da conversa.
+              </p>
+            )}
+          </div>
+
+          {controller === "human" ? (
+            <div className="rounded-xl border border-[var(--selo)]/40 bg-[var(--selo)]/5 p-2.5 space-y-2">
+              <p className="text-[10px] font-mono uppercase text-[var(--selo)]">
+                Sob seu controle — agente pausado. Terminal e arquivos abaixo; o preview acima é interativo (cliques/digitação direto no app)
+              </p>
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={cmdText}
+                  onChange={(e) => setCmdText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void runHumanCommand();
+                  }}
+                  placeholder="comando allowlist: node, npm, npx, git, ls, cat, mkdir..."
+                  className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--base)]/60 px-2 py-1.5 text-[11px] font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => void runHumanCommand()}
+                  disabled={!cmdText.trim()}
+                  className="px-2.5 py-1 rounded-lg bg-[var(--selo)] text-[var(--base)] text-[11px] font-semibold disabled:opacity-40"
+                >
+                  Executar
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={editPath}
+                  onChange={(e) => setEditPath(e.target.value)}
+                  placeholder="caminho relativo (ex.: pages/sobre.html)"
+                  className="w-44 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--base)]/60 px-2 py-1.5 text-[11px] font-mono"
+                />
+                <input
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  placeholder="conteúdo do arquivo"
+                  className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--base)]/60 px-2 py-1.5 text-[11px] font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveHumanFile()}
+                  disabled={!editPath.trim()}
+                  className="px-2.5 py-1 rounded-lg border border-[var(--border)] text-[11px] font-semibold disabled:opacity-40"
+                >
+                  Gravar
+                </button>
+              </div>
+              {cmdOutput ? (
+                <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-words font-mono max-h-32 overflow-y-auto text-[var(--text-primary)]">
+                  {cmdOutput}
+                </pre>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--base)]/40 p-2.5 min-h-[72px]">
             <p className="text-[10px] font-mono uppercase text-[var(--text-muted)] mb-1">
-              Tela
+              Último resultado · ao vivo
             </p>
             {focus ? (
               <div className="space-y-1.5">

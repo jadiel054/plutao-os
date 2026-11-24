@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChatAutoIdempotencyKey,
   detectAffirmativeConfirmation,
+  detectBuildContinuation,
   detectBuildIntent,
   hasNumberedPlan,
   pickObjective,
@@ -12,6 +13,17 @@ describe("autoMissionRules", () => {
     expect(detectBuildIntent("crie um site estático de padaria com página única")).toBe(true);
     expect(detectBuildIntent("desenvolva um app de tarefas")).toBe(true);
     expect(detectBuildIntent("faça um sistema de vendas em HTML/CSS")).toBe(true);
+    expect(detectBuildIntent("Crie um sistema completo de gerenciamento para uma padaria")).toBe(true);
+    expect(detectBuildIntent("Crie um site")).toBe(true);
+    expect(detectBuildIntent("Desenvolva uma plataforma de cursos")).toBe(true);
+  });
+
+  it("detecta continuidade de desenvolvimento (corrigir/estender)", () => {
+    expect(detectBuildContinuation("analise o repositório")).toBe(false);
+    expect(detectBuildContinuation("Corrija este projeto.")).toBe(true);
+    expect(detectBuildContinuation("Adicione uma funcionalidade de carrinho no sistema")).toBe(true);
+    expect(detectBuildContinuation("Corrija o bug de exibição da página de checkout")).toBe(true);
+    expect(detectBuildContinuation("Crie uma missão para auditar o sistema")).toBe(false);
   });
 
   it("não vira missão em consultas e análises", () => {

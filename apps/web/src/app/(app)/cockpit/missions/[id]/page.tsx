@@ -7,6 +7,7 @@ import { MobileNav } from "@/components/MobileNav";
 import { ToastContainer, type ToastMessage, type ToastType } from "@/components/Toast";
 import { MissionTimeline, buildMissionTimeline } from "@/components/MissionTimeline";
 import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
+import { MissionApprovalPanel } from "@/components/MissionApprovalPanel";
 import { MissionDoDPanel } from "@/components/MissionDoDPanel";
 import { sanitizeError, sanitizeErrorForClient } from "@/lib/security/sanitize";
 
@@ -177,6 +178,7 @@ export default function MissionDetailPage({ params }: Props) {
           </section>
           <div className="space-y-5">
             <MissionDoDPanel passed={overview.dod?.passed ?? null} summary={overview.dod?.summary} checks={overview.dod?.checks ?? []} onVerify={() => void verifyDod()} busy={dodLoading} />
+            <MissionApprovalPanel missionId={id} onChanged={() => void load(true)} />
             <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <h2 className="mb-3 text-[11px] font-mono font-semibold text-[var(--text-muted)]">GRAFO DA MISSÃO</h2>
           {graphNodes.length === 0 ? <p className="text-xs text-[var(--text-muted)]">Grafo ainda não persistido.</p> : <ol className="space-y-1.5">{graphNodes.map((node, index) => <li key={node.id ?? index} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs"><span className="font-mono text-[var(--text-muted)]">{index + 1}</span><span>{node.title ?? node.label ?? node.id ?? "Nó"}</span></li>)}</ol>}

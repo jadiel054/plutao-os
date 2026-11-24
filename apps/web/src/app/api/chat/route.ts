@@ -16,6 +16,12 @@ import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/run
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
 import { extractSuggestedPlan } from "@/lib/missions/extractPlan";
 import { maybeCreateAutoMission } from "@/lib/missions/autoMissionFromChat";
+import {
+  detectAffirmativeConfirmation,
+  hasNumberedPlan,
+} from "@/lib/missions/autoMissionRules";
+import { classifyChatIntent } from "@/lib/chat/intent";
+import { runChatBuildFlow, type ChatBuildResult } from "@/lib/chat/buildRunner";
 import { recordModelError } from "@/lib/missions/recordModelError";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
@@ -36,6 +42,13 @@ import {
 } from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
+/**
+ * O fluxo de criação no Chat (buildRunner) roda dentro deste request ANTES do
+ * stream — o limite aqui precisa cobrir CHAT_BUILD_MAX_DURATION_MS + streaming.
+ * Em planos Vercel com teto menor, o runtime clampa e os limites do build
+ * (env CHAT_BUILD_MAX_*) devem ser reduzidos em conformidade.
+ */
+export const maxDuration = 300;
 
 type ChatInputMessage = {
   role: "user" | "assistant";
@@ -392,11 +405,25 @@ export async function POST(req: NextRequest) {
     }
 
 
-    // Criação automática de missão a partir do chat: quando o usuário pede uma
-    // construção (site, app, sistema) ou confirma um plano proposto, o sistema
-    // cria a missão e enfileira a execução durável — sem delegar ao Cockpit.
+    // SEPARAÇÃO CHAT × COCKPIT — a origem determina o fluxo:
+    //  - "Crie um sistema/site/app" (intenção build) → o Chat executa a criação
+    //    direto na conversa (buildRunner, Software Factory sandboxada). NÃO cria
+    //    missão, NÃO enfileira job, NÃO exige Cockpit.
+    //  - "Crie uma missão para..." (pedido EXPLICITO) → missão durável criada
+    //    aqui (source "chat") e executada pelo runtime do Cockpit; aprovações
+    //    dessa missão aparecem no Cockpit, não no Chat.
+    // Confirmações curtas ("sim, pode seguir") retomam o fluxo de criação da
+    // conversa — nunca uma missão.
     let autoMissionNotice = "";
-    if (!user.isGuest) {
+    let buildResult: ChatBuildResult | null = null;
+    const chatIntent = user.isGuest ? "conversation" : classifyChatIntent(lastUserText);
+    const buildConfirmation =
+      !chatIntent || chatIntent === "conversation"
+        ? detectAffirmativeConfirmation(lastUserText) &&
+          hasNumberedPlan(lastAssistantMsg?.content ?? "") &&
+          !missionId
+        : false;
+    if (!user.isGuest && chatIntent === "mission") {
       try {
         const auto = await maybeCreateAutoMission({
           userId: user.id,
@@ -410,18 +437,46 @@ export async function POST(req: NextRequest) {
             "\nRUNTIME NOTICE: Uma missão durável foi " +
             (auto.created ? "criada e enfileirada" : "já existente (deduplicada)") +
             " automaticamente pelo sistema (id " + auto.missionId + ", objetivo: " + JSON.stringify(auto.objective) + ")." +
-            " Informe ao usuário que a missão foi criada e está em execução (aguardando a única aprovação em lote, se aplicável)." +
-            " NUNCA peça para o usuário criar/executar a missão no Cockpit — a criação já aconteceu.";
+            " A missão é operacional: acompanhamento, tasks, evidências, DoD e aprovações acontecem NO COCKPIT." +
+            " Informe ao usuário que a missão foi criada e está em execução no Cockpit, sem apagar esta conversa; NUNCA peça para o usuário criar/executar a missão; NUNCA prometa aprovação ou cards de gate aqui no chat para esta missão.";
         }
       } catch (e) {
         console.error("[chat auto mission]", e);
       }
     }
 
-    // Identidade do agente — perfil de Configurações > Agente.
-    // Antes: os valores eram carregados e DESCARTADOS (só o nome aparecia na
+    // FLUXO DE CRIAÇÃO NO CHAT — intent build (só o nome aparecia na
     // mensagem de fallback sem chave de API), então personalizar identidade ou
     // personalidade não tinha efeito algum no comportamento do agente.
+    // FLUXO DE CRIAÇÃO NO CHAT — intent build ou confirmação de plano: executa
+    // agora, na conversa, via buildRunner (sandbox por conversationId). Nada de
+    // missão, job durável ou Cockpit. Progresso real é injetado no contexto.
+    let buildNotice = "";
+    if (!user.isGuest && (chatIntent === "build" || (buildConfirmation && !autoMissionNotice))) {
+      const buildModelConfig = customModelConfig ?? getModelConfig();
+      if (buildModelConfig) {
+        try {
+          const flow = await runChatBuildFlow({
+            userId: user.id,
+            conversationId: activeConversationId,
+            userText: lastUserText,
+            history: history.slice(-6),
+            modelConfig: buildModelConfig,
+            connectorBlock: connectorSnap.systemBlock,
+          });
+          if (flow.executed) {
+            buildResult = flow;
+            buildNotice = "\n\n" + flow.notice;
+          } else if (flow.reason === "model_not_configured" && flow.notice) {
+            buildNotice = "\n" + flow.notice;
+          }
+        } catch (e) {
+          console.error("[chat build flow]", e);
+        }
+      }
+    }
+
+    // Identidade do agente — perfil de Configurações > Agente.
     const agentProfile = await loadAgentIdentity(user.id);
     const agentName = agentProfile.name;
 
@@ -468,7 +523,7 @@ Você é o Núcleo do Plutão (sistema de trabalho):
 conversa → descobre intenção → alinha caminho → executa de verdade → entrega artefato + evidência.
 
 CAPACIDADES DE RUNTIME (reais):
-- Tools locais: note, filesystem (na execução da missão).
+- Tools locais no CHAT: note, filesystem e process (fluxo de criação sandboxado por conversa) + exports locais.
 ${connectorSnap.systemBlock}
 
 QUANDO FOR PROJETO OU MISSÃO:
@@ -479,14 +534,14 @@ Nota: O fluxo formal de missão abaixo aplica-se APENAS quando o usuário solici
 4. Sugira um plano em passos numerados curtos (3–7 passos), um por linha, no formato:
    1. Título do passo
    2. Título do passo
-5. NUNCA delegue execução ao usuário: nunca diga "Crie a missão no Cockpit", "clique em Executar missão" ou similar. Quando o usuário pedir uma construção (site, app, sistema) ou confirmar o plano, o próprio sistema cria a missão e enfileira a execução — você apenas informa que ela foi criada e está em execução (ou aguardando a única aprovação em lote). Para consultas, análises e leituras de repositórios existentes, entregue diretamente o valor e os dados.
+5. NUNCA delegue execução ao usuário: nunca diga "Crie a missão no Cockpit", "clique em Executar missão" ou similar. Quando o usuário pedir uma construção (site, app, sistema) ou confirmar o plano, o runtime executa a CRIAÇÃO NA PRÓPRIA CONVERSA (Software Factory sandboxada) e você reporta progresso e resultado aqui — informe arquivos criados e convide a continuar/ajustar na conversa. NÃO transforme pedido de criação em missão; missão só existe se o usuário pedir explicitamente uma "missão". Se um RUNTIME NOTICE de missão aparecer, a missão é do Cockpit: informe que ela está no Cockpit (acompanhamento e aprovações lá), sem criar cards de aprovação no chat.
 Nunca invente capacidades que o runtime ainda não tem. Seja objetivo e competente.
 
 FALHAS E QUALIDADE:
 Se algo falhar na execução, o sistema exige: Falha → Causa → Inspecionar → Corrigir → Testar → Passed.
 Não incentive pular erros.
 
-${OPERATOR_GOLDEN_RULE}${autoMissionNotice}
+${OPERATOR_GOLDEN_RULE}${autoMissionNotice}${buildNotice}
 
 Após listar projetos/repositórios com tool de conector: em 1–2 frases, destaque o item mais relevante (ex.: plutao-os ou o mais recente) e convide o usuário a ir a fundo — sem listas genéricas de 'próximos passos'.
 
@@ -619,6 +674,30 @@ ${
                   role: payloadMessages[lastIdx].role,
                   content: [{ type: "text", text: existingContent }, ...imageParts],
                 };
+              }
+            }
+
+            // Progresso do fluxo de criação (CHAT) — etapas reais executadas
+            // na conversa, exibidas como cards de ação na própria tela.
+            if (buildResult) {
+              for (const [idx, stepResult] of buildResult.steps.entries()) {
+                const toolId = `build-${idx}-${stepResult.tool}`;
+                const provider = stepResult.tool.startsWith("files.")
+                  ? "files"
+                  : stepResult.tool;
+                emit("tool_start", {
+                  id: toolId,
+                  provider,
+                  capability: "chat_build",
+                  summaryInput: stepResult.tool,
+                });
+                emit("tool_result", {
+                  id: toolId,
+                  provider,
+                  status: stepResult.ok ? "ok" : "error",
+                  summaryOutput: stepResult.detail.slice(0, 300),
+                  durationMs: 0,
+                });
               }
             }
 
