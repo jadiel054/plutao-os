@@ -38,10 +38,18 @@ export async function GET(
     });
   }
 
-  const session = computerSessions.activeFor(conversationId, user.id);
+  // Garante o canal vivo DESTA instância a partir do registro durável
+  // (cross-instance: assume o canal quando o lease do dono expira — abre
+  // navegador novo no Free). Sem registro → 404; canal vivo em outra
+  // instância ainda → 409 CHANNEL_BUSY (a UI tenta de novo).
+  const session = await computerSessions.ensureSession(conversationId, user.id);
   if (!session) {
-    return new Response(JSON.stringify({ error: "SESSION_NOT_FOUND" }), {
-      status: 404,
+    const record = await computerSessions
+      .durableView(conversationId, user.id)
+      .then((view) => (view.channelOwner === "elsewhere" ? "CHANNEL_BUSY" : "SESSION_NOT_FOUND"));
+    const status = record === "CHANNEL_BUSY" ? 409 : 404;
+    return new Response(JSON.stringify({ error: record }), {
+      status,
       headers: { "Content-Type": "application/json" },
     });
   }
@@ -72,6 +80,9 @@ export async function GET(
 
       const statusTimer = setInterval(() => {
         const snap = session.snapshot();
+        // Heartbeat do canal para o store durável (mantém o lease da
+        // instância viva enquanto existir espectador conectado).
+        void computerSessions.heartbeat(session).catch(() => undefined);
         send("status", { status: snap.status, controller: snap.controller, leaseExpiresAt: snap.leaseExpiresAt, error: snap.error });
       }, 2000);
 

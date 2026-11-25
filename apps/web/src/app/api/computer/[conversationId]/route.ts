@@ -34,10 +34,15 @@ export async function GET(
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
   const session = computerSessions.activeFor(conversationId, user.id);
+  // Controller DURÁVEL quando não há canal local: o CAS fica no store (Neon)
+  // e é legível por qualquer instância.
+  const durableController = session ? null : await computerSessions.isHumanInControlDurable(conversationId, user.id);
   return NextResponse.json({
     controller: session
       ? session.snapshot().controller
-      : await getComputerController(conversationId),
+      : durableController
+        ? "human"
+        : await getComputerController(conversationId),
     remoteSession: session ? connectionView(session.snapshot()) : null,
   });
 }
@@ -81,13 +86,18 @@ export async function POST(
         ? await computerSessions.takeHumanControl(conversationId, user.id)
         : await computerSessions.releaseToAgent(conversationId, user.id);
     if (!cas.ok) {
+      const inflight = cas.reason === "ACTION_INFLIGHT";
       return NextResponse.json(
         {
-          error: "CONTROL_CONFLICT",
+          error: inflight ? "ACTION_INFLIGHT" : "CONTROL_CONFLICT",
           message:
-            body.action === "takeover"
-              ? "Outro controle já está ativo — não há simultaneidade."
-              : "O controle já está com o agente.",
+            cas.reason === "SESSION_NOT_FOUND"
+              ? "Nenhuma sessão ativa desta conversa."
+              : inflight
+                ? "Ainda há uma ação do usuário em andamento — aguarde para devolver o controle."
+                : body.action === "takeover"
+                  ? "Outro controle já está ativo — não há simultaneidade."
+                  : "O controle já está com o agente.",
           controller: cas.controller,
         },
         { status: 409 }

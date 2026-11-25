@@ -91,8 +91,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * PAUSA DO AGENTE (fonte única): humano no controle — via evento durável
- * (legível por qualquer instância) OU via sessão remota ativa do Computador
- * (coordenação atomicamente exclusiva do sessionManager).
+ * (legível por qualquer instância) OU via sessão remota do Computador com
+ * controller verificado no CONTROL PLANE DURÁVEL (store/Neon — CAS atômico
+ * entre instâncias); fallback local por instância com canal vivo.
  */
 export async function isHumanInControl(
   conversationId: string | null | undefined,
@@ -100,6 +101,7 @@ export async function isHumanInControl(
 ): Promise<boolean> {
   if (!conversationId) return false;
   if ((await getComputerController(conversationId)) === "human") return true;
+  if (await computerSessions.isHumanInControlDurable(conversationId, userId)) return true;
   const session = computerSessions.activeFor(conversationId, userId);
   return session ? session.snapshot().controller === "human" : false;
 }

@@ -20,6 +20,7 @@
  *    o Plutao NAO usa: tela e input passam pelas rotas autenticadas.
  */
 import { randomUUID } from "node:crypto";
+import { isForbiddenNavigateUrl } from "../urlGuard";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright-core";
 import {
   ComputerProviderError,
@@ -37,7 +38,6 @@ import {
 const BROWSERLESS_FREE_MAX_SESSION_MS = 2 * 60 * 1000;
 const BROWSERLESS_FREE_MONTHLY_UNITS = 1000;
 const UNIT_MS = 30_000;
-const UNSAFE_URL_PREFIXES = ["javascript:", "data:", "vbscript:"];
 
 export type BrowserlessConfig = {
   token: string;
@@ -74,11 +74,6 @@ function cdpUrl(config: BrowserlessConfig): string {
   return `${config.endpoint}${suffix}token=${encodeURIComponent(config.token)}&timeout=${timeout}`;
 }
 
-function isUnsafeNavigate(url: string): boolean {
-  const lower = url.trim().toLowerCase();
-  return !/^https?:\/\//.test(lower) || UNSAFE_URL_PREFIXES.some((bad) => lower.startsWith(bad));
-}
-
 class BrowserlessSession implements ComputerSession {
   readonly id: string;
   readonly provider: ComputerSessionSnapshot["provider"] = "browserless";
@@ -98,9 +93,12 @@ class BrowserlessSession implements ComputerSession {
   constructor(
     private readonly config: BrowserlessConfig,
     readonly conversationId: string,
-    readonly userId: string
+    readonly userId: string,
+    durableId?: string
   ) {
-    this.id = `cbrl-${randomUUID()}`;
+    // Id durável (linha computer_sessions) quando o manager já fechou o
+    // gate no store; re-attach de outra instância reabre o MESMO id.
+    this.id = durableId ?? `cbrl-${randomUUID()}`;
   }
 
   async open(): Promise<void> {
@@ -252,8 +250,11 @@ class BrowserlessSession implements ComputerSession {
       throw new ComputerProviderError("PROVIDER_UNAVAILABLE", "Sem sessão CDP ativa.");
     }
     if (action.kind === "navigate") {
-      if (isUnsafeNavigate(action.url)) {
-        throw new ComputerProviderError("PROVIDER_UNAVAILABLE", "URL de navegação não permitida.");
+      if (isForbiddenNavigateUrl(action.url)) {
+        throw new ComputerProviderError(
+          "NOT_AUTHORIZED",
+          "URL de navegação não permitida (endereços internos/privados são bloqueados)."
+        );
       }
       await this.page.goto(action.url, { timeout: 30_000 });
       this.renewLease();
@@ -431,8 +432,8 @@ export function createBrowserlessProvider(config: BrowserlessConfig): ComputerPr
         "Reconexão no Free abre navegador novo e NÃO preserva o estado do navegador (estado segue no sandbox da conversa)",
       ],
     }),
-    createSession: ({ conversationId, userId }: CreateSessionOptions) => {
-      const session = new BrowserlessSession(config, conversationId, userId);
+    createSession: ({ conversationId, userId, sessionId }: CreateSessionOptions) => {
+      const session = new BrowserlessSession(config, conversationId, userId, sessionId);
       return session.open().then(() => session as ComputerSession);
     },
   };

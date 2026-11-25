@@ -135,9 +135,12 @@ como preview — nunca como computador real.
 
 ### Segurança e limites (Fase 4)
 
-- 1 sessão simultânea por instalação: reserva atômica no `sessionManager`
-  (seção síncrona do event-loop + marca `reserving` que fecha a janela de
-  corrida do await).
+- 1 sessão simultânea por instalação: gate atômico no STORE DURÁVEL
+  (`lib/computer/store.ts`) — INSERT contra o `índice único parcial
+  ((1)) WHERE closed_at IS NULL` na tabela `computer_sessions` (Neon);
+  importar um número maior de instâncias Vercel não abre segunda sessão
+  (23505 ⇒ SESSION_LIMIT). Sem a tabela, degrada para memória com
+  `persist.degraded = true` avisado na UI (nenhum DDL executado pelo app).
 - Autorização por usuário + conversa em TODA rota (ownership).
 - Segredos apenas no servidor; `view()`/`connectionInfoFor()` não contêm
   token, host do provedor nem URL com credencial (testado).
@@ -145,18 +148,32 @@ como preview — nunca como computador real.
   eventos do PR #203 é APENAS o acompanhamento observável, não a garantia.
 - Lease/TTL: sessões abandonadas expiram (padrão 110s, teto do Free 2 min) e
   são encerradas; encerramento é verificado por todos os acesso.
-- Cota: `PLUTAO_COMPUTER_MONTHLY_UNITS` (default 1.000) acumula unidades por
-  encerramento/expiração; acima disso novas sessões são bloqueadas. Sem
-  cobrança automática em nenhum caminho.
+- Cota DURÁVEL: `units_used` cumulativo por sessão em `computer_sessions`
+  (`GREATEST(units_used, valor)` — só o dono do canal reporta, sem duplicar
+  contagem entre instâncias); bloqueio de novas sessões por
+  `SUM(units_used) WHERE billing_month = mês` >= budget. Reconexão, expiração
+  e encerramento somam na mesma conta mensal. Sem cobrança automática.
+- Segurança do controle humano: cada ação de mouse/teclado/scroll/navegação
+  marca `human_action_until` (TTL 5s, marca atômica) enquanto executa; a
+  devolução do controle é RECUSADA nesse intervalo (409 ACTION_INFLIGHT) —
+  nenhuma ação iniciada sob controle humano continua após a devolução.
 - Confirmação (window.confirm) para encerrar sessão; navegação restrita a
-  http/https.
+  http/https PÚBLICOS: `lib/computer/urlGuard.ts` bloqueia loopback,
+  redes privadas (10/8, 172.16/12, 192.168/16), link-local de metadata
+  (169.254.169.254), CGNAT, hosts `.local/.internal/.localhost`, IPv6
+  privado/mapeado e formas opacas de loopback (`0177.0.0.1`,
+  `2130706433`) — na API e no provedor.
 
-**Limitação honesta (cross-instance):** a exclusividade de UMA sessão por
-instalação entre instâncias serverless distintas exige o registro durável
-proposto (`computer_sessions`, INSERT condicional). Sem a migration, a
-garantia forte é por instância — com o agravante de que o plano Free tem 1
-navegador por vez de qualquer forma: a segunda conexão é recusada pelo
-Browserless (429), que atua como salvaguarda real de concorrência.
+**Arquitetura serverless (control plane × canal vivo):** metadados da sessão
+ficam no Neon (`computer_sessions` — proposta em
+`docs/DB_PROPOSTA_COMPUTER_SESSIONS.md`); o canal vivo do Chromium (CDP,
+screencast, input) é da instância que abriu o navegador, com lease de 30s
+renovado por heartbeat do SSE/input. Outra instância assume o canal quando o
+lease expira — reabrindo o navegador com o MESMO id durável (no Free isso é
+um navegador NOVO; estado de navegador perdido, avisado na UI). Canal ocupado
+→ rotas respondem 409 CHANNEL_BUSY e a UI explica o aguardo. Salvaguarda
+adicional: o plano Free tem 2 navegadores por vez e recusa conexões
+excedentes (429).
 
 ### Preparação para mini PC (Fase 5)
 
@@ -181,16 +198,47 @@ de propósito.
 | # | Requisito | Status | Onde |
 |---|---|---|---|
 | A | criar/encerrar sessão | ✅ real na lógica (mock do provedor); navegação real coberta no teste de integração real | sessionManager.test.ts |
-| B | bloquear 2ª sessão simultânea | ✅ inclui janela de corrida (reserving) | sessionManager.test.ts |
+| B | bloquear 2ª sessão simultânea | ✅ inclui janela de corrida (reserving) E gate cross-instance (2 gerenciadores, 1 store) | sessionManager + store.test.ts |
 | C | acesso negado a outra conversa/usuário | ✅ | sessionManager.test.ts |
 | D | agente pausa no controle humano | ✅ no loop real do buildRunner (sessão remota mockada) | computerRealSession.test.ts |
 | E | agente retoma após devolver | ✅ mesmo caminho | computerRealSession.test.ts |
-| F | nenhum controle simultâneo | ✅ CAS | sessionManager.test.ts |
+| F | nenhum controle simultâneo | ✅ CAS DURÁVEL no store + guarda de ação humana (release recusado com input em andamento) | sessionManager + store.test.ts |
 | G | desconexão/reconexão | ⚠️ lógica + contrato; rede real só no teste de integração | sessionManager + browserlessIntegration |
-| H | cota gratuita esgota → bloqueia | ✅ | sessionManager.test.ts |
+| H | cota gratuita esgota → bloqueia | ✅ conta DURÁVEL no store (sem duplicação entre instâncias) | sessionManager + store.test.ts |
 | I | nenhum segredo no frontend/logs/eventos | ✅ view/connectionInfo sem token/host (assertions sobre String serializada) | sessionManager.test.ts |
 | J | trocar Browserless → self-hosted sem mudar o Chat | ✅ | sessionManager.test.ts |
 | — | Chromium real E2E | ✅ teste de integração real (roda só com `BROWSERLESS_API_TOKEN`; pulado sem token — honesto sobre isso) | browserlessIntegration.test.ts |
 
-Executado nesta sandbox: 89 testes passando (nenhum com token). A validação
-real rede+Chromium fica explícita como pendência para execução com token.
+Executado nesta sandbox (última rodada da suíte completa): **724 testes
+passando + 17 pulados em 125 arquivos**, typecheck `tsc --noEmit` limpo,
+ESLint 0 erros (2 avisos conhecidos de `<img>` no preview), `next build` OK.
+Nenhum teste com token real — a validação rede+Chromium fica explícita como
+pendência para execução com token.
+
+## Correções da auditoria da PR #204 (itens 1–7)
+
+1. **Persistência serverless** — novo `lib/computer/store.ts`: control plane
+   durável (Neon, `SessionStore`) SEPARADO do canal vivo (data plane por
+   instância com lease). `MemorySessionStore` implementa as MESMAS
+   semânticas (testes/fallback); `NeonSessionStore` é SQL cru via
+   `db.execute` (sem DDL); `ResilientSessionStore` degrada com honestidade
+   (42P01 ⇒ memória + `persist.degraded` na UI).
+2. **Índice da sessão única corrigido** — `((1)) WHERE closed_at IS NULL`
+   (ver proposta atualizada); o antigo `UNIQUE (status) WHERE status IN (...)`
+   permitia várias linhas vivas e foi descartado.
+3. **Cota durável** — conexões, reconexões, expirações e consumo mensal são
+   linhas/colunas em `computer_sessions` (`units_used`, `billing_month`),
+   atualizadas por GREATEST e bloqueadas por SUM; nada em memória.
+4. **Ciclo de vida do Free** — TTL do Plutão 110s (< teto de 2 min); a UI
+   mostra contagem regressiva nos últimos ~30s, banner de que reconexão abre
+   navegador novo e de modo degradado/canal ocupado. Nada de "sessão
+   persistente ou ilimitada".
+5. **Controle humano** — guarda de ação em andamento (`human_action_until`)
+   recusa devolução durante input (TTL 5s); nav bloqueada para endereços
+   internos/privados em `urlGuard.ts` (API + provedor).
+6. **Teste real** — PENDENTE e documentado como tal: `browserlessIntegration.test.ts`
+   está preparado (Chromium real, screencast, input, reconexão, encerramento)
+   e roda automaticamente com `BROWSERLESS_API_TOKEN` presente; sem a
+   credencial, pula e a doc NÃO marca a integração como validada.
+7. **Processo** — mesma branch/PR #204, sem merge, sem deploy, sem tocar no
+   Neon (nada de SQL/migration executado).

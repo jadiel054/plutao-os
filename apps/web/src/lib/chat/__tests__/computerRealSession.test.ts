@@ -42,6 +42,8 @@ vi.mock("@/lib/computer/sessionManager", () => ({
     releaseToAgent: vi.fn(),
     isHumanInControlFor: (conversationId: string | null | undefined, userId: string) =>
       conversationId === CONV_ID && userId === USER_ID && h.session.snapshotController() === "human",
+    isHumanInControlDurable: async (conversationId: string | null | undefined, userId: string) =>
+      conversationId === CONV_ID && userId === USER_ID && h.session.snapshotController() === "human",
   },
   resetComputerSessionsForTests: () => undefined,
 }));

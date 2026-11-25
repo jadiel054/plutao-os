@@ -5,10 +5,13 @@
  *   A. criar e encerrar sessão
  *   B. bloquear segunda sessão simultânea (inclusive na janela de reserva)
  *   C. impedir acesso de outra conversa/usuário à sessão
- *   F. impedir controle simultâneo (CAS agente × humano)
- *   H. bloquear novas sessões ao esgotar a cota gratuita
+ *   F. impedir controle simultâneo (CAS agente × humano, DURÁVEL no store)
+ *   H. bloquear novas sessões ao esgotar a cota gratuita (conta DURÁVEL)
  *   I. NAO vazar credenciais/segredos na view e na info de conexão
  *   J. trocar o provedor sem alterar o Chat (browserless → self-hosted)
+ *
+ * Semântica do store durável entre instâncias: store.test.ts (dois
+ * gerenciadores compartilhando o MESMO store = duas instâncias Vercel).
  *
  * Cobertura REAL de rede/Chromium: apps/web/src/lib/computer/__tests__/
  * browserlessIntegration.test.ts (roda só com BROWSERLESS_API_TOKEN).
@@ -18,6 +21,7 @@ import {
   ComputerSessionManager,
   type SessionView,
 } from "../sessionManager";
+import { MemorySessionStore } from "../store";
 import {
   ComputerProviderError,
   type ComputerBrowserAction,
@@ -54,9 +58,11 @@ class FakeRemoteSession implements ComputerSession {
     readonly counter: Counters,
     kind: ComputerProviderKindFake,
     conversationId: string,
-    userId: string
+    userId: string,
+    durableId?: string
   ) {
-    this.id = `fake-${++counter.created}`;
+    const n = ++counter.created;
+    this.id = durableId ?? `fake-${n}`;
     this.provider = kind;
     this.conversationId = conversationId;
     this.userId = userId;
@@ -151,9 +157,9 @@ function fakeProviderFactory(
       monthlyBudgetUnits: kind === "browserless" ? 1000 : Number.POSITIVE_INFINITY,
       notes: kind === "browserless" ? ["Free: sessão de 2 min"] : ["sem provedor externo"],
     }),
-    createSession: ({ conversationId, userId }: CreateSessionOptions) => {
+    createSession: ({ conversationId, userId, sessionId }: CreateSessionOptions) => {
       if (options.failOpen) return Promise.reject(options.failOpen);
-      const session = new FakeRemoteSession(counter, kind, conversationId, userId);
+      const session = new FakeRemoteSession(counter, kind, conversationId, userId, sessionId);
       counter.sessions.push(session);
       return Promise.resolve(session);
     },
@@ -163,11 +169,13 @@ function fakeProviderFactory(
 function makeManager(
   counter: Counters,
   kind: ComputerProviderKindFake = "browserless",
-  options: { configured?: boolean; failOpen?: ComputerProviderError } = {}
+  options: { configured?: boolean; failOpen?: ComputerProviderError; now?: () => number } = {}
 ): ComputerSessionManager {
+  const now = options.now ?? (() => NOW);
   return new ComputerSessionManager({
-    now: () => NOW,
+    now,
     providerFactory: fakeProviderFactory(counter, kind, options),
+    store: new MemorySessionStore({ now }),
   });
 }
 
@@ -226,9 +234,9 @@ describe("Computador do Plutão — gerenciador de sessões (fase 3+4)", () => {
           return s;
         },
       };
-      const mgr = new ComputerSessionManager({ providerFactory: () => slowProvider });
+      const mgr = new ComputerSessionManager({ providerFactory: () => slowProvider, store: new MemorySessionStore({ now: () => NOW }) });
       const first = mgr.reserve({ conversationId: "conv-1", userId: "user-1" });
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(mgr.isReserving()).toBe(true);
       const racing = await mgr.reserve({ conversationId: "conv-2", userId: "user-2" });
       expect(racing).toEqual({ ok: false, reason: "SESSION_LIMIT" });
@@ -277,10 +285,14 @@ describe("Computador do Plutão — gerenciador de sessões (fase 3+4)", () => {
     it("segundo takeover perde a corrida (fallback sem sessão não rouba)", async () => {
       const mgr = makeManager(COUNTERS_FREE);
       await mgr.reserve({ conversationId: "conv-1", userId: "user-1" });
-      const first = mgr.takeHumanControl("conv-1", "user-1");
       const session = mgr.activeFor("conv-1", "user-1")!;
+      const first = await mgr.takeHumanControl("conv-1", "user-1");
+      expect(first.ok).toBe(true);
+      // No segundo takeover PERDE a corrida — por CAS durável OU pelo próprio
+      // objeto local (que é só réplica do plano durável).
+      const secondTake = await mgr.takeHumanControl("conv-1", "user-1");
       const stealer = session.compareAndSetController("agent", "human");
-      expect((await first).ok).toBe(true);
+      expect(secondTake.ok).toBe(false);
       expect(stealer).toBe(false);
       expect(session.snapshot().controller).toBe("human");
 
@@ -384,11 +396,12 @@ describe("Computador do Plutão — gerenciador de sessões (fase 3+4)", () => {
     it("sessão sem lease novo some da lista ativa", async () => {
       let now = NOW;
       const counter = COUNTERS_FREE;
-      const mgr = new ComputerSessionManager({ now: () => now, providerFactory: fakeProviderFactory(counter, "browserless") });
+      const mgr = new ComputerSessionManager({ now: () => now, providerFactory: fakeProviderFactory(counter, "browserless"), store: new MemorySessionStore({ now: () => now }) });
       await mgr.reserve({ conversationId: "conv-1", userId: "user-1" });
       expect(mgr.activeFor("conv-1", "user-1")).not.toBeNull();
       now += 200_000; // > lease + tolerância
       expect(mgr.activeFor("conv-1", "user-1")).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(counter.closed).toBe(1);
     });
   });

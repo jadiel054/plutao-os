@@ -1,15 +1,18 @@
 /**
  * Fases 3+4 — INPUT HUMANO REAL no navegador remoto (mouse/teclado/scroll).
  *
- * Só executa com controle humano ATIVO para esta conversa + usuário
- * (CAS no sessionManager — exclusividade atômica). Cada evento vira um
- * comando CDP real no Chromium da sessão. Reuso do terminal/filesystem
- * humanos do PR #203 fica na rota /action existente.
+ * Só executa com controle humano ATIVO para esta conversa + usuário,
+ * verificado no CONTROL PLANE DURÁVEL (store) — e cada ação marca-se como
+ * "em andamento" (human_action_until): enquanto houver ação executando, a
+ * devolução do controle é RECUSADA, garantindo que nenhuma ação iniciada
+ * sob controle humano continue depois que o controle voltar ao agente.
+ * Navegação passa pelo guard de URLs (bloqueia endereços internos/privados).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { checkConversationOwnership } from "@/app/api/conversations/[id]/route";
 import { computerSessions } from "@/lib/computer/sessionManager";
+import { assertPublicHttpUrl } from "@/lib/computer/urlGuard";
 import type { ComputerBrowserAction } from "@/lib/computer/provider";
 
 export const runtime = "nodejs";
@@ -45,8 +48,12 @@ function parseAction(body: Record<string, unknown>): ComputerBrowserAction | nul
     return { kind, x, y, deltaX: dx, deltaY: dy };
   }
   if (kind === "navigate") {
-    if (typeof body.url !== "string" || !/^https?:\/\//i.test(body.url)) return null;
-    return { kind, url: body.url };
+    if (typeof body.url !== "string") return null;
+    // Fase 4: endereços internos/privados (loopback, rede local, metadata)
+    // são bloqueados na borda da API — além do guard no provedor.
+    const url = assertPublicHttpUrl(body.url);
+    if (!url.ok) return null;
+    return { kind, url: url.url };
   }
   return null;
 }
@@ -76,26 +83,41 @@ export async function POST(
     return NextResponse.json({ error: "Ação de entrada inválida" }, { status: 400 });
   }
 
-  const session = computerSessions.activeFor(conversationId, user.id);
-  if (!session) {
-    return NextResponse.json(
-      { error: "SESSION_NOT_FOUND", message: "Nenhuma sessão ativa desta conversa." },
-      { status: 404 }
-    );
-  }
-
-  // EXCLUSIVIDADE: touchscreen/mouse/teclado só com controle humano vigente.
-  if (session.snapshot().controller !== "human") {
-    return NextResponse.json(
-      {
+  // EXCLUSIVIDADE DURÁVEL: antes de executar, confere controle humano no
+  // store e marca a ação em andamento — enquanto marcada, devolver o
+  // controle é recusado (a ação não sobrevive à devolução).
+  const begin = await computerSessions.beginHumanAction(conversationId, user.id);
+  if (!begin.ok) {
+    const responses = {
+      SESSION_NOT_FOUND: {
+        status: 404,
+        error: "SESSION_NOT_FOUND",
+        message: "Nenhuma sessão ativa desta conversa.",
+      },
+      CHANNEL_BUSY: {
+        status: 409,
+        error: "CHANNEL_BUSY",
+        message: "A sessão existe, mas o canal vivo está em outra instância — tente de novo em instantes.",
+      },
+      NOT_HUMAN_CONTROLLED: {
+        status: 409,
         error: "NOT_HUMAN_CONTROLLED",
         message: "Assuma o controle da máquina antes de usar mouse e teclado reais.",
-        controller: session.snapshot().controller,
       },
-      { status: 409 }
+      ACTION_INFLIGHT: {
+        status: 409,
+        error: "ACTION_INFLIGHT",
+        message: "Já existe uma ação sua em andamento — aguarde para enviar outra.",
+      },
+    } as const;
+    const payload = responses[begin.code];
+    return NextResponse.json(
+      { error: payload.error, message: payload.message },
+      { status: payload.status }
     );
   }
 
+  const session = begin.session;
   try {
     await session.executeAction(action);
   } catch (error) {
@@ -107,6 +129,8 @@ export async function POST(
       { status: 502 }
     );
   }
-
-  return NextResponse.json({ ok: true, controller: session.snapshot().controller });
+  // Libera a marca de ação em andamento e informa o controlador vigente
+  // (o plano durável recusou qualquer devolução durante a execução).
+  const ended = await computerSessions.endHumanAction(session.id);
+  return NextResponse.json({ ok: true, controller: ended.controller });
 }

@@ -53,8 +53,8 @@ export async function GET(
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
 
-  const view = computerSessions.view(conversationId, user.id);
-  const connection = computerSessions.connectionInfoFor(conversationId, user.id);
+  // View DURÁVEL (store no Neon): vale entre instâncias Vercel distintas.
+  const view = await computerSessions.durableView(conversationId, user.id);
   return NextResponse.json(
     {
       session: {
@@ -69,9 +69,15 @@ export async function GET(
         unitsBudget: view.unitsBudget,
         error: view.error,
         activeElsewhere: view.activeElsewhere,
+        channelOwner: view.channelOwner,
+        persist: view.persist,
         limits: view.limits,
-        screenEndpoint: connection?.screenEndpoint ?? null,
-        inputEndpoint: connection?.inputEndpoint ?? null,
+        screenEndpoint: view.sessionId
+          ? `/api/computer/${encodeURIComponent(conversationId)}/screen/stream`
+          : null,
+        inputEndpoint: view.sessionId
+          ? `/api/computer/${encodeURIComponent(conversationId)}/session/input`
+          : null,
       },
       controller: await getComputerController(conversationId),
     },

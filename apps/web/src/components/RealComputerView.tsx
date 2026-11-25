@@ -46,6 +46,13 @@ export function RealComputerView({ conversationId, controller }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [frameSrc, setFrameSrc] = useState<string>("");
   const [sessionUnits, setSessionUnits] = useState<number | null>(null);
+  /** Vida restante do lease da SESSÃO (Free: máx. 2 min por conexão). */
+  const [leaseExpiresAt, setLeaseExpiresAt] = useState<number | null>(null);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  /** Control plane degradado (tabela computer_sessions ainda não aplicada). */
+  const [persistDegraded, setPersistDegraded] = useState(false);
+  /** Canal vivo do Chromium em outra instância (aguardando lease expirar). */
+  const [channelBusy, setChannelBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const esRef = useRef<EventSource | null>(null);
 
@@ -74,9 +81,11 @@ export function RealComputerView({ conversationId, controller }: Props) {
           const data = JSON.parse((msg as MessageEvent).data) as {
             status?: ComputerViewStatus;
             error?: string | null;
+            leaseExpiresAt?: number | null;
           };
           if (data?.status) setStatus(data.status);
           if (data?.error !== undefined) setError(data.error);
+          if (data?.leaseExpiresAt !== undefined) setLeaseExpiresAt(data.leaseExpiresAt ?? null);
         } catch {
           /* ignore */
         }
@@ -88,7 +97,18 @@ export function RealComputerView({ conversationId, controller }: Props) {
       es.addEventListener("error", () => {
         es.close();
         if (esRef.current === es) esRef.current = null;
-        // 404 = sessão inexistente/expirada; não reabre automaticamente.
+        // 404 = sessão inexistente/expirada; 409 = canal vivo em outra
+        // instância — consulta o estado e explica ao usuário.
+        void (async () => {
+          try {
+            const res = await fetch(`/api/computer/${encodeURIComponent(id)}/session`, { cache: "no-store" });
+            if (!res.ok) return;
+            const data = (await res.json()) as { session?: { channelOwner?: string | null } };
+            if (data.session?.channelOwner === "elsewhere") setChannelBusy(true);
+          } catch {
+            /* rede: o polling periódico de loadStatus recupera */
+          }
+        })();
       });
     },
     [stopStream]
@@ -106,12 +126,18 @@ export function RealComputerView({ conversationId, controller }: Props) {
           error?: string | null;
           unitsUsed?: number;
           activeElsewhere?: boolean;
+          leaseExpiresAt?: number | null;
+          channelOwner?: string | null;
+          persist?: { mode?: string; degraded?: boolean };
         };
       };
       if (data.session?.status) setStatus(data.session.status);
       setError(data.session?.error ?? null);
       setSessionUnits(typeof data.session?.unitsUsed === "number" ? data.session.unitsUsed : null);
-      if (data.session?.status === "ready" && !esRef.current) startStream(id);
+      if (data.session?.leaseExpiresAt !== undefined) setLeaseExpiresAt(data.session.leaseExpiresAt ?? null);
+      setPersistDegraded(Boolean(data.session?.persist?.degraded));
+      setChannelBusy(data.session?.channelOwner === "elsewhere");
+      if (data.session?.status === "ready" && !esRef.current && data.session?.channelOwner !== "elsewhere") startStream(id);
     } catch {
       /* ignore */
     }
@@ -176,8 +202,10 @@ export function RealComputerView({ conversationId, controller }: Props) {
     if (!conversationId) return;
     void loadStatus(conversationId);
     const interval = window.setInterval(() => void loadStatus(conversationId), 5000);
+    const tick = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => {
       window.clearInterval(interval);
+      window.clearInterval(tick);
       stopStream();
     };
   }, [conversationId, loadStatus, stopStream]);
@@ -213,6 +241,13 @@ export function RealComputerView({ conversationId, controller }: Props) {
 
   const humanControlled = controller === "human";
   const active = status === "ready";
+  // Fase 4 (honestidade do Free): contagem regressiva quando o limite chega.
+  const leaseMsLeft = active && leaseExpiresAt !== null ? Math.max(0, leaseExpiresAt - nowTick) : null;
+  const leaseNearLimit = leaseMsLeft !== null && leaseMsLeft < 30_000;
+  const browserStateLostHint =
+    status === "reconnecting" || status === "expired"
+      ? "Uma reconexão abre um navegador NOVO no plano Free — o estado do navegador NÃO é preservado. O trabalho fica salvo no sandbox da conversa."
+      : null;
 
   return (
     <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--base)]/40 p-2.5 space-y-2">
@@ -231,6 +266,25 @@ export function RealComputerView({ conversationId, controller }: Props) {
         Tela ao vivo do Chromium REAL via screencast (não é o preview do app).{" "}
         {status === "offline" ? FREE_LIMIT_HINT : ""}
       </p>
+
+      {persistDegraded ? (
+        <p className="text-[10px] font-mono text-[var(--text-muted)]">
+          ⚠ control plane em modo degradado (tabela computer_sessions ainda não aplicada no Neon) — garantias entre instâncias reduzidas
+        </p>
+      ) : null}
+      {channelBusy ? (
+        <p className="text-[10px] font-mono text-[var(--text-muted)]">
+          ⏳ canal vivo do Chromium em outra instância — aguardando o lease expirar (≈30s) para assumir
+        </p>
+      ) : null}
+      {leaseNearLimit && leaseMsLeft !== null ? (
+        <p className="text-[11px] font-mono text-[var(--danger, #b91c1c)]">
+          ⏱ limite do plano Free em ~{Math.ceil(leaseMsLeft / 1000)}s — a sessão vai encerrar; reconecte se precisar (abre navegador novo)
+        </p>
+      ) : null}
+      {browserStateLostHint ? (
+        <p className="text-[10px] font-mono text-[var(--text-muted)]">{browserStateLostHint}</p>
+      ) : null}
 
       {error ? (
         <p className="text-[11px] text-[var(--danger, #b91c1c)] font-mono">{error}</p>

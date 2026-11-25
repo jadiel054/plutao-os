@@ -125,6 +125,13 @@ export type ComputerConnectionInfo = {
 export type CreateSessionOptions = {
   conversationId: string;
   userId: string;
+  /**
+   * Id durável da linha `computer_sessions` (manager chama primeiro o
+   * store para o gate atômico e depois pede ao provedor QUE SESSÃO abrir;
+   * re-attach de outra instância reabre com o MESMO id — no Free isto é
+   * um navegador novo). Ausente: o provedor gera o seu.
+   */
+  sessionId?: string;
 };
 
 export type ComputerSession = {
