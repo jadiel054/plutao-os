@@ -20,11 +20,12 @@
  *    o Plutao NAO usa: tela e input passam pelas rotas autenticadas.
  */
 import { randomUUID } from "node:crypto";
-import { isForbiddenNavigateUrl, egressDecisionForUrl } from "../urlGuard";
+import { isForbiddenNavigateUrl, egressDecisionForUrl, isLoginScreen } from "../urlGuard";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright-core";
 import {
   ComputerProviderError,
   type ComputerBrowserAction,
+  type ComputerActionResult,
   type ComputerConnectionInfo,
   type ComputerController,
   type ComputerProvider,
@@ -136,6 +137,9 @@ class BrowserlessSession implements ComputerSession {
     } catch (error) {
       this.status = "error";
       this.error = error instanceof Error ? error.message : "falha ao conectar";
+      // Fail-closed (inclui egress guard): destrói a conexão parcial — a
+      // sessão remota é liberada em vez de continuar sem proteção.
+      await this.teardownBrowser().catch(() => undefined);
       const message = this.error ?? "";
       if (/429|rate|concurren/i.test(message)) {
         throw new ComputerProviderError(
@@ -168,18 +172,22 @@ class BrowserlessSession implements ComputerSession {
    * BlockedByClient. Best-effort no Cloud (browser remoto); a garantia
    * dura de rede é política de egress no worker (self-hosted).
    */
+  /**
+   * FAIL-CLOSED: se `Fetch.enable` falhar (ou o guard não puder ser
+   * instalado), a inicialização é INTERROMPIDA com erro — o navegador nunca
+   * navega desprotegido; o chamador (open()) destrói a sessão.
+   * Limitação honesta: a proteção completa contra DNS rebinding/SSRF exige
+   * validação de REDE no worker/egress, não apenas checagem de URL no app.
+   */
   private async installEgressGuard(): Promise<void> {
     const cdp = this.cdp;
-    if (!cdp) return;
-    try {
-      cdp.on("Fetch.requestPaused", (params: { requestId: string; request?: { url?: string } }) => {
-        void this.onEgressRequestPaused(params).catch(() => undefined);
-      });
-      await cdp.send("Fetch.enable", {});
-    } catch {
-      // Sem hook parcial: se enable falhou, a página segue sem guard de rede
-      // neste CDP (limitação documentada — mitigate no worker).
+    if (!cdp) {
+      throw new ComputerProviderError("PROVIDER_UNAVAILABLE", "Sem sessão CDP para instalar o guard de egress.");
     }
+    cdp.on("Fetch.requestPaused", (params: { requestId: string; request?: { url?: string } }) => {
+      void this.onEgressRequestPaused(params).catch(() => undefined);
+    });
+    await cdp.send("Fetch.enable", {});
   }
 
   private async onEgressRequestPaused(params: { requestId: string; request?: { url?: string } }): Promise<void> {
@@ -278,7 +286,20 @@ class BrowserlessSession implements ComputerSession {
     return true;
   }
 
-  async executeAction(action: ComputerBrowserAction): Promise<void> {
+  async executeAction(
+    action: ComputerBrowserAction,
+    options?: { signal?: AbortSignal }
+  ): Promise<ComputerActionResult | void> {
+    // FENCING: nenhuma etapa é executada (nem começada) com lock perdido.
+    const guard = () => {
+      if (options?.signal?.aborted) {
+        throw new ComputerProviderError(
+          "SESSION_NOT_FOUND",
+          "Ação humana abortada: lock perdido (controle mudou ou ação mais recente assumiu)."
+        );
+      }
+    };
+    guard();
     const snap = this.snapshot();
     if (this.closed || snap.status === "closed" || snap.status === "expired") {
       throw new ComputerProviderError("SESSION_NOT_FOUND", "Sessão de navegador não está ativa.");
@@ -297,11 +318,21 @@ class BrowserlessSession implements ComputerSession {
           "URL de navegação não permitida (endereços internos/privados são bloqueados)."
         );
       }
+      guard();
       await this.page.goto(action.url, { timeout: 30_000 });
+      guard();
       this.renewLease();
-      return;
+      const pageUrl = this.page?.url() ?? null;
+      let pageTitle: string | null = null;
+      try {
+        pageTitle = this.page ? await this.page.title() : null;
+      } catch {
+        pageTitle = null;
+      }
+      return { pageUrl: pageUrl ?? undefined, pageTitle: pageTitle ?? undefined, isLogin: isLoginScreen(pageUrl, pageTitle) };
     }
     if (action.kind === "mouse") {
+      guard();
       const button = action.button ?? "left";
       switch (action.type) {
         case "move":
@@ -356,6 +387,7 @@ class BrowserlessSession implements ComputerSession {
       return;
     }
     if (action.kind === "key") {
+      guard();
       if (action.text.length > 64) {
         throw new ComputerProviderError("PROVIDER_UNAVAILABLE", "Texto acima do limite.");
       }
@@ -373,6 +405,7 @@ class BrowserlessSession implements ComputerSession {
       return;
     }
     // scroll
+    guard();
     await cdp
       .send("Input.dispatchMouseEvent", {
         type: "mouseWheel",

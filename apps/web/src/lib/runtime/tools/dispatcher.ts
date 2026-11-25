@@ -18,6 +18,7 @@ import { runRender } from "./render";
 import { runExportTool } from "./export";
 import { runArtemis } from "./artemis";
 import { runAutomationExecutor } from "./automation";
+import { runComputerAgentStep } from "@/lib/chat/computerAgentTool";
 import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
 import { evaluateInternalTool, isInternalTool } from "@/lib/capabilities/registry";
 import { isToolAllowedBySpecialist } from "@/lib/missions/specialistProfiles";
@@ -31,7 +32,7 @@ function inputHash(name: string, input: string): string {
 async function dispatchLocal(
   name: ToolName,
   input: string,
-  opts: { executionId?: string; userId: string }
+  opts: { executionId?: string; userId: string; conversationId?: string | null }
 ): Promise<ToolResult> {
   switch (name) {
     case "note":
@@ -62,6 +63,13 @@ async function dispatchLocal(
       return await runAutomationExecutor("playwright", input, opts.userId, opts.executionId);
     case "androidworld":
       return await runAutomationExecutor("androidworld", input, opts.userId, opts.executionId);
+    case "computer":
+      return await runComputerAgentStep({
+        userId: opts.userId,
+        conversationId: opts.conversationId ?? null,
+        input,
+        tool: name,
+      });
     case "files.export_pdf":
     case "files.export_xlsx":
     case "files.export_markdown":
@@ -242,6 +250,7 @@ export async function dispatchTool(opts: {
   const result = await dispatchLocal(opts.name, String(opts.input ?? ""), {
     executionId: opts.executionId,
     userId: opts.userId,
+    conversationId: cp.conversationId ?? null,
   });
   const now = new Date();
   const evidenceId = randomUUID();

@@ -108,6 +108,20 @@ export type ControllerChangeResult = {
   reason?: "SESSION_NOT_FOUND" | "CONTROL_CONFLICT" | "ACTION_INFLIGHT";
 };
 
+/**
+ * FENCING TOKEN: a ação humana perdeu o lock (expirou e outra ação assumiu,
+ * ou a renovação falhou). A ação é abortada — nenhum comando CDP segue depois
+ * de o lock ser perdido e a ação antiga NÃO interfere na ação mais recente.
+ */
+export class HumanActionLockLostError extends Error {
+  constructor(message = "lock da ação humana perdido — ação abortada.") {
+    super(message);
+    this.name = "HumanActionLockLostError";
+  }
+}
+
+export type DurableControllerState = "agent" | "human" | "unknown";
+
 type ManagedEntry = {
   session: ComputerSession;
   conversationId: string;
@@ -370,8 +384,19 @@ export class ComputerSessionManager {
 
   /** Fonte durável da pausa do agente — vale entre instâncias. */
   async isHumanInControlDurable(conversationId: string, userId: string): Promise<boolean> {
+    return (await this.durableControllerState(conversationId, userId)) === "human";
+  }
+
+  /**
+   * Controller DURÁVEL com três estados: `agent` (confirmado no store),
+   * `human` (confirmado) ou `unknown` (sem registro durável legível).
+   * Estado persistido PREVALECE sobre snapshots locais: quem não consegue
+   * confirmar quem tem o controle NÃO envia comandos (fail-safe).
+   */
+  async durableControllerState(conversationId: string, userId: string): Promise<DurableControllerState> {
     const record = await this.recordFor(conversationId, userId);
-    return record?.controller === "human";
+    if (!isLiveRecord(record) || record.userId !== userId) return "unknown";
+    return record.controller;
   }
 
   private async recordFor(conversationId: string, userId: string): Promise<SessionRecord | null> {
@@ -462,7 +487,7 @@ export class ComputerSessionManager {
     conversationId: string,
     userId: string
   ): Promise<
-    | { ok: true; session: ComputerSession }
+    | { ok: true; session: ComputerSession; actionId: string }
     | { ok: false; code: "SESSION_NOT_FOUND" | "CHANNEL_BUSY" | "NOT_HUMAN_CONTROLLED" | "ACTION_INFLIGHT" }
   > {
     const session = (await this.ensureSession(conversationId, userId)) ?? this.activeFor(conversationId, userId);
@@ -475,44 +500,96 @@ export class ComputerSessionManager {
     const record = await this.store.get(session.id);
     if (!isLiveRecord(record)) return { ok: false, code: "SESSION_NOT_FOUND" };
     if (record.controller !== "human") return { ok: false, code: "NOT_HUMAN_CONTROLLED" };
-    if (!(await this.store.setHumanActionInflight(session.id, this.now() + this.humanActionTtlMs))) {
+    const actionId = `act-${randomUUID()}`;
+    if (
+      !(await this.store.setHumanActionInflight(
+        session.id,
+        this.now() + this.humanActionTtlMs,
+        actionId
+      ))
+    ) {
       return { ok: false, code: "ACTION_INFLIGHT" };
     }
-    return { ok: true, session };
+    return { ok: true, session, actionId };
   }
 
-  /** FIM de ação humana: libera a marca e informa o controlador vigente. */
-  async endHumanAction(sessionId: string): Promise<{ controller: ComputerController | null }> {
-    await this.store.clearHumanAction(sessionId).catch(() => undefined);
+  /** FIM de ação humana: libera PELO TOKEN (ação antiga não afeta a nova). */
+  async endHumanAction(
+    sessionId: string,
+    actionId: string
+  ): Promise<{ controller: ComputerController | null }> {
+    await this.store
+      .clearHumanAction(sessionId, actionId)
+      .catch(() => undefined);
     const record = await this.store.get(sessionId).catch(() => null);
     return { controller: isLiveRecord(record) ? record.controller : null };
   }
 
   /**
-   * LOCK RENOVÁVEL de ação humana: `human_action_until` é renovado em loop
-   * durante TODA a execução (navegação pode levar 30s > TTL fixo) e liberado
-   * NO finally — sucesso, erro ou cancelamento. Enquanto o lock está vivo,
-   * CAS humano→agente falha (ACTION_INFLIGHT): o agente NUNCA recebe o
-   * controle com ação humana em voo.
+   * LOCK RENOVÁVEL DE AÇÃO HUMANA COM FENCING TOKEN:
+   *  - `actionId` (token exclusivo) é a identidade da ação no store — a
+   *    renovação e a liberação são CAS pelo TOKEN;
+   *  - renovação em loop durante TODA a execução (navegação pode levar 30s
+   *    > TTL fixo), com liberação garantida no finally;
+   *  - falha de renovação NÃO é engolida: se o store recusar ou falhar, o
+   *    lock foi perdido — a ação é ABORTADA (AbortSignal) e a promise
+   *    rejeita com HumanActionLockLostError (nenhum comando CDP depois da
+   *    perda do lock; ação antiga nunca interfere na mais recente);
+   *  - enquanto o lock está vivo, CAS humano→agente falha (ACTION_INFLIGHT):
+   *    o agente NUNCA recebe o controle com ação humana em voo.
    */
-  async runHumanAction<T>(session: ComputerSession, action: () => Promise<T>): Promise<T> {
+  async runHumanAction<T>(
+    session: ComputerSession,
+    action: (signal: AbortSignal) => Promise<T>,
+    actionId: string
+  ): Promise<T> {
     const sessionId = session.snapshot().sessionId;
+    const abort = new AbortController();
     let renewing = true;
+    let lockError: unknown = null;
     const renewal = (async () => {
       while (renewing) {
         await new Promise((resolve) => setTimeout(resolve, this.humanActionRenewIntervalMs).unref?.());
         if (!renewing) break;
-        await this.store
-          .renewHumanAction(sessionId, this.now() + this.humanActionTtlMs)
-          .catch(() => undefined);
+        try {
+          const renewed = await this.store.renewHumanAction(
+            sessionId,
+            this.now() + this.humanActionTtlMs,
+            actionId
+          );
+          if (!renewed) {
+            lockError = new HumanActionLockLostError("lock expirado ou assumido por ação mais recente.");
+            renewing = false;
+            abort.abort();
+            return;
+          }
+        } catch (error) {
+          // FALHA DE RENOVAÇÃO NÃO É ENGOLIDA: sem confirmação durável do
+          // lock, a ação NÃO continua (fail-safe) e nada é mascarado.
+          lockError = error;
+          renewing = false;
+          abort.abort();
+          return;
+        }
       }
     })();
+    const lost = (async () => {
+      while (lockError === null && renewing) {
+        await new Promise((resolve) => setTimeout(resolve, 25).unref?.());
+      }
+      if (lockError !== null) throw lockError;
+      await new Promise<void>(() => undefined);
+    })();
     try {
-      return await action();
+      return (await Promise.race([action(abort.signal), lost])) as T;
     } finally {
       renewing = false;
-      await this.store.clearHumanAction(sessionId).catch(() => undefined);
+      abort.abort();
+      await this.store
+        .clearHumanAction(sessionId, actionId)
+        .catch(() => undefined);
       await renewal.catch(() => undefined);
+      lost.catch(() => undefined);
     }
   }
 

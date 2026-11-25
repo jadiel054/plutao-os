@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { checkConversationOwnership } from "@/app/api/conversations/[id]/route";
-import { computerSessions } from "@/lib/computer/sessionManager";
+import { computerSessions, HumanActionLockLostError } from "@/lib/computer/sessionManager";
 import { PersistenceUnavailableError } from "@/lib/computer/store";
 import { assertPublicHttpUrl } from "@/lib/computer/urlGuard";
 import type { ComputerBrowserAction } from "@/lib/computer/provider";
@@ -133,13 +133,29 @@ export async function POST(
   }
 
   const session = begin.session;
+  const actionId = begin.actionId;
   try {
-    // LOCK RENOVÁVEL: a marca de ação em andamento é renovada durante TODA
-    // a execução (navegação pode passar de 30s, maior que o TTL fixo) e o
-    // release GARANTIDO no finally — o agente não recebe o controle enquanto
-    // qualquer ação humana estiver em voo.
-    await computerSessions.runHumanAction(session, () => session.executeAction(action));
+    // LOCK RENOVÁVEL COM FENCING TOKEN: a marca de ação em andamento é
+    // renovada durante TODA a execução pelo TOKEN da ação (uma ação antiga
+    // não renova a lock de uma mais recente) e liberada no finally. Se o
+    // lock for perdido, a ação é ABORTADA (AbortSignal) — nenhum comando CDP
+    // segue depois da perda do lock.
+    await computerSessions.runHumanAction(
+      session,
+      (signal) => session.executeAction(action, { signal }),
+      actionId
+    );
   } catch (error) {
+    if (error instanceof HumanActionLockLostError) {
+      return NextResponse.json(
+        {
+          error: "HUMAN_ACTION_LOCK_LOST",
+          message:
+            "O lock da sua ação foi perdido (expirou ou outra ação assumiu) — a ação foi abortada e nenhum comando foi enviado ao navegador.",
+        },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
       {
         error: "ACTION_FAILED",
@@ -148,8 +164,8 @@ export async function POST(
       { status: 502 }
     );
   }
-  // Libera a marca de ação em andamento e informa o controlador vigente
+  // Libera a marca PELO TOKEN e informa o controlador vigente
   // (o plano durável recusou qualquer devolução durante a execução).
-  const ended = await computerSessions.endHumanAction(session.id);
+  const ended = await computerSessions.endHumanAction(session.id, actionId);
   return NextResponse.json({ ok: true, controller: ended.controller });
 }

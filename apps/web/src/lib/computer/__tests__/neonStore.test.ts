@@ -95,6 +95,7 @@ function makeNeonHttpMock(state: MockState): Db {
         channel_instance: null,
         channel_expires_at: null,
         human_action_until: null,
+        human_action_token: null,
         error: null,
         created_at: created,
         closed_at: null,
@@ -139,28 +140,58 @@ function makeNeonHttpMock(state: MockState): Db {
         row.controller = to;
         row.controller_changed_at = new Date(state.now());
         row.human_action_until = null;
+        row.human_action_token = null;
       }
       return { rows: matched ? [{ id }] : [], rowCount: matched ? 1 : 0, command: "UPDATE" };
     }
 
-    if (text.startsWith("UPDATE computer_sessions SET human_action_until = NULL")) {
-      const id = String(params[0]);
+    if (text.startsWith("UPDATE computer_sessions SET human_action_until = NULL, human_action_token = NULL")) {
+      const [id, token] = [String(params[0]), String(params[1])];
       const row = rows.get(id);
-      if (row) row.human_action_until = null;
-      return { rows: [], rowCount: 1, command: "UPDATE" };
+      const matched =
+        row !== undefined &&
+        row.human_action_token !== null &&
+        row.human_action_token !== undefined &&
+        String(row.human_action_token) === token;
+      if (matched) {
+        row.human_action_until = null;
+        row.human_action_token = null;
+      }
+      return { rows: matched ? [{ id }] : [], rowCount: matched ? 1 : 0, command: "UPDATE" };
     }
 
     if (text.startsWith("UPDATE computer_sessions SET human_action_until = ")) {
       const inflightCAS = text.includes("AND (human_action_until IS NULL OR human_action_until < now())");
+      if (text.includes("AND human_action_token =")) {
+        // RENOVAÇÃO (CAS por fencing token): só a ação dona do token renova.
+        const until = dateParam(params[0]);
+        const id = String(params[1]);
+        const token = String(params[2]);
+        const row = rows.get(id);
+        const matched =
+          row !== undefined &&
+          isLiveRow(row) &&
+          row.controller === "human" &&
+          row.human_action_token !== null &&
+          row.human_action_token !== undefined &&
+          String(row.human_action_token) === token;
+        if (matched) row.human_action_until = until;
+        return { rows: matched ? [{ id }] : [], rowCount: matched ? 1 : 0, command: "UPDATE" };
+      }
+      // SET inicial do lock (grava o token): CAS só contra lock vencido.
       const until = dateParam(params[0]);
-      const id = String(params[1]);
+      const token = String(params[1]);
+      const id = String(params[2]);
       const row = rows.get(id);
       const matched =
         row !== undefined &&
         isLiveRow(row) &&
         row.controller === "human" &&
         (!inflightCAS || row.human_action_until === null || dateParam(row.human_action_until).getTime() < state.now());
-      if (matched) row.human_action_until = until;
+      if (matched) {
+        row.human_action_until = until;
+        row.human_action_token = token;
+      }
       return { rows: matched ? [{ id }] : [], rowCount: matched ? 1 : 0, command: "UPDATE" };
     }
 
@@ -286,6 +317,7 @@ function seedRow(state: MockState, overrides: Partial<FakeRow> = {}): FakeRow {
     channel_instance: null,
     channel_expires_at: null,
     human_action_until: null,
+    human_action_token: null,
     error: null,
     created_at: new Date(state.now()),
     closed_at: null,
@@ -361,14 +393,18 @@ describe("NeonSessionStore — formato REAL de resposta do driver Neon HTTP", ()
     const store = new NeonSessionStore(() => makeNeonHttpMock(state));
     seedRow(state, { controller: "human" });
 
-    expect(await store.setHumanActionInflight("s-seed", state.now() + 5_000)).toBe(true);
-    expect(await store.renewHumanAction("s-seed", state.now() + 9_000)).toBe(true);
+    expect(await store.setHumanActionInflight("s-seed", state.now() + 5_000, "act-a-1")).toBe(true);
+    // FENCING: token STALE não renova nem libera o lock de "act-a-1".
+    expect(await store.renewHumanAction("s-seed", state.now() + 9_000, "act-b-stale")).toBe(false);
+    expect(await store.renewHumanAction("s-seed", state.now() + 9_000, "act-a-1")).toBe(true);
+    expect(await store.clearHumanAction("s-seed", "act-b-stale")).toBe(false);
     expect(await store.casController("s-seed", "human", "agent")).toBe(false);
 
     const record = await store.get("s-seed");
     expect((record?.humanActionUntil ?? 0) > state.now()).toBe(true);
+    expect(record?.humanActionToken).toBe("act-a-1");
 
-    await store.clearHumanAction("s-seed");
+    await store.clearHumanAction("s-seed", "act-a-1");
     expect(await store.casController("s-seed", "human", "agent")).toBe(true);
   });
 
@@ -398,7 +434,10 @@ describe("NeonSessionStore — formato REAL de resposta do driver Neon HTTP", ()
     const month = new Date(state.now()).toISOString().slice(0, 7);
     seedRow(state, {
       id: "s-abandoned",
-      created_at: new Date(state.now() - 90_000),
+      // 75_000ms de tempo de parede => 3 unidades (ceil(2.5)) com ~15s de
+      // folga: relógio real, então NÃO encostar na fronteira exata (90_000
+      // quebrava sob carga paralela com qualquer atraso > 0ms).
+      created_at: new Date(state.now() - 75_000),
       lease_expires_at: new Date(state.now() - 50_000),
       billing_month: month,
     });
@@ -525,6 +564,8 @@ describe("Lock renovável de ação humana — agente NUNCA recebe o controle co
     if (!session) throw new Error("sessão deveria existir");
     expect((await a.takeHumanControl("conv-1", "user-1")).ok).toBe(true);
 
+    const begin = await a.beginHumanAction("conv-1", "user-1");
+    if (!begin.ok) throw new Error("ação humana deveria começar");
     const releases: Array<{ ok: boolean; reason?: string }> = [];
     const longNavigation = a.runHumanAction(session, async () => {
       // Navegação "de 30s" comprimida: 500ms com lock que vence em 200ms —
@@ -533,7 +574,7 @@ describe("Lock renovável de ação humana — agente NUNCA recebe o controle co
       releases.push(await a.releaseToAgent("conv-1", "user-1"));
       releases.push(await b.releaseToAgent("conv-1", "user-1"));
       return "navigated";
-    });
+    }, begin.actionId);
 
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect((await b.releaseToAgent("conv-1", "user-1")).ok).toBe(false);

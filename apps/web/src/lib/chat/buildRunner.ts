@@ -21,6 +21,7 @@ import { runNote } from "@/lib/runtime/tools/note";
 import { runFilesystem } from "@/lib/runtime/tools/filesystem";
 import { runProcess } from "@/lib/runtime/tools/process";
 import { runExportTool } from "@/lib/runtime/tools/export";
+import { runComputerAgentStep } from "./computerAgentTool";
 import type { ToolResult } from "@/lib/runtime/tools/types";
 import { buildChatBuildSystemPrompt } from "./buildPrompt";
 import {
@@ -61,6 +62,7 @@ export const CHAT_BUILD_TOOLS = [
   "process",
   "files.export_markdown",
   "files.export_html",
+  "computer",
 ] as const;
 
 export type BuildStep = {
@@ -101,20 +103,25 @@ export async function isHumanInControl(
 ): Promise<boolean> {
   if (!conversationId) return false;
   if ((await getComputerController(conversationId)) === "human") return true;
+  // TRÊS ESTADOS duráveis: human → pausa; agent → confirmado no store, o
+  // agente segue (estado persistido PREVALECE sobre snapshot local);
+  // unknown → fail-safe: com canal vivo local, NÃO confirmado = pausa (o
+  // agente não age sem saber quem controla); sem máquina real, nada de CDP
+  // existe nesta conversa — o estado por eventos decide.
   try {
-    if (await computerSessions.isHumanInControlDurable(conversationId, userId)) return true;
-  } catch (error) {
-    // PersistenceUnavailableError em produção permanece para as rotas de
-    // máquina; no fluxo do Chat, sem control plane o agente segue o evento
-    // durável (acima) — nunca assume que NÃO há humano no controle.
-    if (process.env.NODE_ENV === "production") {
-      const local = computerSessions.activeFor(conversationId, userId);
-      return local ? local.snapshot().controller === "human" : false;
+    const durable = await computerSessions.durableControllerState(conversationId, userId);
+    if (durable === "human") return true;
+    if (durable === "agent") {
+      const session = computerSessions.activeFor(conversationId, userId);
+      return session ? session.snapshot().controller === "human" : false;
     }
-    throw error;
+    return computerSessions.activeFor(conversationId, userId) !== null;
+  } catch {
+    // Sem control plane: com canal local não é possível confirmar o dono do
+    // controle → pausa o agente (fail-safe). Persistência ocupa as rotas da
+    // máquina; o fluxo do Chat sem computador segue o evento durável.
+    return computerSessions.activeFor(conversationId, userId) !== null;
   }
-  const session = computerSessions.activeFor(conversationId, userId);
-  return session ? session.snapshot().controller === "human" : false;
 }
 
 /** Extrai arquivos escritos/gerados de um ToolResult bem-sucedido. */
@@ -159,6 +166,8 @@ export async function dispatchChatBuildTool(opts: {
     case "files.export_markdown":
     case "files.export_html":
       return await runExportTool(opts.name, opts.input, executionId, opts.userId);
+    case "computer":
+      return await runComputerAgentStep({ userId: opts.userId, conversationId: opts.conversationId, input: opts.input, tool: opts.name });
     default:
       return {
         ok: false,

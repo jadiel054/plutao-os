@@ -55,6 +55,8 @@ export type SessionRecord = {
   channelInstance: string | null;
   channelExpiresAt: number | null;
   humanActionUntil: number | null;
+  /** FENCING TOKEN da ação humana em voo — só o dono deste token renova/libera. */
+  humanActionToken: string | null;
   error: string | null;
   createdAt: number;
   closedAt: number | null;
@@ -96,10 +98,19 @@ export type SessionStore = {
   findLiveByConversation(conversationId: string): Promise<SessionRecord | null>;
   /** CAS durável do controle; devolução falha com ação humana em andamento. */
   casController(id: string, from: ComputerController, to: ComputerController): Promise<boolean>;
-  setHumanActionInflight(id: string, until: number): Promise<boolean>;
-  /** Renova o lock de ação em andamento pelo DONO do canal (sem CAS de janela). */
-  renewHumanAction(id: string, until: number): Promise<boolean>;
-  clearHumanAction(id: string): Promise<void>;
+  /** Marca ação em andamento COM fENCING TOKEN — só este token renova/libera. */
+  setHumanActionInflight(id: string, until: number, token: string): Promise<boolean>;
+  /**
+   * Renova o lock de ação por TOKEN: um CAS explícito — a ação antiga (token
+   * diferente, ex. após expirar o TTL e outra ação assumir) NÃO renova o
+   * lock da ação mais recente.
+   */
+  renewHumanAction(id: string, until: number, token: string): Promise<boolean>;
+  /**
+   * Libera o lock pelo TOKEN: liberações STALE (ação antiga correndo atrás de
+   * uma mais recente) não afetam o lock da ação atual.
+   */
+  clearHumanAction(id: string, token: string): Promise<boolean>;
   /** Dono do canal vivo; steal-só-se-expirado entre instâncias. */
   attachChannel(id: string, instanceId: string, leaseMs: number): Promise<AttachOutcome>;
   renewChannel(id: string, instanceId: string, leaseMs: number): Promise<boolean>;
@@ -199,6 +210,7 @@ export class MemorySessionStore implements SessionStore {
       channelInstance: null,
       channelExpiresAt: null,
       humanActionUntil: null,
+      humanActionToken: null,
       error: null,
       createdAt: now,
       closedAt: null,
@@ -238,29 +250,35 @@ export class MemorySessionStore implements SessionStore {
     row.controller = to;
     row.controllerChangedAt = this.now();
     row.humanActionUntil = null;
+    row.humanActionToken = null;
     return true;
   }
 
-  async setHumanActionInflight(id: string, until: number): Promise<boolean> {
+  async setHumanActionInflight(id: string, until: number, token: string): Promise<boolean> {
     const row = this.rows.get(id);
     if (!isLiveRecord(row)) return false;
     const now = this.now();
     if (row.controller !== "human") return false;
     if (row.humanActionUntil !== null && row.humanActionUntil > now) return false;
     row.humanActionUntil = until;
+    row.humanActionToken = token;
     return true;
   }
 
-  async renewHumanAction(id: string, until: number): Promise<boolean> {
+  async renewHumanAction(id: string, until: number, token: string): Promise<boolean> {
     const row = this.rows.get(id);
     if (!isLiveRecord(row) || row.controller !== "human") return false;
+    if (row.humanActionToken !== token) return false;
     row.humanActionUntil = Math.max(row.humanActionUntil ?? 0, until);
     return true;
   }
 
-  async clearHumanAction(id: string): Promise<void> {
+  async clearHumanAction(id: string, token: string): Promise<boolean> {
     const row = this.rows.get(id);
-    if (row) row.humanActionUntil = null;
+    if (!row || row.humanActionToken !== token) return false;
+    row.humanActionUntil = null;
+    row.humanActionToken = null;
+    return true;
   }
 
   async attachChannel(id: string, instanceId: string, leaseMs: number): Promise<AttachOutcome> {
@@ -313,6 +331,7 @@ export class MemorySessionStore implements SessionStore {
     row.status = status;
     row.closedAt = this.now();
     row.humanActionUntil = null;
+    row.humanActionToken = null;
     row.channelInstance = null;
     row.channelExpiresAt = null;
     this.accountWallClockUnits(row);
@@ -377,6 +396,10 @@ function toRecord(row: Row): SessionRecord {
         : String(row.channel_instance),
     channelExpiresAt: row.channel_expires_at ? toMs(row.channel_expires_at) : null,
     humanActionUntil: row.human_action_until ? toMs(row.human_action_until) : null,
+    humanActionToken:
+      row.human_action_token === null || row.human_action_token === undefined
+        ? null
+        : String(row.human_action_token),
     error: row.error === null || row.error === undefined ? null : String(row.error),
     createdAt: toMs(row.created_at),
     closedAt: row.closed_at === null || row.closed_at === undefined ? null : toMs(row.closed_at),
@@ -472,17 +495,18 @@ export class NeonSessionStore implements SessionStore {
         : sql``;
     const result = (await this.db().execute(sql`
       UPDATE computer_sessions
-      SET controller = ${to}, controller_changed_at = now(), human_action_until = NULL
+      SET controller = ${to}, controller_changed_at = now(),
+          human_action_until = NULL, human_action_token = NULL
       WHERE id = ${id} AND controller = ${from} AND closed_at IS NULL${inflightGuard}
       RETURNING id
     `)) as unknown as { rows: Row[] };
     return Number(result.rows?.length ?? 0) > 0;
   }
 
-  async setHumanActionInflight(id: string, until: number): Promise<boolean> {
+  async setHumanActionInflight(id: string, until: number, token: string): Promise<boolean> {
     const result = (await this.db().execute(sql`
       UPDATE computer_sessions
-      SET human_action_until = ${new Date(until)}
+      SET human_action_until = ${new Date(until)}, human_action_token = ${token}
       WHERE id = ${id} AND closed_at IS NULL AND controller = 'human'
         AND (human_action_until IS NULL OR human_action_until < now())
       RETURNING id
@@ -490,20 +514,25 @@ export class NeonSessionStore implements SessionStore {
     return Number(result.rows?.length ?? 0) > 0;
   }
 
-  async renewHumanAction(id: string, until: number): Promise<boolean> {
+  async renewHumanAction(id: string, until: number, token: string): Promise<boolean> {
     const result = (await this.db().execute(sql`
       UPDATE computer_sessions
       SET human_action_until = ${new Date(until)}
       WHERE id = ${id} AND closed_at IS NULL AND controller = 'human'
+        AND human_action_token = ${token}
       RETURNING id
     `)) as unknown as { rows: Row[] };
     return Number(result.rows?.length ?? 0) > 0;
   }
 
-  async clearHumanAction(id: string): Promise<void> {
-    await this.db().execute(
-      sql`UPDATE computer_sessions SET human_action_until = NULL WHERE id = ${id}`
-    );
+  async clearHumanAction(id: string, token: string): Promise<boolean> {
+    const result = (await this.db().execute(sql`
+      UPDATE computer_sessions
+      SET human_action_until = NULL, human_action_token = NULL
+      WHERE id = ${id} AND human_action_token = ${token}
+      RETURNING id
+    `)) as unknown as { rows: Row[] };
+    return Number(result.rows?.length ?? 0) > 0;
   }
 
   async attachChannel(id: string, instanceId: string, leaseMs: number): Promise<AttachOutcome> {
@@ -574,6 +603,7 @@ export class NeonSessionStore implements SessionStore {
     await this.db().execute(sql`
       UPDATE computer_sessions
       SET status = ${status}, closed_at = now(), human_action_until = NULL,
+          human_action_token = NULL,
           channel_instance = NULL, channel_expires_at = NULL,
           units_used = GREATEST(
             units_used,
@@ -598,6 +628,7 @@ export class NeonSessionStore implements SessionStore {
     const result = (await this.db().execute(sql`
       UPDATE computer_sessions
       SET status = 'expired', closed_at = now(), human_action_until = NULL,
+          human_action_token = NULL,
           channel_instance = NULL, channel_expires_at = NULL,
           units_used = GREATEST(
             units_used,
@@ -684,10 +715,22 @@ export class ResilientSessionStore implements SessionStore {
     op: (store: SessionStore) => Promise<T>,
     fallbackOp: (fallback: SessionStore) => Promise<T>
   ): Promise<T> {
-    if (this.degraded) return fallbackOp(this.fallback);
+    if (this.degraded) {
+      // Defesa em profundidade: um estado degradado persistente é inválido
+      // fora de dev/test — nenhuma operação pode silenciosamente usar memória.
+      if (!this.allowDegraded) throw new PersistenceUnavailableError(new Error("store degradado sem permissão"));
+      return fallbackOp(this.fallback);
+    }
     try {
       return await op(this.primary());
     } catch (error) {
+      // FAIL-CLOSED INCONDICIONAL EM PRODUÇÃO: ANTES de qualquer classificação,
+      // sem `allowDegraded` NENHUM erro dá fallback para memória — inclusive
+      // 42P01 (tabela ausente), DATABASE_URL ausente, cliente DB indisponível
+      // e erro de rede. Fallback em memória é EXCLUSIVO de dev/test.
+      if (!this.allowDegraded) {
+        throw new PersistenceUnavailableError(error);
+      }
       if (
         this.isTableMissing(error) ||
         this.isUnusableDbClient(error) ||
@@ -695,9 +738,6 @@ export class ResilientSessionStore implements SessionStore {
       ) {
         this.degrade(error);
         return fallbackOp(this.fallback);
-      }
-      if (!this.allowDegraded) {
-        throw new PersistenceUnavailableError(error);
       }
       throw error;
     }
@@ -731,24 +771,24 @@ export class ResilientSessionStore implements SessionStore {
     );
   }
 
-  setHumanActionInflight(id: string, until: number) {
+  setHumanActionInflight(id: string, until: number, token: string) {
     return this.run(
-      (store) => store.setHumanActionInflight(id, until),
-      (fallback) => fallback.setHumanActionInflight(id, until)
+      (store) => store.setHumanActionInflight(id, until, token),
+      (fallback) => fallback.setHumanActionInflight(id, until, token)
     );
   }
 
-  renewHumanAction(id: string, until: number) {
+  renewHumanAction(id: string, until: number, token: string) {
     return this.run(
-      (store) => store.renewHumanAction(id, until),
-      (fallback) => fallback.renewHumanAction(id, until)
+      (store) => store.renewHumanAction(id, until, token),
+      (fallback) => fallback.renewHumanAction(id, until, token)
     );
   }
 
-  clearHumanAction(id: string) {
+  clearHumanAction(id: string, token: string) {
     return this.run(
-      (store) => store.clearHumanAction(id),
-      (fallback) => fallback.clearHumanAction(id)
+      (store) => store.clearHumanAction(id, token),
+      (fallback) => fallback.clearHumanAction(id, token)
     );
   }
 

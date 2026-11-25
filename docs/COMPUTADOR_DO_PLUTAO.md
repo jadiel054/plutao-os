@@ -347,3 +347,138 @@ rede+Chromium fica explícita como pendência para execução com token.
    (NÃO marcados como validados): canal CDP REAL em worker persistente;
    mouse/teclado/screencast REAIS (integração Browserless com token);
    DNS rebinding REAL (exige resolvedor do worker).
+
+## Correções da 3ª auditoria + fluxo funcional (rodada atual)
+
+### PARTE 1 — Correções técnicas
+
+1. **Fail-closed INCONDICIONAL do `ResilientSessionStore`:** a checagem de
+   `allowDegraded` passou a ANTECEDER qualquer classificação de erro — em
+   produção, 42P01 (tabela ausente), `DATABASE_URL` ausente, cliente DB
+   indisponível e erro de rede lançam `PersistenceUnavailableError` SEM
+   fallback para memória. Há também defesa em profundidade: um estado
+   `degraded` persistente sem permissão lança em TODAS as operações
+   (early-return do `run()`). Fallback em memória é exclusivo de
+   desenvolvimento/testes com `allowDegraded` opt-in.
+2. **Fencing token do lock de ação humana:** cada ação humana recebe
+   `actionId` exclusivo (`act-<uuid>`) gravado com o lease em
+   `human_action_until`/`human_action_token`. Renovação e liberação são CAS
+   PELO TOKEN (`renewHumanAction`/`clearHumanAction` RETURNING id): a ação
+   antiga NÃO renova NEM libera o lock de uma ação mais recente. Se a
+   renovação falhar ou for recusada, a ação ABORTA via `AbortSignal`
+   (nenhum comando CDP é enviado após a perda do lock) e `runHumanAction`
+   rejeita com `HumanActionLockLostError` (→ HTTP 409
+   `HUMAN_ACTION_LOCK_LOST`); falha de renovação nunca é engolida com
+   `.catch(() => undefined)`. `casController`, `close` e `sweepExpired`
+   limpam o token. Pedir ao ChatGPT: coluna `human_action_token TEXT NULL`
+   (ver proposta de schema).
+3. **Controller durável como fonte da verdade (3 estados):** o GET da rota
+   usa `durableControllerState()` → `agent | human | unknown`. Estado
+   persistido PREVALECE sobre snapshots locais; `unknown` NUNCA cai para o
+   snapshot local (resposta explicitamente `"unknown"` sem comandos). A tool
+   `computer` do agente só envia comandos CDP com confirmação durável
+   `"agent"`; `"human"` → pausa; `"unknown"` → `CONTROL_UNCONFIRMED` sem
+   nenhum comando.
+4. **Egress/SSRF fail-closed no adaptador:** se `Fetch.enable` (ou a
+   instalação do guard de egress CDP) falhar, `open()` destrói a conexão
+   parcial (`teardownBrowser()`) e lança — o navegador NUNCA navega
+   desprotegido. `executeAction` re-verifica o `AbortSignal` antes de cada
+   envio (e após navegações) — ação humana abortada não emite mais nenhum
+   comando. HONESTIDADE: proteção completa contra DNS rebinding exige
+   validação de REDE no worker/egress (política de egress + DNS pinning) —
+   a checagem de URL no app cobre navegação inicial e requisições
+   secundárias via CDP `Fetch`, não resolve DNS pelo IP real do destino.
+
+### PARTE 2 — Fluxo funcional (Nix é o operador principal)
+
+```
+tarefa no Chat
+   → Nix escolhe a ação (tool "computer" no loop do build)
+   → controla DURÁVEL confirmado? não → CONTROL_UNCONFIRMED (nada é enviado)
+   → ação no Chromium remoto (navigate/mouse/key/scroll, guard SSRF)
+   → CHECKPOINT durável salvo a cada ação (conversation_events, append-only)
+   → tela de login? existência de credencial autorizada no cofre (conectores)?
+        não → evento waiting_human + CARD no Chat com botão "Assumir controle"
+```
+
+- **Assumir controle:** botão NA MENSAGEM do Chat (não obrigando o usuário
+  a procurar outra área). CAS durável `agent → human`; com lock em voo o
+  takeover falha (`ACTION_INFLIGHT`). O usuário digita credenciais DIRETO
+  no navegador isolado (mouse/teclado reais via CDP) — NUNCA colar senha
+  nem token no chat; nada digitado é armazenado ou registrado; Nix não
+  procura senhas em arquivos, logs, repositórios ou variáveis.
+- **Devolver controle:** botão → DIÁLOGO com texto OPCIONAL de contexto →
+  ao confirmar: contexto persistido no checkpoint (`humanIntervention`),
+  CAS durável `human → agent` (recusado enquanto a ação humana ainda
+  executa) e RETOMADA automática da tarefa (`resumeAfterHumanReturn`) — a
+  UI volta ao Chat automaticamente (estilo Manus), sem obrigar o usuário a
+  permanecer na tela do computador.
+- **Checkpoint durável (retomada sem depender de nova mensagem):** objetivo
+  original, etapa atual, ações concluídas, próxima ação planejada,
+  URL/contexto da página, estado da sessão do navegador e resultado da
+  intervenção humana. Mesmo devolvendo SEM texto, Nix sabe qual tarefa
+  retomar e qual é o próximo passo.
+- **Sessão expirada (Free):** a retomada detecta o estado do navegador
+  (`expired`/`closed`/`error`) e COMUNICA a limitação — aviso explícito de
+  que a reconexão abre um navegador NOVO e a MESMA sessão NÃO foi
+  restaurada. Sem checkpoint, NÃO há retomada automática (`no_checkpoint`)
+  — nada é inventado.
+- **Progresso real:** os eventos de progresso vêm de `state_update`
+  (source `computer`) emitidos DURANTE a tarefa; cards retroativos de ações
+  concluídas continuam existindo, mas não são apresentados como progresso
+  ao vivo.
+
+### PARTE 3 — Limites do Browserless Free (decisões desta rodada)
+
+- **Worker persistente NÃO implementado nesta rodada:** não há mini PC
+  próprio nem orçamento para infraestrutura adicional. A arquitetura
+  `ComputerProvider` segue preparada para um worker futuro; documentada
+  como caminho, não como realidade.
+- **Sem fallback pago:** Browserless Free, 1 sessão simultânea, cota de
+  1.000 unidades/mês (≈8h de navegador); ao fim da cota, novas sessões são
+  bloqueadas (`QUOTA_EXHAUSTED`) — nenhuma cobrança automática.
+- **Reconexão NÃO restaura o mesmo navegador** (estado perdido; consumo do
+  navegador anterior entra no ledger pelo sweep). A UI e a retomada
+  avisam.
+- **Tailscale, noVNC e infraestrutura própria NÃO instalados** nesta
+  rodada — ficam como evolução futura junto do mini PC.
+
+### Testes desta rodada (o que cada prova cobre)
+
+- **Fencing token concorrente A/B** (`humanActionFencing.test.ts`): A perde
+  o lock por TTL, B assume com token novo; token stale de A não renova nem
+  libera; ação A aborta com `HumanActionLockLostError`; erro de renovação
+  não é engolido; ninguém devolve o controle com ação em voo.
+- **Fail-closed em produção** (`store.test.ts`): DATABASE_URL ausente,
+  cliente DB indisponível, tabela ausente (42P01) e estado degradado sem
+  permissão — todos com `PersistenceUnavailableError` e fallback de memória
+  intacto/não usado.
+- **3 estados duráveis** (`durableControllerState.test.ts`): agent/human
+  confirmados no store (inclusive entre instâncias) e `unknown` para sessão
+  fechada/retirada para outro usuário.
+- **Egress fail-closed** (`egressFailClosed.test.ts`, mock de
+  playwright-core): `Fetch.enable` falhando aborta a inicialização com
+  teardown real (browser.close) e nunca inicia screencast sem guard;
+  guard OK → sessão ready.
+- **Fluxo/checkpoint** (`computerFlow.test.ts`): checkpoint salvo/lido;
+  pedido de intervenção com instrução anti-senha; devolução com contexto
+  opcional (inclusive sem checkpoint anterior); leitura do card por eventos
+  (waiting_human vivo vs. resolvido; eventos alheios ignorados); diretiva
+  de retomada com/sem contexto; cofre de credenciais por host exato.
+- **Retomada** (`computerResume.test.ts`): sem checkpoint →
+  `no_checkpoint`; sessão expirada → `browserNotice` honesto; com modelo →
+  retoma com objetivo/próximo passo/contexto; erro → `resume_failed`.
+- **Tool do agente** (`computerAgentTool.test.ts`): parser com guard SSRF
+  (loopback/privadas/metadata/`file://`); HUMAN_IN_CONTROL;
+  CONTROL_UNCONFIRMED sem comando; ACTION_OK gravando checkpoint;
+  WAITING_HUMAN_LOGIN pedindo intervenção.
+- **Card de intervenção** (`ComputerInterventionCard.test.tsx`): botão
+  assumir aparece no waiting_human; takeover expande o navegador real;
+  devolução com diálogo (texto opcional vai no POST, card colapsa → volta
+  ao Chat); aviso honesto de navegador novo; takeover recusado mostra erro
+  sem expandir.
+- **PENDENTE (não validar como feito):** integração REAL Browserless
+  (Chromium + screencast + input + encerramento) só roda com
+  `BROWSERLESS_API_TOKEN` presente — o teste permanece skipped sem a credencial;
+  canal CDP em worker persistente REAL; DNS rebinding REAL (exige egress de
+  rede no worker).

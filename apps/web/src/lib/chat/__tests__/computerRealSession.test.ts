@@ -44,6 +44,10 @@ vi.mock("@/lib/computer/sessionManager", () => ({
       conversationId === CONV_ID && userId === USER_ID && h.session.snapshotController() === "human",
     isHumanInControlDurable: async (conversationId: string | null | undefined, userId: string) =>
       conversationId === CONV_ID && userId === USER_ID && h.session.snapshotController() === "human",
+    durableControllerState: async (conversationId: string | null | undefined, userId: string) => {
+      if (conversationId !== CONV_ID || userId !== USER_ID) return "unknown" as const;
+      return h.session.snapshotController() as "agent" | "human";
+    },
   },
   resetComputerSessionsForTests: () => undefined,
 }));

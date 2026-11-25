@@ -106,11 +106,30 @@ function isBlockedHost(rawHost: string): boolean {
   return isBlockedIpv4(host);
 }
 
+/** Só http/https publicamente roteáveis — usado pelo agente E pelo humano. */
 export type UrlGuardResult =
   | { ok: true; url: string }
   | { ok: false; reason: string };
 
-/** Só http/https publicamente roteáveis — usado pelo agente E pelo humano. */
+const LOGIN_HINT_RE = /(log-?in|sign-?in|entrar|acessar sua conta|autenticar|login)/i;
+
+/**
+ * PURA — heurística de tela de login: URL (path/query) ou título da página
+ * batem com padrões de login. Falso positivo só custa uma pergunta honesta
+ * de intervenção; falso negativo não é seguro NENHUM dado é digitado pelo
+ * agente sem intervenção.
+ */
+export function isLoginScreen(url: string | null | undefined, title?: string | null): boolean {
+  if (title && LOGIN_HINT_RE.test(title)) return true;
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return LOGIN_HINT_RE.test(parsed.pathname) || LOGIN_HINT_RE.test(parsed.search);
+  } catch {
+    return false;
+  }
+}
+
 export function assertPublicHttpUrl(url: string): UrlGuardResult {
   const trimmed = url.trim();
   if (!/^https?:\/\//i.test(trimmed)) {

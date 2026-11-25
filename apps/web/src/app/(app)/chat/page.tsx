@@ -10,6 +10,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { LongInputModal, type ArtifactRef } from "@/components/LongInputModal";
 import { MissionWorkspaceBar } from "@/components/MissionWorkspaceBar";
 import { AgentComputerPanel } from "@/components/AgentComputerPanel";
+import { ComputerInterventionCard } from "@/components/ComputerInterventionCard";
 import { ChatModelDisclosure } from "@/components/ChatModelDisclosure";
 import { ChatAttachMenu } from "@/components/ChatAttachMenu";
 import { ConnectorsSheet } from "@/components/ConnectorsSheet";
@@ -1552,6 +1553,12 @@ function ChatPageInner() {
                 </div>
               </div>
             ))}
+            {(() => {
+              const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+              return lastAssistant && activeConversationId ? (
+                <ComputerInterventionCard conversationId={activeConversationId} />
+              ) : null;
+            })()}
             {sending && (!selectedLocalModel || selectedLocalModel === "cloud" || !localTokenReceived) && (
               <div className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/70 px-3 py-2 text-xs text-[var(--text-muted)]">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--selo)]" aria-hidden />

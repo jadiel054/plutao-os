@@ -7,7 +7,12 @@ import {
   releaseComputerControl,
   takeComputerControl,
 } from "@/lib/chat/computer";
+import {
+  resolveHumanIntervention,
+} from "@/lib/chat/computerFlow";
+import { resumeAfterHumanReturn } from "@/lib/chat/computerResume";
 import { computerSessions } from "@/lib/computer/sessionManager";
+import type { DurableControllerState } from "@/lib/computer/sessionManager";
 import { PersistenceUnavailableError } from "@/lib/computer/store";
 
 export const runtime = "nodejs";
@@ -21,6 +26,11 @@ export const dynamic = "force-dynamic";
  * sessão real — com canal local ou em outra instância Vercel. O evento do
  * computador é apenas o registro observável no Chat — NÃO é a garantia de
  * exclusividade.
+ *
+ * FONTE DA VERDADE (auditoria): controle de sessão REAL é decidido SEMPRE
+ * pelo estado PERSISTIDO — `agent` (confirmado), `human` (confirmado) ou
+ * `unknown` (NÃO confirmado). `unknown` NUNCA cai para o snapshot local:
+ * sem confirmação durável, nenhum lado envia comandos.
  */
 export async function GET(
   _req: NextRequest,
@@ -36,29 +46,33 @@ export async function GET(
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
   const session = computerSessions.activeFor(conversationId, user.id);
-  // Controller DURÁVEL (store) tem precedência sobre o snapshot local: o CAS
-  // vive no banco e é legível por qualquer instância Vercel.
-  let durableIsHuman: boolean;
+  let durable: DurableControllerState;
   try {
-    durableIsHuman = await computerSessions.isHumanInControlDurable(conversationId, user.id);
+    durable = await computerSessions.durableControllerState(conversationId, user.id);
   } catch (error) {
     if (error instanceof PersistenceUnavailableError) return persistenceUnavailable();
     throw error;
   }
-  const snapController = session ? session.snapshot().controller : null;
-  const controller = durableIsHuman
-    ? "human"
-    : snapController
-      ? snapController
-      : await getComputerController(conversationId);
+  // Sessão real → estado persistido prevalece sobre snapshot local. Sem
+  // registro durável legível: `unknown` quando existe canal local (a UI não
+  // envia input sem confirmação); só quando NÃO há máquina real a conversa
+  // usa o estado legado por eventos.
+  const controller =
+    durable !== "unknown"
+      ? durable
+      : session
+        ? ("unknown" as const)
+        : await getComputerController(conversationId);
   return NextResponse.json({
     controller,
-    remoteSession: session ? connectionView(session.snapshot()) : null,
+    remoteSession: session
+      ? {
+          status: session.snapshot().status,
+          controller,
+          leaseExpiresAt: session.snapshot().leaseExpiresAt,
+        }
+      : null,
   });
-}
-
-function connectionView(snap: { status: string; controller: string; leaseExpiresAt: number }) {
-  return { status: snap.status, controller: snap.controller, leaseExpiresAt: snap.leaseExpiresAt };
 }
 
 function persistenceUnavailable() {
@@ -85,9 +99,9 @@ export async function POST(
     return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
   }
 
-  let body: { action?: unknown };
+  let body: { action?: unknown; context?: unknown };
   try {
-    body = (await req.json()) as { action?: unknown };
+    body = (await req.json()) as { action?: unknown; context?: unknown };
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
@@ -98,6 +112,10 @@ export async function POST(
       { status: 400 }
     );
   }
+  const context: string | null =
+    body.action === "release" && typeof body.context === "string" && body.context.trim()
+      ? body.context.trim().slice(0, 2000)
+      : null;
 
   // CAS DURÁVEL SEMPRE que exista sessão real (qualquer instância): o evento
   // de conversa NÃO substitui o CAS do banco — ele só registra no histórico.
@@ -142,6 +160,32 @@ export async function POST(
       ? "usuário assumiu o controle (mouse e teclado dele)"
       : "controle devolvido ao agente"
   );
+
+  if (body.action === "release") {
+    // Devolução com contexto OPCIONAL: persiste o resultado da intervenção
+    // no checkpoint durável e RETOMA a tarefa automaticamente — sem exigir
+    // nova mensagem do usuário. Falha de retomada é honesta na resposta.
+    let resume: Awaited<ReturnType<typeof resumeAfterHumanReturn>> | null = null;
+    try {
+      await resolveHumanIntervention(conversationId, context);
+    } catch {
+      /* checkpoint best-effort — o CAS do controle já foi garantido */
+    }
+    try {
+      resume = await resumeAfterHumanReturn({
+        userId: user.id,
+        conversationId,
+        context,
+      });
+    } catch (error) {
+      resume = {
+        resumed: false,
+        reason: "resume_failed",
+        detail: error instanceof Error ? error.message : "falha desconhecida",
+      };
+    }
+    return NextResponse.json({ controller, resume });
+  }
 
   return NextResponse.json({ controller });
 }

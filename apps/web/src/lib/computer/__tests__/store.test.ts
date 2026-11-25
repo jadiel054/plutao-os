@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Db } from "@plutao/db";
-import { CHANNEL_LEASE_MS, HUMAN_ACTION_TTL_MS, MemorySessionStore, ResilientSessionStore } from "../store";
+import { CHANNEL_LEASE_MS, HUMAN_ACTION_TTL_MS, MemorySessionStore, PersistenceUnavailableError, ResilientSessionStore, type SessionRecord } from "../store";
 import { ComputerSessionManager } from "../sessionManager";
 import type { ComputerProvider } from "../provider";
 
@@ -113,10 +113,10 @@ describe("MemorySessionStore — semânticas duráveis (espelha o SQL do Neon)",
     const base = { conversationId: "c1", userId: "u1", provider: "browserless" as const, leaseExpiresAt: NOW + 110_000, monthlyBudgetUnits: 1000 };
     await store.tryReserve({ ...base, sessionId: "s1" });
 
-    expect(await store.setHumanActionInflight("s1", now + HUMAN_ACTION_TTL_MS)).toBe(false);
+    expect(await store.setHumanActionInflight("s1", now + HUMAN_ACTION_TTL_MS, "act-a")).toBe(false);
     expect(await store.casController("s1", "agent", "human")).toBe(true);
-    expect(await store.setHumanActionInflight("s1", now + HUMAN_ACTION_TTL_MS)).toBe(true);
-    expect(await store.setHumanActionInflight("s1", now + HUMAN_ACTION_TTL_MS)).toBe(false);
+    expect(await store.setHumanActionInflight("s1", now + HUMAN_ACTION_TTL_MS, "act-a")).toBe(true);
+    expect(await store.setHumanActionInflight("s1", now + HUMAN_ACTION_TTL_MS, "act-b")).toBe(false);
     // Devolução RECUSADA enquanto a ação executa (input não sobrevive à troca).
     expect(await store.casController("s1", "human", "agent")).toBe(false);
     now += HUMAN_ACTION_TTL_MS + 1; // TTL auto-libera (crash da request)
@@ -194,7 +194,7 @@ describe("Execução cross-instance — dois gerenciadores, um store (Neon lógi
     if (!begin.ok) throw new Error("ação humana deveria começar");
     expect(await b.releaseToAgent("conv-1", "user-1")).toMatchObject({ ok: false, reason: "ACTION_INFLIGHT" });
 
-    await a.endHumanAction(begin.session.id);
+    await a.endHumanAction(begin.session.id, begin.actionId);
     expect((await b.releaseToAgent("conv-1", "user-1")).ok).toBe(true);
   });
 
@@ -240,5 +240,70 @@ describe("Execução cross-instance — dois gerenciadores, um store (Neon lógi
       })
     ).toMatchObject({ ok: true });
     expect(store.describe()).toEqual({ mode: "memory", degraded: true });
+  });
+});
+
+describe("Fail-closed em produção — allowDegraded=false", () => {
+  const reserveInput = {
+    sessionId: "s1",
+    conversationId: "c1",
+    userId: "u1",
+    provider: "browserless" as const,
+    leaseExpiresAt: NOW + 110_000,
+    monthlyBudgetUnits: 1000,
+  };
+
+  it("DATABASE_URL ausente → PersistenceUnavailableError (NUNCA fallback memória)", async () => {
+    const store = new ResilientSessionStore(
+      () => {
+        throw new Error("DATABASE_URL is not set");
+      },
+      new MemorySessionStore(),
+      false
+    );
+    await expect(store.tryReserve(reserveInput)).rejects.toBeInstanceOf(PersistenceUnavailableError);
+    await expect(store.get("s1")).rejects.toBeInstanceOf(PersistenceUnavailableError);
+    expect(store.describe()).toEqual({ mode: "neon", degraded: false });
+  });
+
+  it("cliente DB indisponível (execute inexistente) → PersistenceUnavailableError no método selecionado", async () => {
+    const store = new ResilientSessionStore(() => ({}) as unknown as Db, new MemorySessionStore(), false);
+    await expect(store.tryReserve(reserveInput)).rejects.toBeInstanceOf(PersistenceUnavailableError);
+    expect(store.describe()).toEqual({ mode: "neon", degraded: false });
+  });
+
+  it("tabela ausente (42P01) pelo Resilient → PersistenceUnavailableError SEM usar memória e SEM marcar degradado", async () => {
+    const fallback = new MemorySessionStore();
+    const factory = () => {
+      const error = new Error('relation "computer_sessions" does not exist') as Error & { code?: string };
+      error.code = "42P01";
+      throw error;
+    };
+    const store = new ResilientSessionStore(factory as unknown as () => Db, fallback, false);
+    await expect(store.tryReserve(reserveInput)).rejects.toBeInstanceOf(PersistenceUnavailableError);
+    await expect(store.get("s1")).rejects.toBeInstanceOf(PersistenceUnavailableError);
+    expect(await fallback.get("s1")).toBeNull();
+    expect(store.describe()).toEqual({ mode: "neon", degraded: false });
+  });
+
+  it("defesa em profundidade: estado degradado em produção NUNCA usa memória (early-return)", async () => {
+    const fallback = new MemorySessionStore();
+    const store = new ResilientSessionStore(() => ({}) as unknown as Db, fallback, false);
+    (store as unknown as { degraded: boolean }).degraded = true;
+    await expect(store.get("s1")).rejects.toBeInstanceOf(PersistenceUnavailableError);
+    expect(await fallback.get("s1")).toBeNull();
+  });
+
+  it("record a partir do store durável mantém o fencing token legível", async () => {
+    let now = NOW;
+    const store = new MemorySessionStore({ now: () => now });
+    await store.tryReserve(reserveInput);
+    await store.casController("s1", "agent", "human");
+    const record: SessionRecord | null = await store.get("s1");
+    expect(record?.humanActionToken).toBeNull();
+    expect(await store.setHumanActionInflight("s1", now + HUMAN_ACTION_TTL_MS, "act-x")).toBe(true);
+    expect((await store.get("s1"))?.humanActionToken).toBe("act-x");
+    now += HUMAN_ACTION_TTL_MS + 1;
+    expect(await store.renewHumanAction("s1", now + HUMAN_ACTION_TTL_MS, "act-x")).toBe(true);
   });
 });

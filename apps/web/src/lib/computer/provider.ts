@@ -134,13 +134,25 @@ export type CreateSessionOptions = {
   sessionId?: string;
 };
 
+export type ComputerActionResult = {
+  /** URL final depois da navegação (redirects inclusos). */
+  pageUrl?: string;
+  /** Título da página (quando disponível). */
+  pageTitle?: string;
+  /** True quando a página final parece tela de login (heurística de URL/título). */
+  isLogin?: boolean;
+};
+
 export type ComputerSession = {
   readonly id: string;
   readonly provider: ComputerProviderKind;
   snapshot(): ComputerSessionSnapshot;
   connectionInfo(screenEndpoint: string, inputEndpoint: string): ComputerConnectionInfo;
   /** Executa acao real de navegador (mouse/teclado/scroll/navegacao). */
-  executeAction(action: ComputerBrowserAction): Promise<void>;
+  executeAction(
+    action: ComputerBrowserAction,
+    options?: { signal?: AbortSignal }
+  ): Promise<ComputerActionResult | void>;
   /** Assina frames reais de screencast. Retorna funcao de cancelamento. */
   subscribeScreen(listener: (frame: ComputerScreenFrame) => void): () => void;
   /** Frame mais recente (replay imediato em reconexão de SSE). */

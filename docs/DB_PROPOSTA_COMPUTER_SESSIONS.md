@@ -46,6 +46,11 @@ export const computerSessions = pgTable(
     // Guarda de ação humana em andamento: enquanto != NULL e no futuro, a
     // devolução do controle é RECUSADA (a ação não sobrevive à devolução).
     humanActionUntil: timestamp("human_action_until", { withTimezone: true }),
+    // FENCING TOKEN (3ª auditoria): token exclusivo da ação humana em andamento
+    // ('act-<uuid>'). Renovação/liberação são CAS pelo token — uma ação antiga
+    // NÃO renova nem libera o lock de uma ação mais recente. Limpo por
+    // casController (troca de controle), close, sweepExpired e clearHumanAction.
+    humanActionToken: text("human_action_token"),
 
     provider: text("provider").notNull(),              // browserless | self-hosted
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }).notNull(),
@@ -85,6 +90,7 @@ CREATE TABLE IF NOT EXISTS computer_sessions (
   controller    text NOT NULL DEFAULT 'agent',
   controller_changed_at timestamptz,
   human_action_until    timestamptz,
+  human_action_token    text,
   provider      text NOT NULL,
   lease_expires_at timestamptz NOT NULL,
   last_seen_at  timestamptz NOT NULL,
@@ -161,6 +167,15 @@ CREATE INDEX IF NOT EXISTS computer_sessions_billing_month_idx
    (renovado pelo dono do canal durante toda a execução da ação — navegação
    pode durar 30s) liberado no `finally`; o CAS humano→agente falha
    enquanto o lease está vivo. Fixo de 5s sem renovação é insuficiente.
+9. **Fencing token (3ª auditoria):** cada ação humana ganha `actionId`
+   exclusivo gravado em `human_action_token` (mesma UPDATE atômica do lease).
+   Renovação (`UPDATE ... WHERE id = $1 AND closed_at IS NULL AND
+   controller = 'human' AND human_action_token = $2 RETURNING id`) e
+   liberação (`UPDATE ... SET human_action_until = NULL, human_action_token
+   = NULL WHERE id = $1 AND human_action_token = $2 RETURNING id`) são CAS
+   PELA COLUNA NOVA — token STALE (ação antiga) nunca afeta o lock de uma
+   ação mais recente. Pedidos ao ChatGPT: incluir `human_action_token TEXT
+   NULL` na migration (coluna NULLáVEL, nenhum índice novo necessário).
 
 ## Ciclo de vida / estados
 
@@ -170,16 +185,19 @@ creating ──▶ ready ──▶ closed | expired
    │           └──── reconnecting ──▶ ready (navegador NOVO no Free)
    └──▶ error
 human control: campo controller alterna agent ↔ human (CAS em SQL), status não muda
-ação humana: human_action_until é LOCK RENOVÁVEL (lease ~5s renovado durante a ação; liberado no finally)
+ação humana: human_action_until é LOCK RENOVÁVEL (renovado durante TODA a ação; liberado no finally) com FENCING TOKEN em human_action_token
 TTL do plano Free: 2 min por conexão; expiração com status 'expired'.
 ```
 
 ## Degradação honesta e cota
 
-- **Sem a tabela (42P01):** o store (NeonSessionStore) lança erro; o wrapper
-  (ResilientSessionStore) degrada UMA vez para memória e marca
-  `persist.degraded = true` na view — a UI avisa que as garantias entre
-  instâncias estão reduzidas. NENHUM DDL é executado pelo app.
+- **Sem a tabela (42P01), DATABASE_URL ausente ou Neon indisponível:** em
+  PRODUÇÃO o wrapper (ResilientSessionStore) lança
+  `PersistenceUnavailableError` — NUNCA há fallback para memória (nenhum
+  navegador real abre sem control plane durável; rotas respondem 503
+  `PERSISTENCE_UNAVAILABLE`). Fallback em memória existe APENAS em
+  desenvolvimento/testes (`allowDegraded` opt-in). NENHUM DDL é executado
+  pelo app.
 - **billing_month:** fixado na reserva; sessões que cruzam a virada do mês
   (no máximo 2 min no Free) contam no mês de início — simplificação
   declarada, sem risco de cobrança.

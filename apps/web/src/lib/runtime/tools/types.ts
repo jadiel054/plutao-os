@@ -13,6 +13,7 @@ export type ToolName =
   | "appium"
   | "playwright"
   | "androidworld"
+  | "computer"
   | "files.export_pdf"
   | "files.export_xlsx"
   | "files.export_markdown"
@@ -44,6 +45,7 @@ export type ToolFailure = {
 export type ToolResult = ToolSuccess | ToolFailure;
 
 export const KNOWN_TOOLS: readonly ToolName[] = [
+  "computer",
   "note",
   "filesystem",
   "process",
