@@ -17,17 +17,28 @@ import {
   releaseComputerControl,
 } from "@/lib/chat/computer";
 import { computerSessions } from "@/lib/computer/sessionManager";
+import { PersistenceUnavailableError } from "@/lib/computer/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type SessionErrorCode = "PROVIDER_UNCONFIGURED" | "SESSION_LIMIT" | "QUOTA_EXHAUSTED" | "PROVIDER_UNAVAILABLE";
+type SessionErrorCode =
+  | "PROVIDER_UNCONFIGURED"
+  | "SESSION_LIMIT"
+  | "QUOTA_EXHAUSTED"
+  | "PROVIDER_UNAVAILABLE"
+  | "PERSISTENCE_UNAVAILABLE";
 
 const RESERVE_MESSAGES: Record<Exclude<SessionErrorCode, "PROVIDER_UNAVAILABLE">, { code: SessionErrorCode; message: string }> = {
   PROVIDER_UNCONFIGURED: {
     code: "PROVIDER_UNCONFIGURED",
     message:
       "Computador remoto não configurado no servidor (provedor exige token/endpoint de ambiente). Nada foi cobrado.",
+  },
+  PERSISTENCE_UNAVAILABLE: {
+    code: "PERSISTENCE_UNAVAILABLE",
+    message:
+      "Control plane durável indisponível (tabela computer_sessions ausente ou Neon inacessível) — nenhuma sessão real será aberta em produção.",
   },
   SESSION_LIMIT: {
     code: "SESSION_LIMIT",
@@ -54,7 +65,21 @@ export async function GET(
   }
 
   // View DURÁVEL (store no Neon): vale entre instâncias Vercel distintas.
-  const view = await computerSessions.durableView(conversationId, user.id);
+  let view: Awaited<ReturnType<typeof computerSessions.durableView>>;
+  try {
+    view = await computerSessions.durableView(conversationId, user.id);
+  } catch (error) {
+    if (error instanceof PersistenceUnavailableError) {
+      return NextResponse.json(
+        {
+          error: "PERSISTENCE_UNAVAILABLE",
+          message: "Control plane durável indisponível — estado do computador não pode ser resolvido.",
+        },
+        { status: 503 }
+      );
+    }
+    throw error;
+  }
   return NextResponse.json(
     {
       session: {
@@ -102,8 +127,13 @@ export async function POST(
     const code: { code: SessionErrorCode; message: string } =
       result.reason === "PROVIDER_UNAVAILABLE"
         ? { code: "PROVIDER_UNAVAILABLE", message: "Falha ao conectar ao Chromium remoto." }
-        : RESERVE_MESSAGES[result.reason as "PROVIDER_UNCONFIGURED" | "SESSION_LIMIT" | "QUOTA_EXHAUSTED"];
-    const status = result.reason === "SESSION_LIMIT" ? 409 : result.reason === "QUOTA_EXHAUSTED" ? 402 : 503;
+        : RESERVE_MESSAGES[result.reason as Exclude<SessionErrorCode, "PROVIDER_UNAVAILABLE">];
+    const status =
+      result.reason === "SESSION_LIMIT"
+        ? 409
+        : result.reason === "QUOTA_EXHAUSTED"
+          ? 402
+          : 503;
     return NextResponse.json(
       {
         error: code.code,

@@ -101,7 +101,18 @@ export async function isHumanInControl(
 ): Promise<boolean> {
   if (!conversationId) return false;
   if ((await getComputerController(conversationId)) === "human") return true;
-  if (await computerSessions.isHumanInControlDurable(conversationId, userId)) return true;
+  try {
+    if (await computerSessions.isHumanInControlDurable(conversationId, userId)) return true;
+  } catch (error) {
+    // PersistenceUnavailableError em produção permanece para as rotas de
+    // máquina; no fluxo do Chat, sem control plane o agente segue o evento
+    // durável (acima) — nunca assume que NÃO há humano no controle.
+    if (process.env.NODE_ENV === "production") {
+      const local = computerSessions.activeFor(conversationId, userId);
+      return local ? local.snapshot().controller === "human" : false;
+    }
+    throw error;
+  }
   const session = computerSessions.activeFor(conversationId, userId);
   return session ? session.snapshot().controller === "human" : false;
 }

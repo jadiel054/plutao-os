@@ -144,10 +144,23 @@ CREATE INDEX IF NOT EXISTS computer_sessions_billing_month_idx
    reporta valores, então não há dupla contagem entre instâncias. O bloqueio
    mensal é `SUM(units_used) WHERE billing_month = mês` antes de abrir nova
    sessão. Nenhuma cobrança automática em nenhum caminho.
-6. **Expiração:** sweep lazy em cada operação relevante:
-   `UPDATE ... SET status='expired', closed_at=now() WHERE closed_at IS NULL
-   AND lease_expires_at + 5s < now()` — mover para fechado libera o índice
-   único parcial automaticamente (suprime o gate da linha viva).
+6. **Expiração com contabilidade:** sweep lazy em cada operação relevante:
+   `UPDATE ... SET status='expired', closed_at=now(), units_used = GREATEST(
+   units_used, CEIL(EXTRACT(EPOCH FROM (now() - created_at))/30)::int) WHERE
+   closed_at IS NULL AND lease_expires_at + 5s < now() RETURNING id` —
+   mover para fechado libera o índice único parcial automaticamente
+   (suprime o gate da linha viva) e o TEMPO DE PAREDE consumido entra no
+   ledger mensal (sessão interrompida/abandonada não escapa da cota).
+7. **Decisões por linha retornada:** todo UPDATE cujo resultado decide
+   comportamento (CAS de controller, marcação/renovação de
+   human_action_until, attach/renovação de canal, sweep) usa `RETURNING
+   id` — o driver Neon HTTP devolve `rows: []` para UPDATE sem RETURNING;
+   checar `rows.length` sem RETURNING é sempre falso negativo (bug da 2ª
+   auditoria, corrigido e testado contra simulador do formato real).
+8. **Lock renovável de ação humana:** human_action_until é um LEASE
+   (renovado pelo dono do canal durante toda a execução da ação — navegação
+   pode durar 30s) liberado no `finally`; o CAS humano→agente falha
+   enquanto o lease está vivo. Fixo de 5s sem renovação é insuficiente.
 
 ## Ciclo de vida / estados
 
@@ -157,7 +170,7 @@ creating ──▶ ready ──▶ closed | expired
    │           └──── reconnecting ──▶ ready (navegador NOVO no Free)
    └──▶ error
 human control: campo controller alterna agent ↔ human (CAS em SQL), status não muda
-ação humana: human_action_until marca input em execução (TTL 5s)
+ação humana: human_action_until é LOCK RENOVÁVEL (lease ~5s renovado durante a ação; liberado no finally)
 TTL do plano Free: 2 min por conexão; expiração com status 'expired'.
 ```
 

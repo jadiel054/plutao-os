@@ -20,7 +20,7 @@
  *    o Plutao NAO usa: tela e input passam pelas rotas autenticadas.
  */
 import { randomUUID } from "node:crypto";
-import { isForbiddenNavigateUrl } from "../urlGuard";
+import { isForbiddenNavigateUrl, egressDecisionForUrl } from "../urlGuard";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright-core";
 import {
   ComputerProviderError,
@@ -90,6 +90,7 @@ class BrowserlessSession implements ComputerSession {
   private cdp: CDPSession | null = null;
   private screenListeners = new Set<(frame: ComputerScreenFrame) => void>();
   private lastFrame: ComputerScreenFrame | null = null;
+  private egressBlockedCount = 0;
   constructor(
     private readonly config: BrowserlessConfig,
     readonly conversationId: string,
@@ -120,6 +121,7 @@ class BrowserlessSession implements ComputerSession {
         })
         .catch(() => undefined);
       this.cdp.on("Page.screencastFrame", (params) => this.onScreencastFrame(params));
+      await this.installEgressGuard();
       await this.cdp.send("Page.startScreencast", {
         format: "jpeg",
         quality: 60,
@@ -157,6 +159,45 @@ class BrowserlessSession implements ComputerSession {
     );
     // Cota estimada: uma unidade por 30s de navegador real.
     this.unitsUsed = Math.ceil((now - this.createdAt) / UNIT_MS);
+  }
+
+  /**
+   * EGRESS GUARD (CDP Fetch): intercepta TODAS as requisições da página —
+   * cobre redirecionamentos e requisições secundárias, que fugiriam do
+   * guard de navegação. Redes privadas/loopback/metadata falham com
+   * BlockedByClient. Best-effort no Cloud (browser remoto); a garantia
+   * dura de rede é política de egress no worker (self-hosted).
+   */
+  private async installEgressGuard(): Promise<void> {
+    const cdp = this.cdp;
+    if (!cdp) return;
+    try {
+      cdp.on("Fetch.requestPaused", (params: { requestId: string; request?: { url?: string } }) => {
+        void this.onEgressRequestPaused(params).catch(() => undefined);
+      });
+      await cdp.send("Fetch.enable", {});
+    } catch {
+      // Sem hook parcial: se enable falhou, a página segue sem guard de rede
+      // neste CDP (limitação documentada — mitigate no worker).
+    }
+  }
+
+  private async onEgressRequestPaused(params: { requestId: string; request?: { url?: string } }): Promise<void> {
+    const cdp = this.cdp;
+    if (!cdp) return;
+    const decision = egressDecisionForUrl(params.request?.url ?? "");
+    if (decision.allow) {
+      await cdp.send("Fetch.continueRequest", { requestId: params.requestId }).catch(() => undefined);
+      return;
+    }
+    this.egressBlockedCount += 1;
+    await cdp
+      .send("Fetch.failRequest", { requestId: params.requestId, errorReason: decision.errorReason })
+      .catch(() => undefined);
+  }
+
+  egressBlockedRequests(): number {
+    return this.egressBlockedCount;
   }
 
   private onScreencastFrame(params: {

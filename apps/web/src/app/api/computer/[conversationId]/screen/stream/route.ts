@@ -10,6 +10,7 @@ import { NextRequest } from "next/server";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { checkConversationOwnership } from "@/app/api/conversations/[id]/route";
 import { computerSessions } from "@/lib/computer/sessionManager";
+import { PersistenceUnavailableError } from "@/lib/computer/store";
 import type { ComputerScreenFrame } from "@/lib/computer/provider";
 
 export const runtime = "nodejs";
@@ -41,8 +42,21 @@ export async function GET(
   // Garante o canal vivo DESTA instância a partir do registro durável
   // (cross-instance: assume o canal quando o lease do dono expira — abre
   // navegador novo no Free). Sem registro → 404; canal vivo em outra
-  // instância ainda → 409 CHANNEL_BUSY (a UI tenta de novo).
-  const session = await computerSessions.ensureSession(conversationId, user.id);
+  // instância ainda → 409 CHANNEL_BUSY (a UI tenta de novo); control plane
+  // durável indisponível em produção → 503 PERSISTENCE_UNAVAILABLE (fail-safe:
+  // nenhum navegador real sem garantia entre instâncias).
+  let session: Awaited<ReturnType<typeof computerSessions.ensureSession>>;
+  try {
+    session = await computerSessions.ensureSession(conversationId, user.id);
+  } catch (error) {
+    if (error instanceof PersistenceUnavailableError) {
+      return new Response(JSON.stringify({ error: "PERSISTENCE_UNAVAILABLE" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw error;
+  }
   if (!session) {
     const record = await computerSessions
       .durableView(conversationId, user.id)

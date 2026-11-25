@@ -143,3 +143,20 @@ export function isForbiddenNavigateUrl(url: string): boolean {
   if (UNSAFE_URL_PREFIXES.some((bad) => lower.startsWith(bad))) return true;
   return !assertPublicHttpUrl(url).ok;
 }
+
+export type EgressDecision =
+  | { allow: true; errorReason: undefined; reason: null }
+  | { allow: false; errorReason: "BlockedByClient"; reason: string };
+
+/**
+ * Decisão de EGRESS para QUALQUER request do navegador (não só navegação
+ * inicial): usada na interceptação CDP (Fetch.requestPaused) para cobrir
+ * redirecionamentos e requisições secundárias da página. DNS rebinding
+ * continua forçado ao nível de REDE (política de egress do worker).
+ */
+export function egressDecisionForUrl(url: string): EgressDecision {
+  if (isForbiddenNavigateUrl(url)) {
+    return { allow: false, errorReason: "BlockedByClient", reason: "egress bloqueado: endereço interno/privado ou esquema perigoso" };
+  }
+  return { allow: true, errorReason: undefined, reason: null };
+}

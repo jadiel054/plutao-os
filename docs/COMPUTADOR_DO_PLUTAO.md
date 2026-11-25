@@ -154,9 +154,12 @@ como preview — nunca como computador real.
   `SUM(units_used) WHERE billing_month = mês` >= budget. Reconexão, expiração
   e encerramento somam na mesma conta mensal. Sem cobrança automática.
 - Segurança do controle humano: cada ação de mouse/teclado/scroll/navegação
-  marca `human_action_until` (TTL 5s, marca atômica) enquanto executa; a
-  devolução do controle é RECUSADA nesse intervalo (409 ACTION_INFLIGHT) —
-  nenhuma ação iniciada sob controle humano continua após a devolução.
+  é executada sob LOCK RENOVÁVEL (`human_action_until` — lease de ~5s
+  renovado pelo dono do canal durante TODA a execução, pois uma navegação
+  pode durar 30s) com liberação GARANTIDA no `finally` (sucesso, erro ou
+  cancelamento); enquanto o lock está vivo, a devolução do controle é
+  RECUSADA (409 ACTION_INFLIGHT) — provado em teste com TTL 200ms e ação de
+  500ms: a devolução só passa depois do fim da ação.
 - Confirmação (window.confirm) para encerrar sessão; navegação restrita a
   http/https PÚBLICOS: `lib/computer/urlGuard.ts` bloqueia loopback,
   redes privadas (10/8, 172.16/12, 192.168/16), link-local de metadata
@@ -174,6 +177,37 @@ um navegador NOVO; estado de navegador perdido, avisado na UI). Canal ocupado
 → rotas respondem 409 CHANNEL_BUSY e a UI explica o aguardo. Salvaguarda
 adicional: o plano Free tem 2 navegadores por vez e recusa conexões
 excedentes (429).
+
+**Limitação HONESTA e caminho definitivo (worker persistente):** o lease NÃO
+compartilha a conexão CDP viva — Browser, Page e frames continuam na memória
+da instância Vercel que abriu a sessão. No Free isso significa que
+"recuperação" entre instâncias = abrir OUTRO navegador (nunca é recuperação
+do anterior; o anterior expira no teto de 2 min e entra no ledger pelo sweep).
+A solução definitiva é tirar o Chromium da Vercel:
+
+1. **Worker persistente** (identidade `self-hosted` já preparada no
+   `providers/self-hosted.ts`): um processo ÚNICO dono do Chromium/CDP,
+   screencast e input. Opções a US$ 0/mês — mini PC próprio (já aprovado
+   como alternativa futura) ou VM de free tier (ex.: Oracle Always Free,
+   GCP e2-micro free). NENHUMA contratação automática; escolha e aprovação
+   ficam com você.
+2. **Vercel coordena, não executa:** autentica o usuário + ownership da
+   conversa, aplica o control plane durável (Neon) e encaminha comandos ao
+   worker via endpoint HTTPS autenticado (token compartilhado em variáveis
+   de ambiente dos dois lados; túnel como Cloudflare Tunnel para não abrir
+   portas — sem URL pública do worker em nenhuma view).
+3. **Re-attach REAL:** `createSession({sessionId})` no worker procura o
+   navegador VIVO por id durável e devolve O MESMO Process (recuperando o
+   estado — ao contrário do Free, que abre navegador novo). Uma linha viva
+   por instalação continua garantida pelo índice parcial do Neon; o navegador
+   anterior nunca fica órfão consumindo cota (o worker encerra o processo
+   quando a linha fecha/expira ou o lease de canal muda de dono).
+4. **Egress no worker (SSRF de verdade):** política de REDE no host do
+   worker — nftables/private ranges + DNS pinning (resolvedor recursivo
+   próprio com allowlist), bloqueando loopback, RFC1918, link-local e
+   metadata em TODAS as requisições (redirecionamentos e secundárias
+   incluídos). O guard `urlGuard.ts` + interceptação CDP `Fetch` no app são
+   primeira linha de defesa; a garantia dura é no worker.
 
 ### Preparação para mini PC (Fase 5)
 
@@ -209,11 +243,12 @@ de propósito.
 | J | trocar Browserless → self-hosted sem mudar o Chat | ✅ | sessionManager.test.ts |
 | — | Chromium real E2E | ✅ teste de integração real (roda só com `BROWSERLESS_API_TOKEN`; pulado sem token — honesto sobre isso) | browserlessIntegration.test.ts |
 
-Executado nesta sandbox (última rodada da suíte completa): **724 testes
-passando + 17 pulados em 125 arquivos**, typecheck `tsc --noEmit` limpo,
-ESLint 0 erros (2 avisos conhecidos de `<img>` no preview), `next build` OK.
-Nenhum teste com token real — a validação rede+Chromium fica explícita como
-pendência para execução com token.
+Executado nesta sandbox (última rodada da suíte completa, 2ª auditoria):
+**738 testes passando + 17 pulados em 126 arquivos** (inclui os 11 testes do
+simulador fiel do driver Neon HTTP em `neonStore.test.ts`), typecheck
+`tsc --noEmit` limpo, ESLint 0 erros (2 avisos conhecidos de `<img>` no
+preview), `next build` OK. Nenhum teste com token real — a validação
+rede+Chromium fica explícita como pendência para execução com token.
 
 ## Correções da auditoria da PR #204 (itens 1–7)
 
@@ -233,12 +268,82 @@ pendência para execução com token.
    mostra contagem regressiva nos últimos ~30s, banner de que reconexão abre
    navegador novo e de modo degradado/canal ocupado. Nada de "sessão
    persistente ou ilimitada".
-5. **Controle humano** — guarda de ação em andamento (`human_action_until`)
-   recusa devolução durante input (TTL 5s); nav bloqueada para endereços
-   internos/privados em `urlGuard.ts` (API + provedor).
+5. **Controle humano** — lock renovável de ação em andamento
+   (`human_action_until`: lease ~5s RENOVADO durante toda a ação, liberado no
+   `finally`); CAS durável executado SEMYPRE que houver sessão real
+   (qualquer instância — o canal local deixou de ser pré-condição); nav
+   bloqueada para endereços internos/privados em `urlGuard.ts` (API +
+   provedor) e interceptação CDP `Fetch` cobre redirecionamentos e
+   requisições secundárias (egress de rede é garantia do worker).
 6. **Teste real** — PENDENTE e documentado como tal: `browserlessIntegration.test.ts`
    está preparado (Chromium real, screencast, input, reconexão, encerramento)
    e roda automaticamente com `BROWSERLESS_API_TOKEN` presente; sem a
    credencial, pula e a doc NÃO marca a integração como validada.
 7. **Processo** — mesma branch/PR #204, sem merge, sem deploy, sem tocar no
    Neon (nada de SQL/migration executado).
+
+## Correções da 2ª auditoria (bloqueadores 1–8)
+
+1. **SQL — decisões por linha retornada (PRIORIDADE MÁXIMA):** os UPDATEs que
+   decidem comportamento (`casController`, `setHumanActionInflight`,
+   `attachChannel`, `renewChannel`) checavam `result.rows.length` SEM
+   `RETURNING` — com o driver Neon HTTP isso é SEMPRE falso negativo
+   (`rows: []`). Corrigido com `RETURNING id` + verificação das linhas
+   retornadas. `sweepExpired` também virou `RETURNING id` (contagem real de
+   linhas expiradas). Testes novos (`neonStore.test.ts`) rodam contra um
+   simulador do formato REAL do driver: `db.execute` recebe a query
+   compilada do drizzle (text + params via `PgDialect.sqlToQuery`) e UPDATE
+   sem `RETURNING` devolve `{rows: [], rowCount: 1}` — linhas vindas por
+   UPDATE vêm SEMPRE do `RETURNING`.
+2. **Canal CDP entre instâncias — limitação documentada + worker
+   persistente:** a conexão CDP/Browser/Page NÃO atravessa instâncias (lease
+   coordena posse, não compartilha memória). No Free, "assumir de outra
+   instância" = navegador NOVO (nunca recuperação do anterior — o anterior
+   expira em ~2min e o consumo entra no ledger pelo sweep). Arquitetura
+   definitiva proposta (US$ 0/mês, sem contratação automática): worker
+   persistente único dono do Chromium/CDP/screencast/input (mini PC próprio
+   — já aprovado como alternativa futura; ou VM free tier), Vercel apenas
+   autenticando/coordenando via HTTPS autenticado, re-attach REAL por id
+   durável no MESMO Process do worker, e política de egress de REDE no
+   worker. Detalhado na seção "Limitação HONESTA e caminho definitivo" acima.
+3. **Takeover/release 100% durável:** a rota de controle agora executa o CAS
+   do SEMPRE que exista sessão real — com canal local OU em outra instância
+   (`computerSessions.takeHumanControl/releaseToAgent` incondicionais); só
+   cai para coordenação por eventos quando NÃO há sessão real. O evento de
+   conversa nunca substitui o CAS do banco. GET também dá precedência ao
+   controller durável.
+4. **Lock renovável de ação humana:** fim do TTL fixo de 5s (insuficiente
+   para navegação de 30s). `runHumanAction()` renova `human_action_until`
+   em loop durante TODA a execução e libera no `finally` (sucesso/erro/
+   cancelamento). Prova em teste: com TTL 200ms e renovação a cada 50ms,
+   uma ação de 500ms mantém a devolução RECUSADA em ambas as instâncias o
+   tempo todo (ACTION_INFLIGHT) e o agente só recebe o controle após o fim
+   da ação.
+5. **SSRF além da navegação inicial:** nova interceptação CDP
+   `Fetch.requestPaused` no adaptador (egressDecisionForUrl) — cobre
+   redirecionamentos e requisições secundárias da página (failRequest
+   BlockedByClient em redes privadas/loopback/metadata/esquemas perigosos).
+   DNS rebinding segue mitigado POR REDE no worker (política de egress +
+   DNS pinning) — documentado como garantia do worker, não do app.
+6. **Fail-closed sem persistência:** em produção (`NODE_ENV=production`),
+   `ResilientSessionStore` NÃO degrada mais para memória: sem
+   `computer_sessions` ou com Neon inacessível, tudo que abriria navegador
+   real recusa com `PersistenceUnavailableError` → rotas respondem 503
+   `PERSISTENCE_UNAVAILABLE` (reserve garantido a NÃO criar navegador —
+   testado). Fallback em memória vale apenas para testes/desenvolvimento.
+7. **Cota à prova de interrupção:** `close()` e `sweepExpired()` agora
+   contabilizam unidades de TEMPO DE PAREDE
+   (`GREATEST(units_used, CEIL(EXTRACT(EPOCH FROM (now() - created_at))/30))`)
+   — sessão interrompida/abandonada/crashada entra no ledger mensal antes de
+   liberar o índice único. Testado: 90s abandonados → 3 unidades; reserva
+   seguinte cai em QUOTA_EXHAUSTED com budget esgotado.
+8. **Testes obrigatórios executados nesta rodada:** simulador Neon HTTP
+   realista (casController, setHumanActionInflight/renewHumanAction,
+   renewChannel, attachChannel com expiração real); reserva/takeover
+   cross-instance em plano SQL único; fail-closed do Neon (tabela ausente +
+   erro de rede) bloqueando sessão real; cota após encerramento inesperado;
+   takeover durante navegação longa (lock renovável); redirects/privados/
+   metadata/opacos no guard de egress. PENDENTES por falta de infra/token
+   (NÃO marcados como validados): canal CDP REAL em worker persistente;
+   mouse/teclado/screencast REAIS (integração Browserless com token);
+   DNS rebinding REAL (exige resolvedor do worker).

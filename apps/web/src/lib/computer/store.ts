@@ -97,6 +97,8 @@ export type SessionStore = {
   /** CAS durável do controle; devolução falha com ação humana em andamento. */
   casController(id: string, from: ComputerController, to: ComputerController): Promise<boolean>;
   setHumanActionInflight(id: string, until: number): Promise<boolean>;
+  /** Renova o lock de ação em andamento pelo DONO do canal (sem CAS de janela). */
+  renewHumanAction(id: string, until: number): Promise<boolean>;
   clearHumanAction(id: string): Promise<void>;
   /** Dono do canal vivo; steal-só-se-expirado entre instâncias. */
   attachChannel(id: string, instanceId: string, leaseMs: number): Promise<AttachOutcome>;
@@ -142,7 +144,14 @@ export class MemorySessionStore implements SessionStore {
     if (row.leaseExpiresAt + EXPIRE_TOLERANCE_MS > this.now()) return false;
     row.status = "expired";
     row.closedAt = this.now();
+    this.accountWallClockUnits(row);
     return true;
+  }
+
+  private accountWallClockUnits(row: SessionRecord): void {
+    if (row.closedAt === null) return;
+    const elapsed = Math.max(0, row.closedAt - row.createdAt);
+    row.unitsUsed = Math.max(row.unitsUsed, Math.ceil(elapsed / UNIT_MS));
   }
 
   private sweep(): number {
@@ -242,6 +251,13 @@ export class MemorySessionStore implements SessionStore {
     return true;
   }
 
+  async renewHumanAction(id: string, until: number): Promise<boolean> {
+    const row = this.rows.get(id);
+    if (!isLiveRecord(row) || row.controller !== "human") return false;
+    row.humanActionUntil = Math.max(row.humanActionUntil ?? 0, until);
+    return true;
+  }
+
   async clearHumanAction(id: string): Promise<void> {
     const row = this.rows.get(id);
     if (row) row.humanActionUntil = null;
@@ -299,6 +315,7 @@ export class MemorySessionStore implements SessionStore {
     row.humanActionUntil = null;
     row.channelInstance = null;
     row.channelExpiresAt = null;
+    this.accountWallClockUnits(row);
     if (error) row.error = error;
   }
 
@@ -457,6 +474,7 @@ export class NeonSessionStore implements SessionStore {
       UPDATE computer_sessions
       SET controller = ${to}, controller_changed_at = now(), human_action_until = NULL
       WHERE id = ${id} AND controller = ${from} AND closed_at IS NULL${inflightGuard}
+      RETURNING id
     `)) as unknown as { rows: Row[] };
     return Number(result.rows?.length ?? 0) > 0;
   }
@@ -467,6 +485,17 @@ export class NeonSessionStore implements SessionStore {
       SET human_action_until = ${new Date(until)}
       WHERE id = ${id} AND closed_at IS NULL AND controller = 'human'
         AND (human_action_until IS NULL OR human_action_until < now())
+      RETURNING id
+    `)) as unknown as { rows: Row[] };
+    return Number(result.rows?.length ?? 0) > 0;
+  }
+
+  async renewHumanAction(id: string, until: number): Promise<boolean> {
+    const result = (await this.db().execute(sql`
+      UPDATE computer_sessions
+      SET human_action_until = ${new Date(until)}
+      WHERE id = ${id} AND closed_at IS NULL AND controller = 'human'
+      RETURNING id
     `)) as unknown as { rows: Row[] };
     return Number(result.rows?.length ?? 0) > 0;
   }
@@ -496,6 +525,7 @@ export class NeonSessionStore implements SessionStore {
       WHERE id = ${id} AND closed_at IS NULL
         AND (channel_instance IS NULL OR channel_instance = ${instanceId}
              OR channel_expires_at < now())
+      RETURNING id
     `)) as unknown as { rows: Row[] };
     return Number(result.rows?.length ?? 0) > 0 ? "ok" : "BUSY";
   }
@@ -506,6 +536,7 @@ export class NeonSessionStore implements SessionStore {
       SET channel_expires_at = now() + ${leaseMs} * interval '1 millisecond',
           last_seen_at = now()
       WHERE id = ${id} AND channel_instance = ${instanceId} AND closed_at IS NULL
+      RETURNING id
     `)) as unknown as { rows: Row[] };
     return Number(result.rows?.length ?? 0) > 0;
   }
@@ -537,10 +568,17 @@ export class NeonSessionStore implements SessionStore {
   }
 
   async close(id: string, status: ComputerSessionStatus, error?: string | null): Promise<void> {
+    // Contabiliza o consumo real mesmo sem heartbeat: qualquer fechamento
+    // (explicito, erro ou sweep) garante no ledger as unidades de tempo de
+    // parede decorridas (created_at → now), sem depender da instância dona.
     await this.db().execute(sql`
       UPDATE computer_sessions
       SET status = ${status}, closed_at = now(), human_action_until = NULL,
           channel_instance = NULL, channel_expires_at = NULL,
+          units_used = GREATEST(
+            units_used,
+            CEIL(EXTRACT(EPOCH FROM (now() - created_at)) / ${UNIT_MS / 1000})::int
+          ),
           error = COALESCE(${error ?? null}, error)
       WHERE id = ${id} AND closed_at IS NULL
     `);
@@ -555,12 +593,19 @@ export class NeonSessionStore implements SessionStore {
   }
 
   async sweepExpired(): Promise<number> {
+    // Mesma contabilidade do close(): a sessão abandonada entra no ledger
+    // mensal com o tempo de parede consumido antes de perder o status vivo.
     const result = (await this.db().execute(sql`
       UPDATE computer_sessions
       SET status = 'expired', closed_at = now(), human_action_until = NULL,
-          channel_instance = NULL, channel_expires_at = NULL
+          channel_instance = NULL, channel_expires_at = NULL,
+          units_used = GREATEST(
+            units_used,
+            CEIL(EXTRACT(EPOCH FROM (now() - created_at)) / ${UNIT_MS / 1000})::int
+          )
       WHERE closed_at IS NULL AND status IN ('creating', 'ready', 'reconnecting')
         AND lease_expires_at + ${EXPIRE_TOLERANCE_MS} * interval '1 millisecond' < now()
+      RETURNING id
     `)) as unknown as { rows: Row[] };
     return Number(result.rows?.length ?? 0);
   }
@@ -576,6 +621,21 @@ export class NeonSessionStore implements SessionStore {
  * memória e passa a reportar `degraded: true` na view (UI informa
  * garantias reduzidas). Nenhum DDL é executado em nenhuma hipótese.
  */
+/**
+ * Erro tipado quando o control plane durável NÃO está disponível e a política
+ * NÃO permite degradar para memória (produção): nenhuma sessão real deve ser
+ * aberta sem garantia de exclusividade/cota entre instâncias.
+ */
+export class PersistenceUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      "Control plane durável indisponível (tabela computer_sessions ausente ou Neon inacessível) — recusando sessão real em produção.",
+      cause instanceof Error ? { cause } : { cause: new Error(String(cause)) }
+    );
+    this.name = "PersistenceUnavailableError";
+  }
+}
+
 export class ResilientSessionStore implements SessionStore {
   readonly mode = "neon" as const;
   private fallback: SessionStore;
@@ -584,7 +644,8 @@ export class ResilientSessionStore implements SessionStore {
 
   constructor(
     private readonly makeDb: () => Db,
-    fallback?: SessionStore
+    fallback?: SessionStore,
+    private readonly allowDegraded: boolean = process.env.NODE_ENV !== "production"
   ) {
     this.fallback = fallback ?? new MemorySessionStore();
   }
@@ -609,6 +670,9 @@ export class ResilientSessionStore implements SessionStore {
   }
 
   private degrade(error: unknown): void {
+    if (!this.allowDegraded) {
+      throw new PersistenceUnavailableError(error);
+    }
     this.degraded = true;
     console.error(
       "[computer/store] store Neon indisponível — degradando para memória (sem garantia entre instâncias):",
@@ -631,6 +695,9 @@ export class ResilientSessionStore implements SessionStore {
       ) {
         this.degrade(error);
         return fallbackOp(this.fallback);
+      }
+      if (!this.allowDegraded) {
+        throw new PersistenceUnavailableError(error);
       }
       throw error;
     }
@@ -668,6 +735,13 @@ export class ResilientSessionStore implements SessionStore {
     return this.run(
       (store) => store.setHumanActionInflight(id, until),
       (fallback) => fallback.setHumanActionInflight(id, until)
+    );
+  }
+
+  renewHumanAction(id: string, until: number) {
+    return this.run(
+      (store) => store.renewHumanAction(id, until),
+      (fallback) => fallback.renewHumanAction(id, until)
     );
   }
 

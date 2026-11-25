@@ -4,7 +4,7 @@
  * reservados) e a esquemas perigosos. Vale para agente E humano.
  */
 import { describe, expect, it } from "vitest";
-import { assertPublicHttpUrl, isForbiddenNavigateUrl } from "../urlGuard";
+import { assertPublicHttpUrl, egressDecisionForUrl, isForbiddenNavigateUrl } from "../urlGuard";
 
 function blocked(url: string): boolean {
   return !assertPublicHttpUrl(url).ok;
@@ -67,5 +67,31 @@ describe("urlGuard — endereços internos/privados", () => {
     expect(blocked("http://172.32.0.1")).toBe(false);
     expect(blocked("http://[2606:4700::1111]/")).toBe(false);
     expect(blocked("http://docs.browserless.io")).toBe(false);
+  });
+});
+
+describe("Politica de EGRESS (CDP Fetch.requestPaused) — redirecionamentos e requisições secundárias", () => {
+  it("target público → continua", () => {
+    expect(egressDecisionForUrl("https://example.com/page")).toEqual({ allow: true, errorReason: undefined, reason: null });
+  });
+
+  it("redirecionamento para rede privada/loopback/metadata → bloqueado (BlockedByClient)", () => {
+    for (const url of [
+      "http://169.254.169.254/latest/meta-data/",
+      "http://127.0.0.1:3000/admin",
+      "http://192.168.1.1/",
+      "http://169.254.169.254",
+      "file:///etc/passwd",
+      "javascript:fetch('http://169.254.169.254/')",
+      "data:text/html,<script>fetch('http://169.254.169.254/')</script>",
+    ]) {
+      const decision = egressDecisionForUrl(url);
+      expect(decision).toMatchObject({ allow: false, errorReason: "BlockedByClient" });
+    }
+  });
+
+  it("requisição secundária para host privado via hex/opaco → bloqueado", () => {
+    expect(egressDecisionForUrl("http://0x7f000001/").allow).toBe(false);
+    expect(egressDecisionForUrl("http://2130706433/").allow).toBe(false);
   });
 });

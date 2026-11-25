@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { checkConversationOwnership } from "@/app/api/conversations/[id]/route";
 import { computerSessions } from "@/lib/computer/sessionManager";
+import { PersistenceUnavailableError } from "@/lib/computer/store";
 import { assertPublicHttpUrl } from "@/lib/computer/urlGuard";
 import type { ComputerBrowserAction } from "@/lib/computer/provider";
 
@@ -84,9 +85,23 @@ export async function POST(
   }
 
   // EXCLUSIVIDADE DURÁVEL: antes de executar, confere controle humano no
-  // store e marca a ação em andamento — enquanto marcada, devolver o
-  // controle é recusado (a ação não sobrevive à devolução).
-  const begin = await computerSessions.beginHumanAction(conversationId, user.id);
+  // store e marca a ação em andamento — enquanto marcada (e RENOVADA durante
+  // toda a execução), devolver o controle é recusado.
+  let begin: Awaited<ReturnType<typeof computerSessions.beginHumanAction>>;
+  try {
+    begin = await computerSessions.beginHumanAction(conversationId, user.id);
+  } catch (error) {
+    if (error instanceof PersistenceUnavailableError) {
+      return NextResponse.json(
+        {
+          error: "PERSISTENCE_UNAVAILABLE",
+          message: "Control plane durável indisponível — nenhuma ação em navegador real será executada.",
+        },
+        { status: 503 }
+      );
+    }
+    throw error;
+  }
   if (!begin.ok) {
     const responses = {
       SESSION_NOT_FOUND: {
@@ -119,7 +134,11 @@ export async function POST(
 
   const session = begin.session;
   try {
-    await session.executeAction(action);
+    // LOCK RENOVÁVEL: a marca de ação em andamento é renovada durante TODA
+    // a execução (navegação pode passar de 30s, maior que o TTL fixo) e o
+    // release GARANTIDO no finally — o agente não recebe o controle enquanto
+    // qualquer ação humana estiver em voo.
+    await computerSessions.runHumanAction(session, () => session.executeAction(action));
   } catch (error) {
     return NextResponse.json(
       {

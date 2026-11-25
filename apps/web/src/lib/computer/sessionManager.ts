@@ -45,6 +45,7 @@ import {
   CHANNEL_LEASE_MS,
   HUMAN_ACTION_TTL_MS,
   UNIT_MS,
+  PersistenceUnavailableError,
   ResilientSessionStore,
   type SessionRecord,
   type SessionStore,
@@ -61,7 +62,8 @@ export type ReserveReason =
   | "PROVIDER_UNCONFIGURED"
   | "SESSION_LIMIT"
   | "QUOTA_EXHAUSTED"
-  | "PROVIDER_UNAVAILABLE";
+  | "PROVIDER_UNAVAILABLE"
+  | "PERSISTENCE_UNAVAILABLE";
 
 export type SessionManagerOptions = {
   now?: () => number;
@@ -72,6 +74,10 @@ export type SessionManagerOptions = {
   /** Identificador da instância dona do canal vivo (default: UUID do processo). */
   channelInstance?: string;
   channelLeaseMs?: number;
+  /** Intervalo de renovação do lock de ação humana (default: TTL/3). */
+  humanActionRenewIntervalMs?: number;
+  /** Lease do lock de ação humana (default: HUMAN_ACTION_TTL_MS). */
+  humanActionTtlMs?: number;
 };
 
 export type SessionView = {
@@ -118,14 +124,20 @@ export class ComputerSessionManager {
   private store: SessionStore;
   private channelInstance: string;
   private channelLeaseMs: number;
+  private humanActionRenewIntervalMs: number;
+  private humanActionTtlMs: number;
 
   constructor(options: SessionManagerOptions = {}) {
     this.now = options.now ?? Date.now;
     this.channelInstance = options.channelInstance ?? randomUUID();
     this.channelLeaseMs = options.channelLeaseMs ?? CHANNEL_LEASE_MS;
     this.providerFactory = options.providerFactory ?? (() => this.createEnvProvider());
+    this.humanActionRenewIntervalMs =
+      options.humanActionRenewIntervalMs ?? Math.max(250, Math.floor(HUMAN_ACTION_TTL_MS / 3));
+    this.humanActionTtlMs = options.humanActionTtlMs ?? HUMAN_ACTION_TTL_MS;
     // getDb lança apenas na PRIMEIRA operação (lazy) — falha de
-    // DATABASE_URL/tabela degrada para memória de forma honesta.
+    // DATABASE_URL/tabela degrada para memória (testes/desenv) ou recusa a
+    // sessão real em produção (PersistenceUnavailableError).
     this.store = options.store ?? new ResilientSessionStore(() => getDb());
   }
 
@@ -192,17 +204,33 @@ export class ComputerSessionManager {
     const limits = provider.limits();
 
     const sessionId = `cmp-${randomUUID()}`;
-    const gate = await this.store.tryReserve({
-      sessionId,
-      conversationId: opts.conversationId,
-      userId: opts.userId,
-      provider: provider.kind,
-      leaseExpiresAt: this.now() + limits.maxSessionMs,
-      monthlyBudgetUnits: limits.monthlyBudgetUnits,
-    });
+    let gate: Awaited<ReturnType<SessionStore["tryReserve"]>>;
+    try {
+      gate = await this.store.tryReserve({
+        sessionId,
+        conversationId: opts.conversationId,
+        userId: opts.userId,
+        provider: provider.kind,
+        leaseExpiresAt: this.now() + limits.maxSessionMs,
+        monthlyBudgetUnits: limits.monthlyBudgetUnits,
+      });
+    } catch (error) {
+      if (error instanceof PersistenceUnavailableError) {
+        return { ok: false, reason: "PERSISTENCE_UNAVAILABLE" };
+      }
+      throw error;
+    }
     if (!gate.ok) return { ok: false, reason: gate.reason };
 
-    const attach = await this.store.attachChannel(sessionId, this.channelInstance, this.channelLeaseMs);
+    let attach: "ok" | "BUSY" | "NOT_FOUND";
+    try {
+      attach = await this.store.attachChannel(sessionId, this.channelInstance, this.channelLeaseMs);
+    } catch (error) {
+      if (error instanceof PersistenceUnavailableError) {
+        return { ok: false, reason: "PERSISTENCE_UNAVAILABLE" };
+      }
+      throw error;
+    }
     if (attach !== "ok") {
       await this.store.close(sessionId, "error", "canal vivo ocupado na reserva").catch(() => undefined);
       return { ok: false, reason: "SESSION_LIMIT" };
@@ -447,7 +475,7 @@ export class ComputerSessionManager {
     const record = await this.store.get(session.id);
     if (!isLiveRecord(record)) return { ok: false, code: "SESSION_NOT_FOUND" };
     if (record.controller !== "human") return { ok: false, code: "NOT_HUMAN_CONTROLLED" };
-    if (!(await this.store.setHumanActionInflight(session.id, this.now() + HUMAN_ACTION_TTL_MS))) {
+    if (!(await this.store.setHumanActionInflight(session.id, this.now() + this.humanActionTtlMs))) {
       return { ok: false, code: "ACTION_INFLIGHT" };
     }
     return { ok: true, session };
@@ -458,6 +486,34 @@ export class ComputerSessionManager {
     await this.store.clearHumanAction(sessionId).catch(() => undefined);
     const record = await this.store.get(sessionId).catch(() => null);
     return { controller: isLiveRecord(record) ? record.controller : null };
+  }
+
+  /**
+   * LOCK RENOVÁVEL de ação humana: `human_action_until` é renovado em loop
+   * durante TODA a execução (navegação pode levar 30s > TTL fixo) e liberado
+   * NO finally — sucesso, erro ou cancelamento. Enquanto o lock está vivo,
+   * CAS humano→agente falha (ACTION_INFLIGHT): o agente NUNCA recebe o
+   * controle com ação humana em voo.
+   */
+  async runHumanAction<T>(session: ComputerSession, action: () => Promise<T>): Promise<T> {
+    const sessionId = session.snapshot().sessionId;
+    let renewing = true;
+    const renewal = (async () => {
+      while (renewing) {
+        await new Promise((resolve) => setTimeout(resolve, this.humanActionRenewIntervalMs).unref?.());
+        if (!renewing) break;
+        await this.store
+          .renewHumanAction(sessionId, this.now() + this.humanActionTtlMs)
+          .catch(() => undefined);
+      }
+    })();
+    try {
+      return await action();
+    } finally {
+      renewing = false;
+      await this.store.clearHumanAction(sessionId).catch(() => undefined);
+      await renewal.catch(() => undefined);
+    }
   }
 
   /** View saneada LOCAL (rápida): NUNCA token, host do provedor ou URL com segredo. */
