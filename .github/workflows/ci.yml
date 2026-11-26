@@ -30,10 +30,20 @@ jobs:
         run: npm run test
 
       - name: Build web
-        run: npm run build -w apps/web
+        run: |
+          set -o pipefail
+          npm run build -w apps/web 2>&1 | tee /tmp/build-web.log
         env:
           # Build must not require live DB; /api/health skips without DATABASE_URL
           NODE_ENV: production
+
+      - name: Publish build log to PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/build-web.log > /tmp/build-tail.txt
+          gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/build-tail.txt || true
 
       - name: Lockfile status
         run: |
