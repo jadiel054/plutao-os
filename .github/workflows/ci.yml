@@ -15,8 +15,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -32,20 +30,10 @@ jobs:
         run: npm run test
 
       - name: Build web
-        run: |
-          set -o pipefail
-          npm run build -w apps/web 2>&1 | tee /tmp/build-web.log
+        run: npm run build -w apps/web
         env:
           # Build must not require live DB; /api/health skips without DATABASE_URL
           NODE_ENV: production
-
-      - name: Publish build log to PR
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tail -c 6000 /tmp/build-web.log > /tmp/build-tail.txt
-          gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/build-tail.txt || true
 
       - name: Lockfile status
         run: |
@@ -75,7 +63,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://plutao:plutao@localhost:5432/plutao_test
+      DATABASE_URL: postgres://plutao:plutao$localhost:5432/plutao_test
       RUN_PG_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
