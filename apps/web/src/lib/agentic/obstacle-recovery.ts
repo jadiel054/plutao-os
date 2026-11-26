@@ -289,15 +289,26 @@ const ENVIRONMENT_BY_TOOL: Record<string, string> = {
   appium: "device",
 };
 
+const INTERACTIVE_ENVIRONMENTS = new Set(["browser", "device", "computer"]);
+
 export function alternativesForTool(ctx: ToolFailureContext): AlternativeCandidate[] {
   const provider = ctx.tool.split(".")[0];
-  return ctx.enabledCapabilityIds
-    .filter((id) => id.startsWith(provider + ".") && id !== ctx.tool)
-    .map((id) => ({
-      id,
-      subject: id,
-      mode: /write|create|push|deploy|send|exec|set/i.test(id) ? ("write" as const) : ("read" as const),
-      environment: ENVIRONMENT_BY_TOOL[provider] ?? "connector",
-      instruction: "Alternativa à tool '" + ctx.tool + "': usar " + id + " para alcançar o mesmo objetivo.",
-    }));
+  const failed = new Set<string>([ctx.tool, ...(ctx.knownFailed ?? [])]);
+  const toCandidate = (id: string): AlternativeCandidate => ({
+    id,
+    subject: id,
+    mode: /write|create|push|deploy|send|exec|set/i.test(id) ? ("write" as const) : ("read" as const),
+    environment: ENVIRONMENT_BY_TOOL[id.split(".")[0]] ?? ENVIRONMENT_BY_TOOL[provider] ?? "connector",
+    instruction: "Alternativa à tool '" + ctx.tool + "': usar " + id + " para alcançar o mesmo objetivo.",
+  });
+  // 1) Mesmo provedor (contrato conhecido: mais confiável).
+  const same = ctx.enabledCapabilityIds.filter((id) => id.startsWith(provider + ".") && !failed.has(id));
+  if (same.length > 0) return same.map(toCandidate);
+  // 2) Recuperação entre ambientes: prefira ambientes interativos
+  //    (browser/device/computer) antes de conectores genéricos.
+  const others = ctx.enabledCapabilityIds.filter((id) => !failed.has(id));
+  const interactive = others.filter((id) =>
+    INTERACTIVE_ENVIRONMENTS.has(ENVIRONMENT_BY_TOOL[id.split(".")[0]] ?? "connector")
+  );
+  return (interactive.length > 0 ? interactive : others).map(toCandidate);
 }

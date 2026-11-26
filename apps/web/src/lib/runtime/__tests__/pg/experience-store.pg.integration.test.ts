@@ -48,16 +48,22 @@ const BOOTSTRAP = [
 beforeAll(async () => {
   if (!RUN) return;
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  await pool.query(BOOTSTRAP);
+  // Outros arquivos pg rodam em paralelo no mesmo banco: CREATE TABLE
+  // concorrente pode falhar com 23505 (pg_type). Retenta até convergir.
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      await pool.query(BOOTSTRAP);
+      break;
+    } catch (err) {
+      if (attempt === 5) throw err;
+    }
+  }
 });
 
 beforeEach(async () => {
   if (!RUN) return;
-  // Não truncar tabelas compartilhadas: outros testes pg rodam em paralelo.
-  await pool.query(
-    "DELETE FROM agent_experiences WHERE user_id IN (SELECT id FROM users WHERE email = 'agentic-test@example.com')"
-  );
-  await pool.query("DELETE FROM users WHERE email = 'agentic-test@example.com'");
+  // Limpa apenas as próprias linhas, com tolerância a corrida de bootstrap.
+  await cleanupMine();
 });
 
 afterAll(async () => {
@@ -73,12 +79,16 @@ async function newUser(): Promise<string> {
   return res.rows[0].id as string;
 }
 
-/** Deleta somente as linhas deste teste, nunca tabelas inteiras. */
+/** Deleta somente as linhas deste teste; tolerante a corrida entre arquivos. */
 async function cleanupMine(): Promise<void> {
-  await pool.query(
-    "DELETE FROM agent_experiences WHERE user_id IN (SELECT id FROM users WHERE email = 'agentic-test@example.com')"
-  );
-  await pool.query("DELETE FROM users WHERE email = 'agentic-test@example.com'");
+  try {
+    await pool.query(
+      "DELETE FROM agent_experiences WHERE user_id IN (SELECT id FROM users WHERE email = 'agentic-test@example.com')"
+    );
+    await pool.query("DELETE FROM users WHERE email = 'agentic-test@example.com'");
+  } catch {
+    /* tabela pode não existir ainda (corrida de bootstrap) */
+  }
 }
 
 d("experience-store — persistência de experiências", () => {

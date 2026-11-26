@@ -96,7 +96,7 @@ export function planInteraction(pageId: string, goal: string): { steps: Interact
   const toggleWords = /(desativ|ativ|ligue|desligue|habilite|desabilite|marc|desmarc)/;
   const stateWords = /(está|esta|ativad|desativad|ligad|habilitad)/;
   for (const control of surface.controls) {
-    if (control.kind === "toggle" && toggleWords.test(goalLower)) {
+    if ((control.kind === "toggle" || control.kind === "select") && toggleWords.test(goalLower)) {
       const to = !/desativ|deslig|desabil|desmarc/.test(goalLower);
       steps.push({
         action: { type: "toggle", control: control.id, to },
