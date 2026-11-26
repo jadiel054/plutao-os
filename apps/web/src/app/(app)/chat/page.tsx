@@ -94,10 +94,19 @@ type Message = {
   localModelBadge?: string;
 };
 
+type QuickSendContext = {
+  missionId?: string;
+  conversationId?: string;
+  projectId?: string;
+  /** Histórico da conversa destino (ex.: retomada), evita estado obsoleto. */
+  history?: Message[];
+};
+
 type QueuedMessage = {
   id: string;
   text: string;
   artifacts?: ArtifactRef[];
+  context?: QuickSendContext;
 };
 
 type MissionListItem = {
@@ -335,7 +344,7 @@ function ChatPageInner() {
     return [];
   }, []);
 
-  const selectConversation = useCallback(async (id: string | null) => {
+  const selectConversation = useCallback(async (id: string | null): Promise<Message[]> => {
     const previousId = activeConversationIdRef.current;
     const container = messagesScrollRef.current;
     if (previousId && container) {
@@ -345,7 +354,7 @@ function ChatPageInner() {
     if (!id) {
       setMessages([]);
       scrollRestoreRef.current = null;
-      return;
+      return [];
     }
     try {
       const res = await fetch(`/api/conversations/${id}/messages`, { cache: "no-store" });
@@ -371,11 +380,13 @@ function ChatPageInner() {
           setMessages(loaded);
           const savedTop = loadChatScrollPosition(id);
           scrollRestoreRef.current = savedTop != null ? { conversationId: id, top: savedTop } : null;
+          return loaded;
         }
       }
     } catch {
       addToast("Erro ao carregar mensagens da conversa", "error");
     }
+    return [];
   }, []);
 
   const handleRenameConversation = async (id: string, newTitle: string) => {
@@ -726,7 +737,8 @@ function ChatPageInner() {
   async function executeSend(
     text: string,
     activeArtifacts: ArtifactRef[],
-    overrideMessages?: Message[]
+    overrideMessages?: Message[],
+    sendContext?: QuickSendContext
   ) {
     if (abortController) {
       isSendNowAbortRef.current = true;
@@ -877,8 +889,9 @@ function ChatPageInner() {
         body: JSON.stringify({
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           artifactIds: activeArtifacts.map((a) => a.id),
-          missionId: activeMissionId,
-          conversationId: activeConversationId,
+          missionId: sendContext?.missionId ?? activeMissionId,
+          conversationId: sendContext?.conversationId ?? activeConversationId,
+          projectId: sendContext?.projectId ?? null,
           stream: true,
         }),
         signal: controller.signal,
@@ -1244,7 +1257,8 @@ function ChatPageInner() {
   async function handleSend(
     e?: FormEvent,
     overrideText?: string,
-    overrideArtifacts?: ArtifactRef[]
+    overrideArtifacts?: ArtifactRef[],
+    sendContext?: QuickSendContext
   ) {
     if (e) e.preventDefault();
     const textRaw = (overrideText ?? inputMessage).trim();
@@ -1273,6 +1287,7 @@ function ChatPageInner() {
         id: crypto.randomUUID(),
         text: redacted.text,
         artifacts: activeArtifacts.length > 0 ? activeArtifacts : undefined,
+        context: sendContext,
       };
       setQueue((prev) => [...prev, newQueued]);
       setInputMessage("");
@@ -1289,7 +1304,7 @@ function ChatPageInner() {
     if (editingMessageId) {
       await handleSaveEditedMessage(redacted.text, activeArtifacts);
     } else {
-      await executeSend(redacted.text, activeArtifacts);
+      await executeSend(redacted.text, activeArtifacts, sendContext?.history, sendContext);
     }
   }
 
@@ -1297,7 +1312,7 @@ function ChatPageInner() {
     if (queueRef.current.length === 0) return;
     const targetItem = queueRef.current[index] ?? queueRef.current[0];
     setQueue((prev) => prev.filter((_, i) => i !== index));
-    void executeSend(targetItem.text, targetItem.artifacts ?? []);
+    void executeSend(targetItem.text, targetItem.artifacts ?? [], targetItem.context?.history, targetItem.context);
   }
 
   function handleDiscardQueue(index = 0) {
@@ -1544,9 +1559,32 @@ function ChatPageInner() {
               conversations: serverConversations.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt })),
               projects: projectsList,
             }}
-            onSelectAction={(prompt, missionId) => {
-              if (missionId) selectMission(missionId);
-              void handleSend(undefined, prompt);
+            onSelectAction={(action) => {
+              // Cada ação executa EXATAMENTE o comportamento anunciado, com
+              // os IDs explícitos no envio (sem depender de setState pendente).
+              const conversationId = action.conversationId;
+              if (action.kind === "conversation" && conversationId) {
+                void (async () => {
+                  const loaded = await selectConversation(conversationId);
+                  await handleSend(undefined, action.prompt, undefined, {
+                    conversationId,
+                    history: loaded,
+                  });
+                })();
+                return;
+              }
+              const missionId = action.missionId;
+              if (action.kind === "mission" && missionId) {
+                selectMission(missionId);
+                void handleSend(undefined, action.prompt, undefined, { missionId });
+                return;
+              }
+              const projectId = action.projectId;
+              if (action.kind === "project" && projectId) {
+                void handleSend(undefined, action.prompt, undefined, { projectId });
+                return;
+              }
+              void handleSend(undefined, action.prompt);
             }}
           />
         ) : (

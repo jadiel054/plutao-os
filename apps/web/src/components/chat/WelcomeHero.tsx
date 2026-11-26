@@ -16,7 +16,7 @@ type WelcomeHeroProps = {
   agentIdentity: string;
   context: WelcomeContext;
   localMode?: boolean;
-  onSelectAction: (prompt: string, missionId?: string) => void;
+  onSelectAction: (action: QuickAction) => void;
 };
 
 const KIND_ICONS: Record<QuickActionKind, ReactNode> = {
@@ -96,7 +96,7 @@ export function WelcomeHero({ agentName, agentIdentity, context, localMode = fal
             <button
               key={a.id}
               type="button"
-              onClick={() => onSelectAction(a.prompt, a.missionId)}
+              onClick={() => onSelectAction(a)}
               className="group flex cursor-pointer items-start gap-3 rounded-2xl bg-[var(--surface)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-elevated)]/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--selo)]/50"
             >
               <span className="mt-0.5 shrink-0 text-[var(--selo)] transition-transform group-hover:scale-110" aria-hidden>

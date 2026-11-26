@@ -49,6 +49,7 @@ describe("buildQuickActions", () => {
     expect(actions[0].kind).toBe("mission");
     expect(actions[0].missionId).toBe("m1");
     expect(actions.some((a) => a.kind === "conversation")).toBe(true);
+    expect(actions.find((a) => a.kind === "project")?.projectId).toBe("p1");
     expect(actions.some((a) => a.kind === "tasks")).toBe(true);
     expect(actions.length).toBeLessThanOrEqual(4);
   });
@@ -58,6 +59,16 @@ describe("buildQuickActions", () => {
     const conv = actions.find((a) => a.kind === "conversation");
     expect(conv?.conversationId).toBe("c2");
     expect(conv?.description).toContain("Planejamento trimestral");
+  });
+
+  it("acao de retomada carrega conversationId e acao de projeto carrega projectId", () => {
+    const actions = buildQuickActions(baseCtx);
+    const conv = actions.find((a) => a.kind === "conversation");
+    expect(conv?.conversationId).toBe("c2");
+    const proj = actions.find((a) => a.kind === "project");
+    expect(proj?.projectId).toBe("p1");
+    const mission = actions.find((a) => a.kind === "mission");
+    expect(mission?.missionId).toBe("m1");
   });
 
   it("sem contexto real oferece apenas acoes genericas funcionais", () => {

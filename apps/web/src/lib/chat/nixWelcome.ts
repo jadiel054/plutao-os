@@ -40,6 +40,7 @@ export type QuickAction = {
   prompt: string;
   missionId?: string;
   conversationId?: string;
+  projectId?: string;
 };
 
 export type WelcomeMission = { id: string; objective: string; status?: string };
@@ -118,6 +119,7 @@ export function buildQuickActions(ctx: WelcomeContext, max = 4): QuickAction[] {
     actions.push({
       id: "project-" + project.id,
       kind: "project",
+      projectId: project.id,
       label: "Projeto " + truncate(project.name, 30),
       description: "Continuar o trabalho deste projeto.",
       prompt: "Vamos trabalhar no projeto “" + project.name + "”. Por onde começamos hoje?",
