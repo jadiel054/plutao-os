@@ -2,6 +2,7 @@
 
 import { extractAnswerSections } from "@/lib/chat/answerFormatting";
 import { deriveAgentActivity } from "@/lib/chat/activityState";
+import { groupConsecutiveByProvider } from "@/lib/chat/toolGroups";
 import { providerDisplayName } from "@/lib/chat/toolLogos";
 import { ReasoningBlock, type ReasoningStepItem } from "./ReasoningBlock";
 import { ActionCards, type ToolCallItem } from "./ActionCards";
@@ -108,6 +109,10 @@ export function StructuredMessage({
       ? deriveAgentActivity(toolCallSteps, isStreaming, content.length > 0)
       : null;
 
+  // Agrupamento consecutivo por provedor (mesma regra dos blocos visuais),
+  // usado no resumo de fontes para nao misturar provedores distintos.
+  const toolGroups = groupConsecutiveByProvider(toolCallSteps);
+
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere] break-words">
       {activity ? (
@@ -134,14 +139,24 @@ export function StructuredMessage({
 
       {body.trim() ? <div className="space-y-3">{renderMarkdownParts(body)}</div> : null}
 
-      {toolCallSteps.length > 0 ? (
-        <div className="flex items-center gap-1.5 pt-1 text-[11px] text-[var(--text-muted)]">
-          <ToolLogo provider={toolCallSteps[0]?.provider ?? ""} size={12} />
+      {toolGroups.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[11px] text-[var(--text-muted)]">
           <span className="opacity-60">Fontes de ferramenta</span>
-          <span className="opacity-40">·</span>
-          <span className="font-medium text-[var(--selo)]">
-            {providerDisplayName(toolCallSteps[0]?.provider ?? "conector")} ({toolCallSteps.length} {toolCallSteps.length === 1 ? "chamada" : "chamadas"})
-          </span>
+          {toolGroups.map((group, gi) => (
+            <span
+              key={`src-${group.provider}-${gi}-${group.calls[0]?.id ?? ""}`}
+              className="inline-flex items-center gap-1"
+            >
+              {gi > 0 ? <span className="opacity-40" aria-hidden>·</span> : null}
+              <ToolLogo provider={group.provider} size={12} />
+              <span className="font-medium text-[var(--selo)]">
+                {providerDisplayName(group.provider)}
+              </span>
+              <span className="opacity-60">
+                ({group.calls.length} {group.calls.length === 1 ? "operação" : "operações"})
+              </span>
+            </span>
+          ))}
         </div>
       ) : null}
     </div>
