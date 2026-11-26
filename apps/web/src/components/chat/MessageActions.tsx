@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   defaultVoicePrefs,
   speakText,
@@ -16,6 +16,13 @@ type Props = {
   onRegenerate?: () => void;
   disabled?: boolean;
 };
+
+/** A barra so aparece quando a resposta tem conteudo utilizavel. */
+const MIN_CONTENT_CHARS = 40;
+/** Tempo em que a barra permanece visivel apos a resposta terminar. */
+const HIDE_AFTER_MS = 5000;
+/** Atraso para considerar o streaming encerrado (evita piscar durante chunks). */
+const STREAM_SETTLE_MS = 600;
 
 let cachedPrefs: VoiceRuntimePrefs | null = null;
 let prefsFetchedAt = 0;
@@ -47,7 +54,16 @@ async function loadVoicePrefs(): Promise<VoiceRuntimePrefs> {
 }
 
 /**
- * Barra de ações sob a resposta do assistente — folha discreta (copiar, falar, regenerar, feedback).
+ * Barra de acoes temporaria sob a resposta do assistente:
+ * copiar, ouvir, compartilhar, curtir, nao curtir (e regenerar).
+ *
+ * Comportamento temporal:
+ * - aparece quando a resposta termina (streaming estabilizado);
+ * - permanece visivel por 5 segundos e desaparece suavemente;
+ * - toque/clique na mensagem faz a barra reaparecer;
+ * - no desktop, hover na mensagem tambem revela a barra (CSS);
+ * - nao ocupa espaco permanente quando oculta (max-height + opacity);
+ * - durante o streaming o temporizador nao reinicia continuamente.
  */
 export function MessageActions({ content, messageId, conversationId, onRegenerate, disabled }: Props) {
   const [copied, setCopied] = useState(false);
@@ -59,6 +75,70 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
   const [speakError, setSpeakError] = useState<string | null>(null);
   const [playElapsed, setPlayElapsed] = useState(0);
   const [playTotal, setPlayTotal] = useState<number | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const lenRef = useRef(content.length);
+  const grewRef = useRef(false);
+  const hideTimerRef = useRef<number | null>(null);
+  const settleTimerRef = useRef<number | null>(null);
+  const speakingRef = useRef(false);
+  speakingRef.current = speaking || speakLoading;
+
+  const hasEnough = content.trim().length >= MIN_CONTENT_CHARS;
+
+  function scheduleHide() {
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = window.setTimeout(() => {
+      // Nao esconder enquanto o audio esta em reproducao.
+      if (speakingRef.current) {
+        scheduleHide();
+        return;
+      }
+      setVisible(false);
+    }, HIDE_AFTER_MS);
+  }
+
+  // Visibilidade automatica: so quando o conteudo cresceu nesta montagem
+  // (resposta nova). Mensagens antigas do historico so via hover/toque.
+  useEffect(() => {
+    if (content.length > lenRef.current) grewRef.current = true;
+    lenRef.current = content.length;
+
+    if (!hasEnough) {
+      setVisible(false);
+      return;
+    }
+
+    setVisible(false);
+    settleTimerRef.current = window.setTimeout(() => {
+      if (!grewRef.current) return;
+      setVisible(true);
+      scheduleHide();
+    }, STREAM_SETTLE_MS);
+
+    return () => {
+      if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
+    };
+  }, [content]);
+
+  // Toque/clique na mensagem revela a barra novamente (mobile e desktop).
+  useEffect(() => {
+    const bubble = rootRef.current?.closest(".chat-bubble");
+    if (!bubble) return;
+    const show = () => {
+      if (content.trim().length < MIN_CONTENT_CHARS) return;
+      setVisible(true);
+      scheduleHide();
+    };
+    bubble.addEventListener("click", show);
+    bubble.addEventListener("touchstart", show, { passive: true });
+    return () => {
+      bubble.removeEventListener("click", show);
+      bubble.removeEventListener("touchstart", show);
+      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    };
+  }, [content]);
 
   async function submitFeedback(rating: "up" | "down") {
     if (!messageId || !conversationId || feedbackLoading) return;
@@ -135,10 +215,10 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
       });
 
       if (res.engine === "native" && typeof window !== "undefined" && !("speechSynthesis" in window)) {
-        setSpeakError("Síntese de voz indisponível no navegador.");
+        setSpeakError("Sintese de voz indisponivel no navegador.");
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Falha ao reproduzir áudio";
+      const msg = err instanceof Error ? err.message : "Falha ao reproduzir audio";
       setSpeakError(msg);
       setTimeout(() => setSpeakError(null), 4000);
     } finally {
@@ -152,99 +232,107 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
   const btn =
     "w-8 h-8 rounded-full flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--base)]/80 transition-colors disabled:opacity-30";
 
+  const barVisible = visible || speaking || speakLoading;
+
   return (
-    <div className="flex items-center gap-0.5 mt-1.5 -ml-1 opacity-80 hover:opacity-100 transition-opacity">
-      <button type="button" className={btn} onClick={() => void handleCopy()} title={copied ? "Copiado" : "Copiar"} aria-label="Copiar">
-        {copied ? (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        ) : (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" strokeLinecap="round" /></svg>
-        )}
-      </button>
-      <button type="button" className={btn} onClick={() => void handleShare()} title="Compartilhar" aria-label="Compartilhar">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" strokeLinecap="round" /></svg>
-      </button>
-      <button
-        type="button"
-        className={`${btn} ${speaking ? "text-[var(--selo)]" : ""} ${speakError ? "text-rose-400" : ""}`}
-        onClick={() => void handleSpeak()}
-        title={speaking ? "Parar" : speakLoading ? "Iniciando…" : "Ouvir"}
-        aria-label="Ouvir"
-      >
-        {speakLoading ? (
-          <span className="w-3.5 h-3.5 border-2 border-[var(--selo)] border-t-transparent rounded-full animate-spin" />
-        ) : (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M11 5L6 9H2v6h4l5 4V5z" strokeLinejoin="round" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" strokeLinecap="round" /></svg>
-        )}
-      </button>
-      {(speaking || speakLoading) ? (
-        <span className="inline-flex items-center gap-1.5 ml-0.5 min-w-0" aria-live="polite">
-          <span className="text-[10px] font-mono tabular-nums text-[var(--text-muted)] whitespace-nowrap">
-            {speakLoading
-              ? "Iniciando áudio…"
-              : playTotal != null
-                ? `${formatPlaybackClock(playElapsed)} / ${formatPlaybackClock(playTotal)}`
-                : "Reproduzindo…"}
-          </span>
-          {speaking && playTotal != null && playTotal > 0 ? (
-            <span
-              className="h-1 w-12 rounded-full bg-[var(--border)] overflow-hidden"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.min(100, Math.round((playElapsed / playTotal) * 100))}
-            >
-              <span
-                className="block h-full bg-[var(--selo)] transition-[width] duration-200 ease-linear"
-                style={{ width: `${Math.min(100, (playElapsed / playTotal) * 100)}%` }}
-              />
-            </span>
-          ) : null}
-        </span>
-      ) : speakError ? (
-        <span className="text-[10px] font-mono text-rose-400 ml-1 truncate max-w-[180px]" title={speakError}>
-          {speakError}
-        </span>
-      ) : null}
-      {onRegenerate ? (
-        <button type="button" className={btn} disabled={disabled} onClick={onRegenerate} title="Regenerar" aria-label="Regenerar">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+    <div
+      ref={rootRef}
+      aria-hidden={!barVisible}
+      className={`msg-actions-wrap ${barVisible ? "msg-actions-visible" : ""}`}
+    >
+      <div className="flex items-center gap-0.5 mt-1.5 -ml-1">
+        <button type="button" className={btn} onClick={() => void handleCopy()} title={copied ? "Copiado" : "Copiar"} aria-label="Copiar">
+          {copied ? (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" strokeLinecap="round" /></svg>
+          )}
         </button>
-      ) : null}
-      <span className="w-px h-4 bg-[var(--border)] mx-1" aria-hidden />
-      <button
-        type="button"
-        className={`${btn} ${feedback === "up" ? "text-[var(--selo)]" : ""}`}
-        disabled={disabled || feedbackLoading || !messageId || !conversationId}
-        onClick={() => void submitFeedback("up")}
-        title="Útil"
-        aria-label="Útil"
-      >
-        {feedbackLoading && feedback !== "down" ? (
-          <span className="w-3.5 h-3.5 border-2 border-[var(--selo)] border-t-transparent rounded-full animate-spin" />
-        ) : (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill={feedback === "up" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.75"><path d="M7 11v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3zm0 0V8a4 4 0 0 1 4-4l1 5h5a2 2 0 0 1 2 2l-1 6a2 2 0 0 1-2 2h-7" strokeLinejoin="round" /></svg>
-        )}
-      </button>
-      <button
-        type="button"
-        className={`${btn} ${feedback === "down" ? "text-rose-400" : ""}`}
-        disabled={disabled || feedbackLoading || !messageId || !conversationId}
-        onClick={() => void submitFeedback("down")}
-        title="Não útil"
-        aria-label="Não útil"
-      >
-        {feedbackLoading && feedback !== "up" ? (
-          <span className="w-3.5 h-3.5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
-        ) : (
-          <svg width="15" height="15" viewBox="0 0 24 24" fill={feedback === "down" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.75"><path d="M17 13V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-3zm0 0v3a4 4 0 0 1-4 4l-1-5H7a2 2 0 0 1-2-2l1-6a2 2 0 0 1 2-2h7" strokeLinejoin="round" /></svg>
-        )}
-      </button>
-      {feedbackError ? (
-        <span className="text-[10px] font-mono text-rose-400 ml-1 truncate max-w-[140px]" title={feedbackError}>
-          {feedbackError}
-        </span>
-      ) : null}
+        <button type="button" className={btn} onClick={() => void handleShare()} title="Compartilhar" aria-label="Compartilhar">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" strokeLinecap="round" /></svg>
+        </button>
+        <button
+          type="button"
+          className={`${btn} ${speaking ? "text-[var(--selo)]" : ""} ${speakError ? "text-rose-400" : ""}`}
+          onClick={() => void handleSpeak()}
+          title={speaking ? "Parar" : speakLoading ? "Iniciando…" : "Ouvir"}
+          aria-label="Ouvir"
+        >
+          {speakLoading ? (
+            <span className="w-3.5 h-3.5 border-2 border-[var(--selo)] border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M11 5L6 9H2v6h4l5 4V5z" strokeLinejoin="round" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" strokeLinecap="round" /></svg>
+          )}
+        </button>
+        {(speaking || speakLoading) ? (
+          <span className="inline-flex items-center gap-1.5 ml-0.5 min-w-0" aria-live="polite">
+            <span className="text-[10px] font-mono tabular-nums text-[var(--text-muted)] whitespace-nowrap">
+              {speakLoading
+                ? "Iniciando audio…"
+                : playTotal != null
+                  ? `${formatPlaybackClock(playElapsed)} / ${formatPlaybackClock(playTotal)}`
+                  : "Reproduzindo…"}
+            </span>
+            {speaking && playTotal != null && playTotal > 0 ? (
+              <span
+                className="h-1 w-12 rounded-full bg-[var(--border)] overflow-hidden"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.min(100, Math.round((playElapsed / playTotal) * 100))}
+              >
+                <span
+                  className="block h-full bg-[var(--selo)] transition-[width] duration-200 ease-linear"
+                  style={{ width: `${Math.min(100, (playElapsed / playTotal) * 100)}%` }}
+                />
+              </span>
+            ) : null}
+          </span>
+        ) : speakError ? (
+          <span className="text-[10px] font-mono text-rose-400 ml-1 truncate max-w-[180px]" title={speakError}>
+            {speakError}
+          </span>
+        ) : null}
+        {onRegenerate ? (
+          <button type="button" className={btn} disabled={disabled} onClick={onRegenerate} title="Regenerar" aria-label="Regenerar">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        ) : null}
+        <span className="w-px h-4 bg-[var(--border)] mx-1" aria-hidden />
+        <button
+          type="button"
+          className={`${btn} ${feedback === "up" ? "text-[var(--selo)]" : ""}`}
+          disabled={disabled || feedbackLoading || !messageId || !conversationId}
+          onClick={() => void submitFeedback("up")}
+          title="Util"
+          aria-label="Util"
+        >
+          {feedbackLoading && feedback !== "down" ? (
+            <span className="w-3.5 h-3.5 border-2 border-[var(--selo)] border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill={feedback === "up" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.75"><path d="M7 11v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3zm0 0V8a4 4 0 0 1 4-4l1 5h5a2 2 0 0 1 2 2l-1 6a2 2 0 0 1-2 2h-7" strokeLinejoin="round" /></svg>
+          )}
+        </button>
+        <button
+          type="button"
+          className={`${btn} ${feedback === "down" ? "text-rose-400" : ""}`}
+          disabled={disabled || feedbackLoading || !messageId || !conversationId}
+          onClick={() => void submitFeedback("down")}
+          title="Nao util"
+          aria-label="Nao util"
+        >
+          {feedbackLoading && feedback !== "up" ? (
+            <span className="w-3.5 h-3.5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill={feedback === "down" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.75"><path d="M17 13V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-3zm0 0v3a4 4 0 0 1-4 4l-1-5H7a2 2 0 0 1-2-2l1-6a2 2 0 0 1 2-2h7" strokeLinejoin="round" /></svg>
+          )}
+        </button>
+        {feedbackError ? (
+          <span className="text-[10px] font-mono text-rose-400 ml-1 truncate max-w-[140px]" title={feedbackError}>
+            {feedbackError}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }

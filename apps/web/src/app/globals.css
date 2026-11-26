@@ -343,3 +343,57 @@ html.view-desktop .desktop-top-nav {
     opacity: 0.5;
   }
 }
+
+/* ============================================================
+   Chat evolution — mensagens sem bordas + barra de ações temporal
+   ============================================================ */
+
+/* Remove bordas, sombras e contornos dos balões (usuário e assistente) */
+.chat-bubble > div.relative {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Mensagens do assistente: integradas ao fundo, sem superfície delimitadora */
+.chat-bubble > div.relative.backdrop-blur-sm {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Barra de ações temporárias: sem espaço permanente quando oculta */
+.msg-actions-wrap {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transform: translateY(2px);
+  transition: max-height 320ms ease, opacity 320ms ease, transform 320ms ease,
+    visibility 0s linear 320ms;
+}
+
+.msg-actions-wrap.msg-actions-visible {
+  max-height: 5rem;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: max-height 320ms ease, opacity 320ms ease, transform 320ms ease;
+}
+
+/* Desktop: reaparece ao passar o cursor sobre a mensagem */
+@media (hover: hover) {
+  .chat-bubble:hover .msg-actions-wrap {
+    max-height: 5rem;
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition: max-height 320ms ease, opacity 320ms ease, transform 320ms ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-actions-wrap,
+  .msg-actions-wrap.msg-actions-visible {
+    transition: none;
+  }
+}
