@@ -141,7 +141,8 @@ export async function getComputerController(
 export async function emitComputerState(
   conversationId: string,
   state: ComputerState,
-  detail?: string
+  detail?: string,
+  extra?: Record<string, unknown>
 ): Promise<void> {
   try {
     const controller = await getComputerController(conversationId);
@@ -156,6 +157,7 @@ export async function emitComputerState(
         detail: detail ?? null,
         controller,
         at: Date.now(),
+        ...(extra ?? {}),
       },
     });
   } catch {
