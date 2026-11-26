@@ -30,6 +30,8 @@ import {
   loadChatScrollPosition,
 } from "@/lib/chat/chatScroll";
 import { BrandMark } from "@/components/BrandMark";
+import { NixAvatar } from "@/components/chat/nix/NixAvatar";
+import { WelcomeHero } from "@/components/chat/WelcomeHero";
 import { SendMessageButton } from "@/components/SendMessageButton";
 import { createMissionIntake } from "@/lib/missions/intakeClient";
 import {
@@ -1534,18 +1536,20 @@ function ChatPageInner() {
 
       <main className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden p-4">
         {messages.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-12 text-center space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-sm font-bold text-[var(--selo)]">
-              P
-            </div>
-            <h2 className="text-xl font-semibold">Conversar com {agentName}</h2>
-            <p className="text-xs text-[var(--text-secondary)] max-w-md">{agentIdentity}</p>
-            <p className="text-[11px] text-[var(--text-muted)] max-w-sm">
-              {selectedLocalModel && selectedLocalModel !== "cloud"
-                ? "Modo Local Ativo: as respostas serão geradas diretamente no seu dispositivo."
-                : "Conversa livre ou projeto: o Núcleo descobre a intenção, alinha o caminho e só então executa."}
-            </p>
-          </div>
+          <WelcomeHero
+            agentName={agentName}
+            agentIdentity={agentIdentity}
+            localMode={Boolean(selectedLocalModel && selectedLocalModel !== "cloud")}
+            context={{
+              missions: recentMissions.map((m) => ({ id: m.id, objective: m.objective, status: m.status })),
+              conversations: serverConversations.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt })),
+              projects: projectsList,
+            }}
+            onSelectAction={(prompt, missionId) => {
+              if (missionId) selectMission(missionId);
+              void handleSend(undefined, prompt);
+            }}
+          />
         ) : (
           <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="chat-scroll min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain pb-5">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)]/40 bg-[var(--bg)]/85 pb-2 text-[10px] text-[var(--text-muted)] backdrop-blur-md">
@@ -1557,7 +1561,7 @@ function ChatPageInner() {
             </div>
             {messages.map((m) => (
               <div key={m.id} className={`group chat-bubble flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                {m.role === "assistant" && <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-[var(--selo)]/25 bg-[var(--surface)]" aria-hidden><BrandMark size={18} /></div>}
+                {m.role === "assistant" && <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)]" aria-hidden><NixAvatar size={20} /></div>}
                 <div
                   className={`relative min-w-0 max-w-[min(88%,42rem)] rounded-[1.35rem] px-4 py-3 text-sm shadow-[0_8px_28px_rgba(0,0,0,.12)] sm:max-w-[78%] ${
                     m.role === "user"
@@ -1855,10 +1859,10 @@ function ChatPageInner() {
               <button
                 type="button"
                 onClick={() => selectMission(null)}
-                className={`shrink-0 px-2 py-1 rounded-lg text-[10px] border ${
+                className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] transition-colors ${
                   !activeMissionId
-                    ? "border-[var(--selo)] text-[var(--selo)]"
-                    : "border-[var(--border)] text-[var(--text-muted)]"
+                    ? "bg-[var(--selo)]/15 text-[var(--selo)]"
+                    : "bg-[var(--surface)] text-[var(--text-muted)]"
                   }`}
               >
                 Só chat
@@ -1869,10 +1873,10 @@ function ChatPageInner() {
                   type="button"
                   onClick={() => selectMission(m.id)}
                   title={m.objective}
-                  className={`shrink-0 max-w-[140px] truncate px-2 py-1 rounded-lg text-[10px] border ${
+                  className={`shrink-0 max-w-[140px] truncate px-2.5 py-1 rounded-lg text-[10px] transition-colors ${
                     activeMissionId === m.id
-                      ? "border-[var(--selo)] text-[var(--selo)]"
-                      : "border-[var(--border)] text-[var(--text-muted)]"
+                      ? "bg-[var(--selo)]/15 text-[var(--selo)]"
+                      : "bg-[var(--surface)] text-[var(--text-muted)]"
                   }`}
                 >
                   {m.objective.slice(0, 28)}
@@ -2068,8 +2072,8 @@ function ChatPageInner() {
       {guestLimitReached && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="max-w-md w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center space-y-5 shadow-2xl">
-            <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl">
-              P
+            <div className="mx-auto flex h-12 w-12 items-center justify-center">
+              <NixAvatar size={48} />
             </div>
             <div className="space-y-2">
               <h3 className="text-lg font-semibold text-[var(--text-primary)]">

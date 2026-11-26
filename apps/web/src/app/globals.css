@@ -414,3 +414,20 @@ html.view-desktop .desktop-top-nav {
     opacity: 0.6;
   }
 }
+
+/* Nix — brilho do avatar na tela inicial */
+.nix-hero-glow {
+  animation: nix-glow 4.5s ease-in-out infinite;
+}
+
+@keyframes nix-glow {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nix-hero-glow {
+    animation: none;
+    opacity: 0.7;
+  }
+}
