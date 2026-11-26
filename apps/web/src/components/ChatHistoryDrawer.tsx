@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
 import { BrandMark } from "@/components/BrandMark";
+import { filterHistory } from "@/lib/chat/historySearch";
 
 export type ChatHistoryItem = {
   id: string;
@@ -54,6 +55,12 @@ export function ChatHistoryDrawer({
   onNotify,
 }: Props) {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  // Pesquisa: a caixa é limpa quando o drawer é fechado.
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
 
   // Modal states
   const [renameTarget, setRenameTarget] = useState<ChatHistoryItem | null>(null);
@@ -93,8 +100,9 @@ export function ChatHistoryDrawer({
     };
   }, [open, onClose]);
 
-  const pinnedItems = history.filter((h) => h.isPinned);
-  const unpinnedItems = history.filter((h) => !h.isPinned);
+  const filtered = filterHistory(history, query);
+  const pinnedItems = filtered.filter((h) => h.isPinned);
+  const unpinnedItems = filtered.filter((h) => !h.isPinned);
 
   const handleOpenRename = (h: ChatHistoryItem) => {
     setActiveMenuId(null);
@@ -361,6 +369,44 @@ export function ChatHistoryDrawer({
           </button>
         </div>
 
+        <div className="px-3 pb-2">
+          <div className="relative">
+            <svg
+              width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && query) {
+                  e.stopPropagation();
+                  setQuery("");
+                }
+              }}
+              placeholder="Pesquisar conversas…"
+              aria-label="Pesquisar conversas"
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--base)]/60 pl-8 pr-8 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--selo)]/60 transition-colors"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                aria-label="Limpar pesquisa"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+                  <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
+                </svg>
+              </button>
+            ) : null}
+          </div>
+        </div>
+
         <nav className="px-2 space-y-0.5">
           {[
             { href: "/cockpit", label: "Missões", hint: "Planos e evidência" },
@@ -381,12 +427,19 @@ export function ChatHistoryDrawer({
         </nav>
 
         <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-3 mt-2">
-          {history.length === 0 ? (
-            <p className="px-3 py-6 text-xs text-[var(--text-muted)] text-center leading-relaxed">
-              Ainda não há histórico nesta sessão.
-              <br />
-              Suas conversas ficam salvas nesta conta.
-            </p>
+          {filtered.length === 0 ? (
+            history.length === 0 ? (
+              <p className="px-3 py-6 text-xs text-[var(--text-muted)] text-center leading-relaxed">
+                Ainda não há histórico nesta sessão.
+                <br />
+                Suas conversas ficam salvas nesta conta.
+              </p>
+            ) : (
+              <p className="px-3 py-6 text-xs text-[var(--text-muted)] text-center leading-relaxed" role="status">
+                Nenhuma conversa encontrada para
+                <span className="block mt-1 font-mono text-[var(--text-secondary)] truncate">“{query}”</span>
+              </p>
+            )
           ) : (
             <>
               {pinnedItems.length > 0 && (

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, inArray, and } from "drizzle-orm";
-import { artifacts as artifactsTable, users, usageCounters, conversations } from "@plutao/db";
+import { eq, inArray, and, isNull } from "drizzle-orm";
+import { artifacts as artifactsTable, users, usageCounters, conversations, projects } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getPlanDefinition, PRESET_MODELS } from "@plutao/domain";
 import { formatFileSize } from "@/lib/artifacts";
@@ -289,6 +289,45 @@ export async function POST(req: NextRequest) {
       lastUserText
     );
 
+    // Ação rápida de projeto: valida a propriedade do projeto e executa a
+    // interação DENTRO desse contexto (não é apenas menção ao nome no prompt):
+    // vincula a conversa ao projeto (sem sobrescrever vínculo existente) e
+    // injeta um bloco de contexto explícito no system prompt.
+    let activeProject: { id: string; name: string } | null = null;
+    const providedProjectId =
+      typeof body.projectId === "string" && body.projectId.trim()
+        ? body.projectId.trim()
+        : null;
+    if (providedProjectId) {
+      try {
+        const projectRows = await db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(and(eq(projects.id, providedProjectId), eq(projects.userId, user.id)))
+          .limit(1);
+        if (projectRows[0]) {
+          activeProject = projectRows[0];
+          if (activeConversationId) {
+            await db
+              .update(conversations)
+              .set({ projectId: activeProject.id, updatedAt: new Date() })
+              .where(and(eq(conversations.id, activeConversationId), isNull(conversations.projectId)));
+          }
+        } else {
+          console.warn("[chat] projectId ignorado: inexistente ou de outro usuário");
+        }
+      } catch (err) {
+        console.error("[chat project context]", err);
+      }
+    }
+    const projectNotice = activeProject
+      ? "\n\nCONTEXTO DE PROJETO ATIVO: a mensagem foi enviada dentro do projeto \"" +
+        activeProject.name +
+        "\" (id " +
+        activeProject.id +
+        "). Trate a solicitação nesse contexto e considere os dados, artefatos e o histórico do projeto quando forem relevantes para a resposta."
+      : "";
+
     // 1. Fetch user record for plan & preferred_model
     const userRows = await db
       .select({
@@ -564,11 +603,12 @@ ${
     : ""
 }`;
 
-    const systemPromptFinal = secretsExposed
-      ? systemPrompt +
-        "\n\nAVISO RUNTIME: " +
-        secretExposureNotice([{ kind: "exposta_no_chat", masked: "****", start: 0, end: 0 }])
-      : systemPrompt;
+    const systemPromptFinal =
+      (secretsExposed
+        ? systemPrompt +
+          "\n\nAVISO RUNTIME: " +
+          secretExposureNotice([{ kind: "exposta_no_chat", masked: "****", start: 0, end: 0 }])
+        : systemPrompt) + projectNotice;
 
     const hasImageOrBinary = validatedArtifacts.some((a) => {
       const meta = a.metadata || {};

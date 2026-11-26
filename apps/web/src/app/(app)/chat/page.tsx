@@ -23,7 +23,14 @@ import { FollowUpChips, type FollowUpChip } from "@/components/chat/FollowUpChip
 import { redactSecrets } from "@/lib/security/credentials";
 import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
-import { BrandMark } from "@/components/BrandMark";
+import { MessageArtifacts } from "@/components/chat/visual/MessageArtifacts";
+import {
+  isNearBottom,
+  saveChatScrollPosition,
+  loadChatScrollPosition,
+} from "@/lib/chat/chatScroll";
+import { NixAvatar } from "@/components/chat/nix/NixAvatar";
+import { WelcomeHero } from "@/components/chat/WelcomeHero";
 import { SendMessageButton } from "@/components/SendMessageButton";
 import { createMissionIntake } from "@/lib/missions/intakeClient";
 import {
@@ -87,10 +94,19 @@ type Message = {
   localModelBadge?: string;
 };
 
+type QuickSendContext = {
+  missionId?: string;
+  conversationId?: string;
+  projectId?: string;
+  /** Histórico da conversa destino (ex.: retomada), evita estado obsoleto. */
+  history?: Message[];
+};
+
 type QueuedMessage = {
   id: string;
   text: string;
   artifacts?: ArtifactRef[];
+  context?: QuickSendContext;
 };
 
 type MissionListItem = {
@@ -136,6 +152,12 @@ function ChatPageInner() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const userNearBottomRef = useRef(true);
+  // Navegação: restauração de posição por conversa + indicador de novas mensagens
+  const scrollRestoreRef = useRef<{ conversationId: string; top: number } | null>(null);
+  const activeConversationIdRef = useRef<string | null>(null);
+  const lastScrollSaveRef = useRef(0);
+  const prevMessagesCountRef = useRef(0);
+  const [newMessagesBelow, setNewMessagesBelow] = useState(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -162,6 +184,7 @@ function ChatPageInner() {
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const queueRef = useRef<QueuedMessage[]>([]);
   queueRef.current = queue;
+  activeConversationIdRef.current = activeConversationId;
   const isSendNowAbortRef = useRef(false);
   const isManualCancelRef = useRef(false);
   const prevSendingRef = useRef(false);
@@ -179,27 +202,77 @@ function ChatPageInner() {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
   };
   const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
+  // Título inteligente: a rota só atualiza títulos automáticos (nunca os renomeados).
+  const updateConversationTitle = async (conversationId: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/title`, { method: "POST" });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data?.updated && typeof data.title === "string" && data.title.trim()) {
+        setServerConversations((prev) =>
+          prev.map((c) => (c.id === conversationId ? { ...c, title: data.title } : c)),
+        );
+      }
+    } catch {
+      /* best-effort */
+    }
+  };
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = messagesScrollRef.current;
     if (!container) return;
     container.scrollTo({ top: container.scrollHeight, behavior });
     userNearBottomRef.current = true;
     setShowJumpToLatest(false);
+    setNewMessagesBelow(0);
   }, []);
 
   const handleMessagesScroll = useCallback(() => {
     const container = messagesScrollRef.current;
     if (!container) return;
-    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 72;
+    const nearBottom = isNearBottom(container.scrollTop, container.scrollHeight, container.clientHeight);
     userNearBottomRef.current = nearBottom;
     setShowJumpToLatest(!nearBottom && container.scrollHeight > container.clientHeight);
+    if (nearBottom) setNewMessagesBelow(0);
+    // Persistência da posição (retomar a conversa de onde parou), throttled.
+    const now = Date.now();
+    const convId = activeConversationIdRef.current;
+    if (convId && now - lastScrollSaveRef.current > 400) {
+      lastScrollSaveRef.current = now;
+      saveChatScrollPosition(convId, container.scrollTop);
+    }
   }, []);
 
   useEffect(() => {
+    const restore = scrollRestoreRef.current;
+    if (restore) {
+      // Retorno a uma conversa: restaura a posição salva; sem auto-scroll.
+      scrollRestoreRef.current = null;
+      const frame = requestAnimationFrame(() => {
+        const container = messagesScrollRef.current;
+        if (!container) return;
+        container.scrollTo({ top: restore.top, behavior: "auto" });
+        userNearBottomRef.current = isNearBottom(
+          container.scrollTop,
+          container.scrollHeight,
+          container.clientHeight,
+        );
+      });
+      return () => cancelAnimationFrame(frame);
+    }
     if (!userNearBottomRef.current) return;
     const frame = requestAnimationFrame(() => scrollToBottom("auto"));
     return () => cancelAnimationFrame(frame);
   }, [messages, sending, suggestedPlan, suggestedConnectors, suggestedFollowUps, pendingGates, scrollToBottom]);
+
+  // Indicador discreto de novas mensagens quando o usuário está lendo o histórico.
+  useEffect(() => {
+    const count = messages.length;
+    const prev = prevMessagesCountRef.current;
+    prevMessagesCountRef.current = count;
+    if (count > prev && prev > 0 && !userNearBottomRef.current) {
+      setNewMessagesBelow((c) => c + (count - prev));
+    }
+  }, [messages]);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -271,11 +344,17 @@ function ChatPageInner() {
     return [];
   }, []);
 
-  const selectConversation = useCallback(async (id: string | null) => {
+  const selectConversation = useCallback(async (id: string | null): Promise<Message[]> => {
+    const previousId = activeConversationIdRef.current;
+    const container = messagesScrollRef.current;
+    if (previousId && container) {
+      saveChatScrollPosition(previousId, container.scrollTop);
+    }
     setActiveConversationId(id);
     if (!id) {
       setMessages([]);
-      return;
+      scrollRestoreRef.current = null;
+      return [];
     }
     try {
       const res = await fetch(`/api/conversations/${id}/messages`, { cache: "no-store" });
@@ -299,11 +378,15 @@ function ChatPageInner() {
             trace: m.metadata?.trace as { toolCalls?: ToolCallItem[] } | undefined,
           }));
           setMessages(loaded);
+          const savedTop = loadChatScrollPosition(id);
+          scrollRestoreRef.current = savedTop != null ? { conversationId: id, top: savedTop } : null;
+          return loaded;
         }
       }
     } catch {
       addToast("Erro ao carregar mensagens da conversa", "error");
     }
+    return [];
   }, []);
 
   const handleRenameConversation = async (id: string, newTitle: string) => {
@@ -654,7 +737,8 @@ function ChatPageInner() {
   async function executeSend(
     text: string,
     activeArtifacts: ArtifactRef[],
-    overrideMessages?: Message[]
+    overrideMessages?: Message[],
+    sendContext?: QuickSendContext
   ) {
     if (abortController) {
       isSendNowAbortRef.current = true;
@@ -805,8 +889,9 @@ function ChatPageInner() {
         body: JSON.stringify({
           messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
           artifactIds: activeArtifacts.map((a) => a.id),
-          missionId: activeMissionId,
-          conversationId: activeConversationId,
+          missionId: sendContext?.missionId ?? activeMissionId,
+          conversationId: sendContext?.conversationId ?? activeConversationId,
+          projectId: sendContext?.projectId ?? null,
           stream: true,
         }),
         signal: controller.signal,
@@ -967,6 +1052,7 @@ function ChatPageInner() {
                 if (parsed.conversationId) {
                   setActiveConversationId(parsed.conversationId);
                   void refreshConversations();
+                  void updateConversationTitle(parsed.conversationId);
                 }
                 setMessages((prev) =>
                   prev.map((m) => {
@@ -1082,6 +1168,7 @@ function ChatPageInner() {
         if (data.conversationId) {
           setActiveConversationId(data.conversationId);
           void refreshConversations();
+          void updateConversationTitle(data.conversationId);
         }
 
         if (data.guestSession) {
@@ -1170,7 +1257,8 @@ function ChatPageInner() {
   async function handleSend(
     e?: FormEvent,
     overrideText?: string,
-    overrideArtifacts?: ArtifactRef[]
+    overrideArtifacts?: ArtifactRef[],
+    sendContext?: QuickSendContext
   ) {
     if (e) e.preventDefault();
     const textRaw = (overrideText ?? inputMessage).trim();
@@ -1199,6 +1287,7 @@ function ChatPageInner() {
         id: crypto.randomUUID(),
         text: redacted.text,
         artifacts: activeArtifacts.length > 0 ? activeArtifacts : undefined,
+        context: sendContext,
       };
       setQueue((prev) => [...prev, newQueued]);
       setInputMessage("");
@@ -1215,7 +1304,7 @@ function ChatPageInner() {
     if (editingMessageId) {
       await handleSaveEditedMessage(redacted.text, activeArtifacts);
     } else {
-      await executeSend(redacted.text, activeArtifacts);
+      await executeSend(redacted.text, activeArtifacts, sendContext?.history, sendContext);
     }
   }
 
@@ -1223,7 +1312,7 @@ function ChatPageInner() {
     if (queueRef.current.length === 0) return;
     const targetItem = queueRef.current[index] ?? queueRef.current[0];
     setQueue((prev) => prev.filter((_, i) => i !== index));
-    void executeSend(targetItem.text, targetItem.artifacts ?? []);
+    void executeSend(targetItem.text, targetItem.artifacts ?? [], targetItem.context?.history, targetItem.context);
   }
 
   function handleDiscardQueue(index = 0) {
@@ -1461,18 +1550,43 @@ function ChatPageInner() {
 
       <main className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden p-4">
         {messages.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-12 text-center space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-sm font-bold text-[var(--selo)]">
-              P
-            </div>
-            <h2 className="text-xl font-semibold">Conversar com {agentName}</h2>
-            <p className="text-xs text-[var(--text-secondary)] max-w-md">{agentIdentity}</p>
-            <p className="text-[11px] text-[var(--text-muted)] max-w-sm">
-              {selectedLocalModel && selectedLocalModel !== "cloud"
-                ? "Modo Local Ativo: as respostas serão geradas diretamente no seu dispositivo."
-                : "Conversa livre ou projeto: o Núcleo descobre a intenção, alinha o caminho e só então executa."}
-            </p>
-          </div>
+          <WelcomeHero
+            agentName={agentName}
+            agentIdentity={agentIdentity}
+            localMode={Boolean(selectedLocalModel && selectedLocalModel !== "cloud")}
+            context={{
+              missions: recentMissions.map((m) => ({ id: m.id, objective: m.objective, status: m.status })),
+              conversations: serverConversations.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt })),
+              projects: projectsList,
+            }}
+            onSelectAction={(action) => {
+              // Cada ação executa EXATAMENTE o comportamento anunciado, com
+              // os IDs explícitos no envio (sem depender de setState pendente).
+              const conversationId = action.conversationId;
+              if (action.kind === "conversation" && conversationId) {
+                void (async () => {
+                  const loaded = await selectConversation(conversationId);
+                  await handleSend(undefined, action.prompt, undefined, {
+                    conversationId,
+                    history: loaded,
+                  });
+                })();
+                return;
+              }
+              const missionId = action.missionId;
+              if (action.kind === "mission" && missionId) {
+                selectMission(missionId);
+                void handleSend(undefined, action.prompt, undefined, { missionId });
+                return;
+              }
+              const projectId = action.projectId;
+              if (action.kind === "project" && projectId) {
+                void handleSend(undefined, action.prompt, undefined, { projectId });
+                return;
+              }
+              void handleSend(undefined, action.prompt);
+            }}
+          />
         ) : (
           <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="chat-scroll min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain pb-5">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)]/40 bg-[var(--bg)]/85 pb-2 text-[10px] text-[var(--text-muted)] backdrop-blur-md">
@@ -1484,7 +1598,7 @@ function ChatPageInner() {
             </div>
             {messages.map((m) => (
               <div key={m.id} className={`group chat-bubble flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                {m.role === "assistant" && <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-[var(--selo)]/25 bg-[var(--surface)]" aria-hidden><BrandMark size={18} /></div>}
+                {m.role === "assistant" && <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)]" aria-hidden><NixAvatar size={20} /></div>}
                 <div
                   className={`relative min-w-0 max-w-[min(88%,42rem)] rounded-[1.35rem] px-4 py-3 text-sm shadow-[0_8px_28px_rgba(0,0,0,.12)] sm:max-w-[78%] ${
                     m.role === "user"
@@ -1528,28 +1642,10 @@ function ChatPageInner() {
                       onRegenerate={() => void regenerateLast()}
                     />
                   ) : null}
-                  {m.artifacts?.map((art) =>
-                    art.thumbnailUrl ? (
-                      <div key={art.id} className="mt-2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setAnnotatorArtifact(art)}
-                          className="w-12 h-12 rounded-lg overflow-hidden border border-[var(--border)] hover:border-[var(--selo)] transition-colors shrink-0 cursor-pointer"
-                          title="Clique para visualizar/anotar"
-                        >
-                          <img src={art.thumbnailUrl} alt={art.name} className="w-full h-full object-cover" />
-                        </button>
-                        <div className="flex flex-col text-[10px] font-mono opacity-80">
-                          <span className="font-semibold truncate max-w-[140px]">{art.name}</span>
-                          <span>{formatFileSize(art.size)}</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <span key={art.id} className="inline-block mt-1 text-[10px] font-mono opacity-80">
-                        {art.name} ({formatFileSize(art.size)})
-                      </span>
-                    )
-                  )}
+                  <MessageArtifacts
+                    artifacts={m.artifacts}
+                    onOpenAnnotator={setAnnotatorArtifact}
+                  />
                 </div>
               </div>
             ))}
@@ -1763,7 +1859,9 @@ function ChatPageInner() {
             <div ref={messagesEndRef} />
             {showJumpToLatest && (
               <button type="button" onClick={() => scrollToBottom()} className="sticky bottom-2 left-1/2 z-10 mx-auto block rounded-full border border-[var(--selo)]/40 bg-[var(--surface-elevated)] px-3 py-1.5 text-[11px] font-medium text-[var(--selo)] shadow-lg backdrop-blur-md">
-                ↓ Ir para a mensagem mais recente
+                {newMessagesBelow > 0
+                  ? `↓ ${newMessagesBelow} ${newMessagesBelow === 1 ? "mensagem nova" : "mensagens novas"}`
+                  : "↓ Ir para a mensagem mais recente"}
               </button>
             )}
           </div>
@@ -1798,10 +1896,10 @@ function ChatPageInner() {
               <button
                 type="button"
                 onClick={() => selectMission(null)}
-                className={`shrink-0 px-2 py-1 rounded-lg text-[10px] border ${
+                className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] transition-colors ${
                   !activeMissionId
-                    ? "border-[var(--selo)] text-[var(--selo)]"
-                    : "border-[var(--border)] text-[var(--text-muted)]"
+                    ? "bg-[var(--selo)]/15 text-[var(--selo)]"
+                    : "bg-[var(--surface)] text-[var(--text-muted)]"
                   }`}
               >
                 Só chat
@@ -1812,10 +1910,10 @@ function ChatPageInner() {
                   type="button"
                   onClick={() => selectMission(m.id)}
                   title={m.objective}
-                  className={`shrink-0 max-w-[140px] truncate px-2 py-1 rounded-lg text-[10px] border ${
+                  className={`shrink-0 max-w-[140px] truncate px-2.5 py-1 rounded-lg text-[10px] transition-colors ${
                     activeMissionId === m.id
-                      ? "border-[var(--selo)] text-[var(--selo)]"
-                      : "border-[var(--border)] text-[var(--text-muted)]"
+                      ? "bg-[var(--selo)]/15 text-[var(--selo)]"
+                      : "bg-[var(--surface)] text-[var(--text-muted)]"
                   }`}
                 >
                   {m.objective.slice(0, 28)}
@@ -2011,8 +2109,8 @@ function ChatPageInner() {
       {guestLimitReached && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="max-w-md w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center space-y-5 shadow-2xl">
-            <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl">
-              P
+            <div className="mx-auto flex h-12 w-12 items-center justify-center">
+              <NixAvatar size={48} />
             </div>
             <div className="space-y-2">
               <h3 className="text-lg font-semibold text-[var(--text-primary)]">

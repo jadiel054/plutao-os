@@ -3,6 +3,7 @@
 import { extractAnswerSections } from "@/lib/chat/answerFormatting";
 import { deriveAgentActivity } from "@/lib/chat/activityState";
 import { groupConsecutiveByProvider } from "@/lib/chat/toolGroups";
+import { parseVisualBlocks } from "@/lib/chat/visualBlocks";
 import { providerDisplayName } from "@/lib/chat/toolLogos";
 import { ReasoningBlock, type ReasoningStepItem } from "./ReasoningBlock";
 import { ActionCards, type ToolCallItem } from "./ActionCards";
@@ -10,6 +11,8 @@ import { ToolLogo } from "./ToolLogos";
 import { CodeBlock } from "./CodeBlock";
 import { AnswerResultCard } from "./AnswerResultCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { InlineChart } from "./visual/InlineChart";
+import { DataTable } from "./visual/DataTable";
 
 export type StructuredStep =
   | { type: "reasoning"; reasoning: ReasoningStepItem }
@@ -25,37 +28,22 @@ type StructuredMessageProps = {
   isEdited?: boolean;
 };
 
-/** Parses text content to extract ```lang ... ``` code blocks. */
-function parseContentParts(content: string) {
-  const parts: Array<{ type: "text" | "code"; text: string; language?: string }> = [];
-  const regex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
+type ContentPart =
+  | { kind: "text"; text: string }
+  | { kind: "code"; language: string; text: string }
+  | { kind: "visual"; spec: import("@/lib/chat/visualBlocks").VisualSpec };
 
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: "text", text: content.slice(lastIndex, match.index) });
-    }
-    parts.push({
-      type: "code",
-      language: match[1] || "code",
-      text: match[2],
-    });
-    lastIndex = regex.lastIndex;
-  }
-
-  if (lastIndex < content.length) {
-    parts.push({ type: "text", text: content.slice(lastIndex) });
-  }
-
-  return parts;
-}
-
-function renderMarkdownParts(content: string) {
-  const parts = parseContentParts(content);
+function renderContentParts(content: string) {
+  const parts: ContentPart[] = parseVisualBlocks(content);
   return parts.map((part, index) => {
-    if (part.type === "code") {
+    if (part.kind === "visual") {
+      return part.spec.kind === "chart" ? (
+        <InlineChart key={index} spec={part.spec} />
+      ) : (
+        <DataTable key={index} spec={part.spec} />
+      );
+    }
+    if (part.kind === "code") {
       return <CodeBlock key={index} code={part.text} language={part.language} />;
     }
     if (!part.text.trim()) return null;
@@ -137,7 +125,7 @@ export function StructuredMessage({
 
       {toolCallSteps.length > 0 ? <ActionCards toolCalls={toolCallSteps} /> : null}
 
-      {body.trim() ? <div className="space-y-3">{renderMarkdownParts(body)}</div> : null}
+      {body.trim() ? <div className="space-y-3">{renderContentParts(body)}</div> : null}
 
       {toolGroups.length > 0 ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[11px] text-[var(--text-muted)]">
