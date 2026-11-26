@@ -20,7 +20,15 @@ import { runArtemis } from "./artemis";
 import { runAutomationExecutor } from "./automation";
 import { runComputerAgentStep } from "@/lib/chat/computerAgentTool";
 import { isToolName, KNOWN_TOOLS, type ToolName, type ToolResult } from "./types";
-import { evaluateInternalTool, isInternalTool } from "@/lib/capabilities/registry";
+import { evaluateInternalTool, getEnabledCapabilities, isInternalTool } from "@/lib/capabilities/registry";
+import {
+  alternativesForTool,
+  classifyObstacle,
+  DEFAULT_RECOVERY_POLICY,
+  planRecovery,
+  type RecoveryPlan,
+} from "@/lib/agentic/obstacle-recovery";
+import { recordExperience } from "@/lib/agentic/experience-store";
 import { isToolAllowedBySpecialist } from "@/lib/missions/specialistProfiles";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
 import { sanitizeText } from "@/lib/security/sanitize";
@@ -252,6 +260,39 @@ export async function dispatchTool(opts: {
     userId: opts.userId,
     conversationId: cp.conversationId ?? null,
   });
+
+  // Núcleo agêntico — recuperação transversal de obstáculos: em falha de
+  // tool, classifica o obstáculo, sugere alternativas AUTORIZADAS do registro
+  // e registra a experiência (best-effort; nunca bloqueia o dispatch).
+  let recovery: RecoveryPlan | null = null;
+  if (!result.ok) {
+    try {
+      const obstacle = classifyObstacle(result.error ?? "");
+      recovery = planRecovery({
+        goal: "concluir a etapa da missão com a tool " + opts.name,
+        failedMethod: opts.name,
+        obstacle,
+        alternatives: alternativesForTool({
+          tool: opts.name,
+          error: result.error ?? "",
+          goal: "concluir a etapa da missão",
+          enabledCapabilityIds: getEnabledCapabilities().map((c) => c.id),
+        }),
+        policy: DEFAULT_RECOVERY_POLICY,
+      });
+      void recordExperience(opts.userId, {
+        subject: opts.name,
+        kind: "failed_method",
+        method: "dispatchTool(" + opts.name + ")",
+        cause: sanitizeText(result.error ?? "erro"),
+        obstacleKind: obstacle.kind,
+        usefulFor: ["recuperação de obstáculos em missões"],
+      });
+    } catch (e) {
+      console.error("[dispatchTool recovery]", e);
+    }
+  }
+
   const now = new Date();
   const evidenceId = randomUUID();
   const taskId = opts.taskId ?? execution.currentTaskId ?? null;
@@ -386,5 +427,6 @@ export async function dispatchTool(opts: {
     result,
     evidence: evidenceItem,
     message: result.ok ? "tool applied" : "tool failed (recorded)",
+    ...(recovery ? { recovery } : {}),
   };
 }

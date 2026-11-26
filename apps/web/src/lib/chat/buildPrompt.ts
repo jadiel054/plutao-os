@@ -5,6 +5,8 @@
  * Nada de missões, Cockpit, aprovação em lote ou redirecionamento de tela.
  */
 
+import { buildAgenticViewBlock } from "@/lib/agentic/agentic-view";
+
 export type BuildPromptOpts = {
   connectorBlock?: string;
   conversationId?: string | null;
@@ -14,6 +16,9 @@ export function buildChatBuildSystemPrompt(opts: BuildPromptOpts): string {
   const connectorSection = opts.connectorBlock?.trim()
     ? `\nSTATUS DOS CONECTORES (somente informativo para consultas; escritas de conector não entram neste fluxo de construção — o runtime cuida delas com aprovação no próprio Chat):\n${opts.connectorBlock.trim()}\n`
     : "";
+
+  // Núcleo agêntico: inventário de capacidades + superfícies + políticas.
+  const agenticView = buildAgenticViewBlock();
 
   return `Você é o motor de CRIAÇÃO do Plutão OS. O usuário pediu para criar/construir um sistema, site, app ou ferramenta, e VOCÊ constrói agora, dentro da conversa.
 
@@ -39,5 +44,5 @@ QUANDO PARAR:
 PROIBIDO:
 - NÃO mencione missões, Cockpit, "criar/executar missão", DoD ou approval gates deste fluxo.
 - NÃO sugira sair da conversa para outro ambiente — todo o desenvolvimento acontece aqui.
-- NÃO invente resultados: cite apenas arquivos/evidências realmente retornados pelas tools.${connectorSection}`;
+- NÃO invente resultados: cite apenas arquivos/evidências realmente retornados pelas tools.${agenticView}${connectorSection}`;
 }
