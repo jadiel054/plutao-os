@@ -1,12 +1,19 @@
 /**
  * Testes de integração — registro de experiências operacionais (núcleo agêntico).
- * Rodam apenas quando RUN_PG_TESTS=1. Os arquivos pg compartilham um único
- * PostgreSQL no CI e rodam em paralelo: outros arquivos fazem TRUNCATE CASCADE
- * em "users", apagando linhas deste teste ao acaso. Por isso cada corpo de
- * teste RETENTA algumas vezes antes de falhar de verdade.
+ * Rodam apenas quando RUN_PG_TESTS=1. O app usa Neon HTTP (getDb); contra o
+ * PostgreSQL comum do CI injetamos Drizzle sobre node-postgres via mock de
+ * @/lib/db (mesmo padrão de runtimeJobs.pg.integration.test.ts).
+ * Os arquivos pg compartilham um único banco e rodam em paralelo: outros
+ * arquivos fazem TRUNCATE CASCADE em "users"; por isso cada corpo de teste
+ * retenta antes de falhar de verdade.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Pool } from "pg";
+import { drizzle, type NodePgClient } from "drizzle-orm/node-postgres";
+
+const env = vi.hoisted(() => ({ db: null as unknown as object }));
+vi.mock("@/lib/db", () => ({ getDb: () => env.db }));
+
 import {
   experiencesAvailable,
   findApplicableExperiences,
@@ -70,7 +77,10 @@ beforeAll(async () => {
       if (attempt === 5) throw err;
     }
   }
+  env.db = drizzle(pool as unknown as NodePgClient) as unknown as object;
 });
+
+const mineIds: string[] = [];
 
 beforeEach(async () => {
   if (!RUN) return;
@@ -83,8 +93,6 @@ afterAll(async () => {
   await cleanupMine();
   if (pool) await pool.end();
 });
-
-const mineIds: string[] = [];
 
 async function newUser(): Promise<string> {
   const res = await pool.query("INSERT INTO users (id) VALUES (gen_random_uuid()) RETURNING id::text AS id");
