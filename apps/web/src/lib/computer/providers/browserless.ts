@@ -53,9 +53,13 @@ export function readBrowserlessConfig(): BrowserlessConfig | null {
   const endpoint =
     process.env.BROWSERLESS_ENDPOINT?.trim() ||
     "wss://production-sfo.browserless.io/chromium";
+  // Parse de int opcional: undefined/string vazia/inválida → null (usa o
+  // fallback); "0" é valor EXPLÍCITO e é respeitado (auditoria P2: uma cota
+  // configurada como zero não pode virar o default do Free).
+  const envMaxSession = parseOptionalInt(process.env.BROWSERLESS_MAX_SESSION_MS);
   const maxSessionMs = Math.min(
     BROWSERLESS_FREE_MAX_SESSION_MS,
-    Math.max(10_000, Number(process.env.BROWSERLESS_MAX_SESSION_MS) || BROWSERLESS_FREE_MAX_SESSION_MS)
+    Math.max(10_000, envMaxSession ?? BROWSERLESS_FREE_MAX_SESSION_MS)
   );
   return {
     token,
@@ -63,9 +67,17 @@ export function readBrowserlessConfig(): BrowserlessConfig | null {
     maxSessionMs,
     monthlyBudgetUnits: Math.max(
       0,
-      Number(process.env.PLUTAO_COMPUTER_MONTHLY_UNITS) || BROWSERLESS_FREE_MONTHLY_UNITS
+      parseOptionalInt(process.env.PLUTAO_COMPUTER_MONTHLY_UNITS) ?? BROWSERLESS_FREE_MONTHLY_UNITS
     ),
   };
+}
+
+function parseOptionalInt(raw: string | undefined): number | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
 /** Monta a WS URL efêmera em memória — NUNCA persistida nem logada. */
