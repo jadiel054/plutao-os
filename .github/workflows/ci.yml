@@ -63,7 +63,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://plutao:plutao$localhost:5432/plutao_test
+      DATABASE_URL: postgres://plutao:plutao@localhost:5432/plutao_test
       RUN_PG_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
