@@ -427,8 +427,8 @@ export function ChatHistoryDrawer({
         </nav>
 
         <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-3 mt-2">
-          {history.length === 0 ? (
-            {history.length === 0 ? (
+          {filtered.length === 0 ? (
+            history.length === 0 ? (
               <p className="px-3 py-6 text-xs text-[var(--text-muted)] text-center leading-relaxed">
                 Ainda não há histórico nesta sessão.
                 <br />
@@ -439,7 +439,7 @@ export function ChatHistoryDrawer({
                 Nenhuma conversa encontrada para
                 <span className="block mt-1 font-mono text-[var(--text-secondary)] truncate">“{query}”</span>
               </p>
-            )}
+            )
           ) : (
             <>
               {pinnedItems.length > 0 && (
