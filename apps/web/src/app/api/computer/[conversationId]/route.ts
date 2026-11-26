@@ -165,12 +165,27 @@ export async function POST(
     // Devolução com contexto OPCIONAL: persiste o resultado da intervenção
     // no checkpoint durável e RETOMA a tarefa automaticamente — sem exigir
     // nova mensagem do usuário. Falha de retomada é honesta na resposta.
-    let resume: Awaited<ReturnType<typeof resumeAfterHumanReturn>> | null = null;
+    let checkpointSaved = true;
+    let checkpointError: string | null = null;
     try {
       await resolveHumanIntervention(conversationId, context);
-    } catch {
-      /* checkpoint best-effort — o CAS do controle já foi garantido */
+    } catch (error) {
+      // Falha de checkpoint é VISÍVEL (auditoria P2): erro estruturado
+      // sanitizado (sem payload/contexto do usuário) + estado explícito na
+      // resposta; nunca anunciar retomada como sucesso sem checkpoint.
+      checkpointSaved = false;
+      checkpointError = error instanceof Error ? error.message : "falha desconhecida";
+      console.error(
+        JSON.stringify({
+          scope: "computer_release_checkpoint",
+          conversationId,
+          checkpointSaved: false,
+          error: checkpointError,
+          at: new Date().toISOString(),
+        })
+      );
     }
+    let resume: Awaited<ReturnType<typeof resumeAfterHumanReturn>> | null = null;
     try {
       resume = await resumeAfterHumanReturn({
         userId: user.id,
@@ -184,7 +199,13 @@ export async function POST(
         detail: error instanceof Error ? error.message : "falha desconhecida",
       };
     }
-    return NextResponse.json({ controller, resume });
+    return NextResponse.json({
+      controller,
+      resume,
+      checkpoint: checkpointSaved
+        ? { saved: true }
+        : { saved: false, error: checkpointError ?? "falha desconhecida" },
+    });
   }
 
   return NextResponse.json({ controller });

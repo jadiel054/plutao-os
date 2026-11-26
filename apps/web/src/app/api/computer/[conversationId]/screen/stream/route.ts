@@ -72,6 +72,29 @@ export async function GET(
   let closed = false;
   const startedAt = Date.now();
 
+  // Recursos do canal — declarados fora de start() para que `cancel()`,
+  // watchdog, erro de enqueue e `finish()` compartilhem UM único cleanup
+  // idempotente (auditoria P1: conexão abandonada não pode manter
+  // heartbeat/timers/listener ativos).
+  let statusTimer: ReturnType<typeof setInterval> | null = null;
+  let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  let unsubscribe: (() => void) | null = null;
+
+  const cleanup = () => {
+    if (statusTimer) {
+      clearInterval(statusTimer);
+      statusTimer = null;
+    }
+    if (watchdogTimer) {
+      clearInterval(watchdogTimer);
+      watchdogTimer = null;
+    }
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+  };
+
   const stream = new ReadableStream({
     start(controller) {
       const send = (event: string, data: unknown, id?: number) => {
@@ -84,15 +107,16 @@ export async function GET(
           controller.enqueue(encoder.encode(chunk));
         } catch {
           closed = true;
+          cleanup();
         }
       };
 
       let lastFrameIndex = 0;
-      const unsubscribe = session.subscribeScreen((frame: ComputerScreenFrame) => {
+      unsubscribe = session.subscribeScreen((frame: ComputerScreenFrame) => {
         send("frame", { data: frame.data, width: frame.width, height: frame.height, capturedAt: frame.capturedAt }, ++lastFrameIndex);
       });
 
-      const statusTimer = setInterval(() => {
+      statusTimer = setInterval(() => {
         const snap = session.snapshot();
         // Heartbeat do canal para o store durável (mantém o lease da
         // instância viva enquanto existir espectador conectado).
@@ -104,28 +128,30 @@ export async function GET(
       if (last) send("frame", { data: last.data, width: last.width, height: last.height, capturedAt: last.capturedAt });
 
       const finish = () => {
-        if (closed) return;
-        closed = true;
-        clearInterval(statusTimer);
-        unsubscribe();
-        try {
-          controller.close();
-        } catch {
-          /* já fechado */
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* já fechado */
+          }
         }
+        // Cleanup SEMPRE — inclusive quando `closed` já era true (ex.: caminho
+        // do watchdog pós-cancel): timers/listener não podem sobreviver.
+        cleanup();
       };
 
-      const watchdog = setInterval(() => {
+      watchdogTimer = setInterval(() => {
         const snap = session.snapshot();
         if (closed || Date.now() - startedAt > STREAM_MAX_MS || snap.status === "closed" || snap.status === "expired") {
-          clearInterval(watchdog);
-          send("bye", { status: snap.status });
+          if (!closed) send("bye", { status: snap.status });
           finish();
         }
       }, 1000);
     },
     cancel() {
       closed = true;
+      cleanup();
     },
   });
 
