@@ -23,6 +23,12 @@ import { FollowUpChips, type FollowUpChip } from "@/components/chat/FollowUpChip
 import { redactSecrets } from "@/lib/security/credentials";
 import type { ToolCallItem } from "@/components/chat/ActionCards";
 import { formatFileSize } from "@/lib/artifacts";
+import { MessageArtifacts } from "@/components/chat/visual/MessageArtifacts";
+import {
+  isNearBottom,
+  saveChatScrollPosition,
+  loadChatScrollPosition,
+} from "@/lib/chat/chatScroll";
 import { BrandMark } from "@/components/BrandMark";
 import { SendMessageButton } from "@/components/SendMessageButton";
 import { createMissionIntake } from "@/lib/missions/intakeClient";
@@ -136,6 +142,12 @@ function ChatPageInner() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const userNearBottomRef = useRef(true);
+  // Navegação: restauração de posição por conversa + indicador de novas mensagens
+  const scrollRestoreRef = useRef<{ conversationId: string; top: number } | null>(null);
+  const activeConversationIdRef = useRef<string | null>(null);
+  const lastScrollSaveRef = useRef(0);
+  const prevMessagesCountRef = useRef(0);
+  const [newMessagesBelow, setNewMessagesBelow] = useState(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -162,6 +174,7 @@ function ChatPageInner() {
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const queueRef = useRef<QueuedMessage[]>([]);
   queueRef.current = queue;
+  activeConversationIdRef.current = activeConversationId;
   const isSendNowAbortRef = useRef(false);
   const isManualCancelRef = useRef(false);
   const prevSendingRef = useRef(false);
@@ -179,27 +192,77 @@ function ChatPageInner() {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
   };
   const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
+  // Título inteligente: a rota só atualiza títulos automáticos (nunca os renomeados).
+  const updateConversationTitle = async (conversationId: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/title`, { method: "POST" });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data?.updated && typeof data.title === "string" && data.title.trim()) {
+        setServerConversations((prev) =>
+          prev.map((c) => (c.id === conversationId ? { ...c, title: data.title } : c)),
+        );
+      }
+    } catch {
+      /* best-effort */
+    }
+  };
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = messagesScrollRef.current;
     if (!container) return;
     container.scrollTo({ top: container.scrollHeight, behavior });
     userNearBottomRef.current = true;
     setShowJumpToLatest(false);
+    setNewMessagesBelow(0);
   }, []);
 
   const handleMessagesScroll = useCallback(() => {
     const container = messagesScrollRef.current;
     if (!container) return;
-    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 72;
+    const nearBottom = isNearBottom(container.scrollTop, container.scrollHeight, container.clientHeight);
     userNearBottomRef.current = nearBottom;
     setShowJumpToLatest(!nearBottom && container.scrollHeight > container.clientHeight);
+    if (nearBottom) setNewMessagesBelow(0);
+    // Persistência da posição (retomar a conversa de onde parou), throttled.
+    const now = Date.now();
+    const convId = activeConversationIdRef.current;
+    if (convId && now - lastScrollSaveRef.current > 400) {
+      lastScrollSaveRef.current = now;
+      saveChatScrollPosition(convId, container.scrollTop);
+    }
   }, []);
 
   useEffect(() => {
+    const restore = scrollRestoreRef.current;
+    if (restore) {
+      // Retorno a uma conversa: restaura a posição salva; sem auto-scroll.
+      scrollRestoreRef.current = null;
+      const frame = requestAnimationFrame(() => {
+        const container = messagesScrollRef.current;
+        if (!container) return;
+        container.scrollTo({ top: restore.top, behavior: "auto" });
+        userNearBottomRef.current = isNearBottom(
+          container.scrollTop,
+          container.scrollHeight,
+          container.clientHeight,
+        );
+      });
+      return () => cancelAnimationFrame(frame);
+    }
     if (!userNearBottomRef.current) return;
     const frame = requestAnimationFrame(() => scrollToBottom("auto"));
     return () => cancelAnimationFrame(frame);
   }, [messages, sending, suggestedPlan, suggestedConnectors, suggestedFollowUps, pendingGates, scrollToBottom]);
+
+  // Indicador discreto de novas mensagens quando o usuário está lendo o histórico.
+  useEffect(() => {
+    const count = messages.length;
+    const prev = prevMessagesCountRef.current;
+    prevMessagesCountRef.current = count;
+    if (count > prev && prev > 0 && !userNearBottomRef.current) {
+      setNewMessagesBelow((c) => c + (count - prev));
+    }
+  }, [messages]);
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -272,9 +335,15 @@ function ChatPageInner() {
   }, []);
 
   const selectConversation = useCallback(async (id: string | null) => {
+    const previousId = activeConversationIdRef.current;
+    const container = messagesScrollRef.current;
+    if (previousId && container) {
+      saveChatScrollPosition(previousId, container.scrollTop);
+    }
     setActiveConversationId(id);
     if (!id) {
       setMessages([]);
+      scrollRestoreRef.current = null;
       return;
     }
     try {
@@ -299,6 +368,8 @@ function ChatPageInner() {
             trace: m.metadata?.trace as { toolCalls?: ToolCallItem[] } | undefined,
           }));
           setMessages(loaded);
+          const savedTop = loadChatScrollPosition(id);
+          scrollRestoreRef.current = savedTop != null ? { conversationId: id, top: savedTop } : null;
         }
       }
     } catch {
@@ -967,6 +1038,7 @@ function ChatPageInner() {
                 if (parsed.conversationId) {
                   setActiveConversationId(parsed.conversationId);
                   void refreshConversations();
+                  void updateConversationTitle(parsed.conversationId);
                 }
                 setMessages((prev) =>
                   prev.map((m) => {
@@ -1082,6 +1154,7 @@ function ChatPageInner() {
         if (data.conversationId) {
           setActiveConversationId(data.conversationId);
           void refreshConversations();
+          void updateConversationTitle(data.conversationId);
         }
 
         if (data.guestSession) {
@@ -1528,28 +1601,10 @@ function ChatPageInner() {
                       onRegenerate={() => void regenerateLast()}
                     />
                   ) : null}
-                  {m.artifacts?.map((art) =>
-                    art.thumbnailUrl ? (
-                      <div key={art.id} className="mt-2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setAnnotatorArtifact(art)}
-                          className="w-12 h-12 rounded-lg overflow-hidden border border-[var(--border)] hover:border-[var(--selo)] transition-colors shrink-0 cursor-pointer"
-                          title="Clique para visualizar/anotar"
-                        >
-                          <img src={art.thumbnailUrl} alt={art.name} className="w-full h-full object-cover" />
-                        </button>
-                        <div className="flex flex-col text-[10px] font-mono opacity-80">
-                          <span className="font-semibold truncate max-w-[140px]">{art.name}</span>
-                          <span>{formatFileSize(art.size)}</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <span key={art.id} className="inline-block mt-1 text-[10px] font-mono opacity-80">
-                        {art.name} ({formatFileSize(art.size)})
-                      </span>
-                    )
-                  )}
+                  <MessageArtifacts
+                    artifacts={m.artifacts}
+                    onOpenAnnotator={setAnnotatorArtifact}
+                  />
                 </div>
               </div>
             ))}
@@ -1763,7 +1818,9 @@ function ChatPageInner() {
             <div ref={messagesEndRef} />
             {showJumpToLatest && (
               <button type="button" onClick={() => scrollToBottom()} className="sticky bottom-2 left-1/2 z-10 mx-auto block rounded-full border border-[var(--selo)]/40 bg-[var(--surface-elevated)] px-3 py-1.5 text-[11px] font-medium text-[var(--selo)] shadow-lg backdrop-blur-md">
-                ↓ Ir para a mensagem mais recente
+                {newMessagesBelow > 0
+                  ? `↓ ${newMessagesBelow} ${newMessagesBelow === 1 ? "mensagem nova" : "mensagens novas"}`
+                  : "↓ Ir para a mensagem mais recente"}
               </button>
             )}
           </div>
