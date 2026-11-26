@@ -154,7 +154,7 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(typeof data.error === "string" ? data.error : \`HTTP \${res.status}\`);
+        throw new Error(typeof data.error === "string" ? data.error : `HTTP ${res.status}`);
       }
     } catch (err) {
       setFeedback(previous);
@@ -238,7 +238,7 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
     <div
       ref={rootRef}
       aria-hidden={!barVisible}
-      className={\`msg-actions-wrap \${barVisible ? "msg-actions-visible" : ""}\`}
+      className={`msg-actions-wrap ${barVisible ? "msg-actions-visible" : ""}`}
     >
       <div className="flex items-center gap-0.5 mt-1.5 -ml-1">
         <button type="button" className={btn} onClick={() => void handleCopy()} title={copied ? "Copiado" : "Copiar"} aria-label="Copiar">
@@ -253,7 +253,7 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
         </button>
         <button
           type="button"
-          className={\`\${btn} \${speaking ? "text-[var(--selo)]" : ""} \${speakError ? "text-rose-400" : ""}\`}
+          className={`${btn} ${speaking ? "text-[var(--selo)]" : ""} ${speakError ? "text-rose-400" : ""}`}
           onClick={() => void handleSpeak()}
           title={speaking ? "Parar" : speakLoading ? "Iniciando…" : "Ouvir"}
           aria-label="Ouvir"
@@ -270,7 +270,7 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
               {speakLoading
                 ? "Iniciando audio…"
                 : playTotal != null
-                  ? \`\${formatPlaybackClock(playElapsed)} / \${formatPlaybackClock(playTotal)}\`
+                  ? `${formatPlaybackClock(playElapsed)} / ${formatPlaybackClock(playTotal)}`
                   : "Reproduzindo…"}
             </span>
             {speaking && playTotal != null && playTotal > 0 ? (
@@ -283,7 +283,7 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
               >
                 <span
                   className="block h-full bg-[var(--selo)] transition-[width] duration-200 ease-linear"
-                  style={{ width: \`\${Math.min(100, (playElapsed / playTotal) * 100)}%\` }}
+                  style={{ width: `${Math.min(100, (playElapsed / playTotal) * 100)}%` }}
                 />
               </span>
             ) : null}
@@ -301,7 +301,7 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
         <span className="w-px h-4 bg-[var(--border)] mx-1" aria-hidden />
         <button
           type="button"
-          className={\`\${btn} \${feedback === "up" ? "text-[var(--selo)]" : ""}\`}
+          className={`${btn} ${feedback === "up" ? "text-[var(--selo)]" : ""}`}
           disabled={disabled || feedbackLoading || !messageId || !conversationId}
           onClick={() => void submitFeedback("up")}
           title="Util"
@@ -315,7 +315,7 @@ export function MessageActions({ content, messageId, conversationId, onRegenerat
         </button>
         <button
           type="button"
-          className={\`\${btn} \${feedback === "down" ? "text-rose-400" : ""}\`}
+          className={`${btn} ${feedback === "down" ? "text-rose-400" : ""}`}
           disabled={disabled || feedbackLoading || !messageId || !conversationId}
           onClick={() => void submitFeedback("down")}
           title="Nao util"
