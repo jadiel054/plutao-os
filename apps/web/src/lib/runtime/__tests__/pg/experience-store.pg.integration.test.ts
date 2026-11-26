@@ -1,7 +1,9 @@
 /**
  * Testes de integração — registro de experiências operacionais (núcleo agêntico).
- * Rodam apenas quando RUN_PG_TESTS=1 (CI com postgres:17). Sem mocks de
- * Drizzle: gravação, leitura e filtro por compatibilidade.
+ * Rodam apenas quando RUN_PG_TESTS=1. Os arquivos pg compartilham um único
+ * PostgreSQL no CI e rodam em paralelo: outros arquivos fazem TRUNCATE CASCADE
+ * em "users", apagando linhas deste teste ao acaso. Por isso cada corpo de
+ * teste RETENTA algumas vezes antes de falhar de verdade.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
@@ -19,8 +21,6 @@ let pool: Pool;
 
 const BOOTSTRAP = [
   "CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL);",
-  "ALTER TABLE users ADD COLUMN IF NOT EXISTS email text;",
-  "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan text NOT NULL DEFAULT 'free';",
   [
     "CREATE TABLE IF NOT EXISTS agent_experiences (",
     "  id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,",
@@ -45,11 +45,23 @@ const BOOTSTRAP = [
   "CREATE INDEX IF NOT EXISTS agent_experiences_user_subject_idx ON agent_experiences (user_id, subject);",
 ].join("\n");
 
+/** Corpo de teste tolerante ao TRUNCATE CASCADE paralelo dos outros arquivos. */
+async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last;
+}
+
 beforeAll(async () => {
   if (!RUN) return;
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  // Outros arquivos pg rodam em paralelo no mesmo banco: CREATE TABLE
-  // concorrente pode falhar com 23505 (pg_type). Retenta até convergir.
+  // CREATE TABLE concorrente pode falhar com 23505 (pg_type): retenta.
   for (let attempt = 0; attempt < 6; attempt++) {
     try {
       await pool.query(BOOTSTRAP);
@@ -62,7 +74,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!RUN) return;
-  // Limpa apenas as próprias linhas, com tolerância a corrida de bootstrap.
+  // Nunca truncar tabelas compartilhadas; limpeza apenas das próprias linhas.
   await cleanupMine();
 });
 
@@ -72,54 +84,59 @@ afterAll(async () => {
   if (pool) await pool.end();
 });
 
+const mineIds: string[] = [];
+
 async function newUser(): Promise<string> {
-  const res = await pool.query(
-    "INSERT INTO users (email) VALUES ('agentic-test@example.com') RETURNING id::text AS id"
-  );
-  return res.rows[0].id as string;
+  const res = await pool.query("INSERT INTO users (id) VALUES (gen_random_uuid()) RETURNING id::text AS id");
+  const id = res.rows[0].id as string;
+  mineIds.push(id);
+  return id;
 }
 
 /** Deleta somente as linhas deste teste; tolerante a corrida entre arquivos. */
 async function cleanupMine(): Promise<void> {
   try {
-    await pool.query(
-      "DELETE FROM agent_experiences WHERE user_id IN (SELECT id FROM users WHERE email = 'agentic-test@example.com')"
-    );
-    await pool.query("DELETE FROM users WHERE email = 'agentic-test@example.com'");
+    await pool.query("DELETE FROM agent_experiences WHERE user_id = ANY($1::uuid[])", [mineIds]);
+    await pool.query("DELETE FROM users WHERE id = ANY($1::uuid[])", [mineIds]);
+    mineIds.length = 0;
   } catch {
-    /* tabela pode não existir ainda (corrida de bootstrap) */
+    /* tabelas podem não existir ainda (corrida de bootstrap) */
   }
 }
 
 d("experience-store — persistência de experiências", () => {
   it("registra e le experiências", async () => {
-    expect(await experiencesAvailable()).toBe(true);
-    const userId = await newUser();
-    const stored = await recordExperience(userId, {
-      subject: "github.actions_list",
-      kind: "failed_method",
-      method: "dispatchTool(github.actions_list)",
-      cause: "500 indisponivel",
-      obstacleKind: "TOOL_UNAVAILABLE",
-      usefulFor: ["recuperacao"],
+    await withRetry(async () => {
+      expect(await experiencesAvailable()).toBe(true);
+      const userId = await newUser();
+      const stored = await recordExperience(userId, {
+        subject: "github.actions_list",
+        kind: "failed_method",
+        method: "dispatchTool(github.actions_list)",
+        cause: "500 indisponivel",
+        obstacleKind: "TOOL_UNAVAILABLE",
+        usefulFor: ["recuperacao"],
+      });
+      expect(stored.stored).toBe(true);
+      const list = await listExperiences(userId, "github.actions_list");
+      expect(list).toHaveLength(1);
+      expect(list[0].kind).toBe("failed_method");
     });
-    expect(stored.stored).toBe(true);
-    const list = await listExperiences(userId, "github.actions_list");
-    expect(list).toHaveLength(1);
-    expect(list[0].kind).toBe("failed_method");
   });
 
   it("filtra experiencias por compatibilidade", async () => {
-    const userId = await newUser();
-    await recordExperience(userId, {
-      subject: "x.y",
-      kind: "succeeded_experience",
-      method: "metodo v1",
-      requirements: { toolVersion: "v1" },
+    await withRetry(async () => {
+      const userId = await newUser();
+      await recordExperience(userId, {
+        subject: "x.y",
+        kind: "succeeded_experience",
+        method: "metodo v1",
+        requirements: { toolVersion: "v1" },
+      });
+      const applicable = await findApplicableExperiences(userId, "x.y", { toolVersion: "v1" });
+      const incompatible = await findApplicableExperiences(userId, "x.y", { toolVersion: "v9" });
+      expect(applicable).toHaveLength(1);
+      expect(incompatible).toHaveLength(0);
     });
-    const applicable = await findApplicableExperiences(userId, "x.y", { toolVersion: "v1" });
-    const incompatible = await findApplicableExperiences(userId, "x.y", { toolVersion: "v9" });
-    expect(applicable).toHaveLength(1);
-    expect(incompatible).toHaveLength(0);
   });
 });
