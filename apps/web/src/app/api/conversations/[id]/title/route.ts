@@ -4,6 +4,7 @@ import { conversations, messages as messagesTable } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { sanitizeTitle } from "@/lib/security/sanitize";
+import { applyGeneratedTitle } from "@/lib/chat/guardedTitleUpdate";
 import { getModelConfig } from "@/lib/runtime/model/config";
 import { chatCompletion } from "@/lib/runtime/model/client";
 
@@ -108,10 +109,18 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     }
 
     const finalTitle = title.trim().slice(0, MAX_TITLE_CHARS);
-    await db
-      .update(conversations)
-      .set({ title: finalTitle })
-      .where(eq(conversations.id, id));
+    // Concorrência: o update final confirma propriedade E que o título ainda
+    // corresponde ao estado automático verificado antes da geração. Se o
+    // usuário renomeou durante a geração, o título manual é preservado.
+    const guard = await applyGeneratedTitle(db, {
+      conversationId: id,
+      userId: user.id,
+      verifiedTitle: conv.title,
+      nextTitle: finalTitle,
+    });
+    if (!guard.applied) {
+      return NextResponse.json({ updated: false, superseded: true, title: conv.title });
+    }
 
     return NextResponse.json({ updated: true, title: finalTitle });
   } catch (err) {
