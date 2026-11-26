@@ -1,8 +1,15 @@
-# PROPOSTA de banco — `computer_sessions` (não aplicada)
+# PROPOSTA de banco — `computer_sessions` → MIGRATION 0031 CRIADA (pendente de aplicação)
 
-> **Para o ChatGPT auditar.** Este documento é um PROJETO de schema, não uma
-> migration. Nenhuma migration foi criada, nenhuma tabela foi criada e nenhuma
-> operação no Neon foi executada. Aplicação somente após auditoria.
+> **Estado atual (26/11/2026, auditoria de 2º nível):** a migration
+> `packages/db/drizzle/0031_computer_sessions.sql` FOI CRIADA a partir desta
+> proposta e registrada no journal (`meta/_journal.json`, idx 28). A aplicação
+> no Neon AINDA NÃO foi executada — cabe a um agente/operador autorizado
+> aplicar no SQL Editor (padrão da casa). Enquanto a tabela não existir, o
+> `NeonSessionStore` degrada (fail-safe) e o computador real permanece
+> indisponível em produção.
+
+> **Para o ChatGPT auditar.** O SQL abaixo é a origem exata da migration. Nenhuma
+> tabela foi criada por este processo e nenhuma operação no Neon foi executada.
 
 ## Sobre
 
@@ -79,7 +86,7 @@ export const computerSessions = pgTable(
 );
 ```
 
-### SQL equivalente (intenção exata)
+### SQL equivalente (intenção exata — implementada em 0031_computer_sessions.sql)
 
 ```sql
 CREATE TABLE IF NOT EXISTS computer_sessions (
@@ -104,12 +111,7 @@ CREATE TABLE IF NOT EXISTS computer_sessions (
 );
 
 -- GATE DA SESSÃO ÚNICA (CORREÇÃO da revisão): índice único PARCIAL por
--- expressão CONSTANTE em cima de "linha viva". Antes era
--- `UNIQUE (status) WHERE status IN (...)`, o que NÃO garantia uma sessão
--- viva total (permitia 1 linha por valor de status). Agora: no máximo UMA
--- linha viva por instalação, INDEPENDENTE do status — o INSERT da 2ª linha
--- viva quebra com 23505, e as linhas fechadas (closed_at NOT NULL) não
--- participam do índice.
+-- expressão CONSTANTE em cima de "linha viva".
 CREATE UNIQUE INDEX IF NOT EXISTS computer_sessions_single_live_uidx
   ON computer_sessions ((1))
   WHERE closed_at IS NULL;
@@ -154,28 +156,12 @@ CREATE INDEX IF NOT EXISTS computer_sessions_billing_month_idx
    `UPDATE ... SET status='expired', closed_at=now(), units_used = GREATEST(
    units_used, CEIL(EXTRACT(EPOCH FROM (now() - created_at))/30)::int) WHERE
    closed_at IS NULL AND lease_expires_at + 5s < now() RETURNING id` —
-   mover para fechado libera o índice único parcial automaticamente
-   (suprime o gate da linha viva) e o TEMPO DE PAREDE consumido entra no
-   ledger mensal (sessão interrompida/abandonada não escapa da cota).
-7. **Decisões por linha retornada:** todo UPDATE cujo resultado decide
-   comportamento (CAS de controller, marcação/renovação de
-   human_action_until, attach/renovação de canal, sweep) usa `RETURNING
-   id` — o driver Neon HTTP devolve `rows: []` para UPDATE sem RETURNING;
-   checar `rows.length` sem RETURNING é sempre falso negativo (bug da 2ª
-   auditoria, corrigido e testado contra simulador do formato real).
+   mover para fechado libera o índice único parcial automaticamente.
+7. **Decisões por linha retornada:** todo UPDATE decisório usa `RETURNING id`.
 8. **Lock renovável de ação humana:** human_action_until é um LEASE
-   (renovado pelo dono do canal durante toda a execução da ação — navegação
-   pode durar 30s) liberado no `finally`; o CAS humano→agente falha
-   enquanto o lease está vivo. Fixo de 5s sem renovação é insuficiente.
-9. **Fencing token (3ª auditoria):** cada ação humana ganha `actionId`
-   exclusivo gravado em `human_action_token` (mesma UPDATE atômica do lease).
-   Renovação (`UPDATE ... WHERE id = $1 AND closed_at IS NULL AND
-   controller = 'human' AND human_action_token = $2 RETURNING id`) e
-   liberação (`UPDATE ... SET human_action_until = NULL, human_action_token
-   = NULL WHERE id = $1 AND human_action_token = $2 RETURNING id`) são CAS
-   PELA COLUNA NOVA — token STALE (ação antiga) nunca afeta o lock de uma
-   ação mais recente. Pedidos ao ChatGPT: incluir `human_action_token TEXT
-   NULL` na migration (coluna NULLáVEL, nenhum índice novo necessário).
+   renovado pelo dono do canal durante toda a execução; liberado no `finally`.
+9. **Fencing token (3ª auditoria):** renovação e liberação são CAS pela
+   coluna `human_action_token` — token STALE nunca afeta o lock mais recente.
 
 ## Ciclo de vida / estados
 
@@ -185,7 +171,7 @@ creating ──▶ ready ──▶ closed | expired
    │           └──── reconnecting ──▶ ready (navegador NOVO no Free)
    └──▶ error
 human control: campo controller alterna agent ↔ human (CAS em SQL), status não muda
-ação humana: human_action_until é LOCK RENOVÁVEL (renovado durante TODA a ação; liberado no finally) com FENCING TOKEN em human_action_token
+ação humana: human_action_until é LOCK RENOVÁVEL com FENCING TOKEN
 TTL do plano Free: 2 min por conexão; expiração com status 'expired'.
 ```
 
@@ -193,24 +179,19 @@ TTL do plano Free: 2 min por conexão; expiração com status 'expired'.
 
 - **Sem a tabela (42P01), DATABASE_URL ausente ou Neon indisponível:** em
   PRODUÇÃO o wrapper (ResilientSessionStore) lança
-  `PersistenceUnavailableError` — NUNCA há fallback para memória (nenhum
-  navegador real abre sem control plane durável; rotas respondem 503
-  `PERSISTENCE_UNAVAILABLE`). Fallback em memória existe APENAS em
-  desenvolvimento/testes (`allowDegraded` opt-in). NENHUM DDL é executado
-  pelo app.
+  `PersistenceUnavailableError` — NUNCA há fallback para memória. Fallback em
+  memória existe APENAS em desenvolvimento/testes (`allowDegraded` opt-in).
+  NENHUM DDL é executado pelo app.
 - **billing_month:** fixado na reserva; sessões que cruzam a virada do mês
-  (no máximo 2 min no Free) contam no mês de início — simplificação
-  declarada, sem risco de cobrança.
+  contam no mês de início — simplificação declarada, sem risco de cobrança.
 
 ## Necessidade da tabela
 
 NECESSÁRIA para: (a) gate atômico de 1 sessão viva entre instâncias;
-(b) controller legível/CASável por qualquer instância (pausa real do agente
-em serverless); (c) contabilidade durável da cota de 1.000 unidades/mês,
-resistente a reinício de instância e sem duplicação; (d) coordenação do
-canal vivo do Chromium (quem segura a conexão CDP) com failover por lease.
+(b) controller legível/CASável por qualquer instância; (c) contabilidade
+durável da cota de 1.000 unidades/mês; (d) coordenação do canal vivo do
+Chromium com failover por lease.
 
 Quando a migration for aplicada, o `sessionManager` passa a usar o
 `NeonSessionStore` automaticamente (detecção de tabela + degradação);
-nenhum código de aplicação muda, e a alternância Memory ⇄ Neon já é exercitada
-pelos testes (`store.test.ts`).
+nenhum código de aplicação muda.

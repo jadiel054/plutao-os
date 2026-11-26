@@ -123,6 +123,11 @@ class BrowserlessSession implements ComputerSession {
       const context = this.browser.contexts()[0] ?? (await this.browser.newContext());
       this.page = context.pages()[0] ?? (await context.newPage());
       this.cdp = await context.newCDPSession(this.page);
+      // EGRESS GUARD PRIMEIRO (auditoria de 2º nível): instalado ANTES de
+      // qualquer interação com a página — antes de Page.enable, de métricas,
+      // de screencast e de qualquer navegação. Nenhuma request da página pode
+      // acontecer sem o guard ativo; a janela pré-navegação fica fechada.
+      await this.installEgressGuard();
       await this.cdp.send("Page.enable").catch(() => undefined);
       // Viewport coerente para o screencast (chamada real de CDP).
       await this.cdp
@@ -134,7 +139,6 @@ class BrowserlessSession implements ComputerSession {
         })
         .catch(() => undefined);
       this.cdp.on("Page.screencastFrame", (params) => this.onScreencastFrame(params));
-      await this.installEgressGuard();
       await this.cdp.send("Page.startScreencast", {
         format: "jpeg",
         quality: 60,
@@ -181,8 +185,9 @@ class BrowserlessSession implements ComputerSession {
    * EGRESS GUARD (CDP Fetch): intercepta TODAS as requisições da página —
    * cobre redirecionamentos e requisições secundárias, que fugiriam do
    * guard de navegação. Redes privadas/loopback/metadata falham com
-   * BlockedByClient. Best-effort no Cloud (browser remoto); a garantia
-   * dura de rede é política de egress no worker (self-hosted).
+   * BlockedByClient. Instalado ANTES da primeira navegação (ver open()).
+   * Best-effort no Cloud (browser remoto); a garantia dura de rede é
+   * política de egress no worker (self-hosted — docs/WORKER_COMPUTER_MINIPC.md).
    */
   /**
    * FAIL-CLOSED: se `Fetch.enable` falhar (ou o guard não puder ser

@@ -6,6 +6,7 @@ import { Header } from "@/components/Header";
 import { MobileNav } from "@/components/MobileNav";
 import { ToastContainer, ToastMessage, ToastType } from "@/components/Toast";
 import { CockpitAgentFab } from "@/components/CockpitAgentFab";
+import { CockpitComputerInterventionPanel } from "@/components/CockpitComputerInterventionPanel";
 import { runAutonomousMission } from "@/lib/cockpit/runAutonomousMission";
 import { formatModelLabel } from "@/lib/runtime/model/label";
 import { createMissionIntake } from "@/lib/missions/intakeClient";
@@ -95,6 +96,10 @@ export default function CockpitPage() {
             Missões: {missions.length}
           </div>
         </div>
+
+        {/* SUPERFÍCIE DE ORIGEM: intervenções de missões criadas aqui são
+            resolvidas aqui, sem navegar até o Chat. */}
+        <CockpitComputerInterventionPanel />
 
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3 shadow-xs">
           <div className="text-xs font-mono font-semibold text-[var(--text-muted)]">MODELO</div>
