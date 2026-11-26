@@ -1,8 +1,11 @@
 "use client";
 
 import { extractAnswerSections } from "@/lib/chat/answerFormatting";
+import { deriveAgentActivity } from "@/lib/chat/activityState";
+import { providerDisplayName } from "@/lib/chat/toolLogos";
 import { ReasoningBlock, type ReasoningStepItem } from "./ReasoningBlock";
 import { ActionCards, type ToolCallItem } from "./ActionCards";
+import { ToolLogo } from "./ToolLogos";
 import { CodeBlock } from "./CodeBlock";
 import { AnswerResultCard } from "./AnswerResultCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
@@ -94,8 +97,33 @@ export function StructuredMessage({
   const { result, body } = extractAnswerSections(content);
   const isReasoningStreaming = isStreaming && toolCallSteps.length === 0 && !content;
 
+  // Estado de atividade do agente, derivado SOMENTE de eventos reais
+  // (streaming ativo e status das tool calls). Falhas permanecem visiveis
+  // apos o fim do streaming; estados transititorios so durante a execucao.
+  const hasFailure = toolCallSteps.some(
+    (tc) => tc.status === "error" || tc.status === "failed",
+  );
+  const activity =
+    isStreaming || hasFailure
+      ? deriveAgentActivity(toolCallSteps, isStreaming, content.length > 0)
+      : null;
+
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere] break-words">
+      {activity ? (
+        <div
+          className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]"
+          role="status"
+          aria-live="polite"
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${activity.tone}`} aria-hidden />
+          <span className="font-medium text-[var(--text-secondary)]">{activity.label}</span>
+          {activity.detail ? (
+            <span className="opacity-60">· {providerDisplayName(activity.detail)}</span>
+          ) : null}
+        </div>
+      ) : null}
+
       {result ? <AnswerResultCard content={result.content} /> : null}
 
       {reasoningSteps.length > 0 && (
@@ -108,10 +136,11 @@ export function StructuredMessage({
 
       {toolCallSteps.length > 0 ? (
         <div className="flex items-center gap-1.5 pt-1 text-[11px] text-[var(--text-muted)]">
+          <ToolLogo provider={toolCallSteps[0]?.provider ?? ""} size={12} />
           <span className="opacity-60">Fontes de ferramenta</span>
           <span className="opacity-40">·</span>
           <span className="font-medium text-[var(--selo)]">
-            {toolCallSteps[0]?.provider ?? "conector"} ({toolCallSteps.length} {toolCallSteps.length === 1 ? "chamada" : "chamadas"})
+            {providerDisplayName(toolCallSteps[0]?.provider ?? "conector")} ({toolCallSteps.length} {toolCallSteps.length === 1 ? "chamada" : "chamadas"})
           </span>
         </div>
       ) : null}

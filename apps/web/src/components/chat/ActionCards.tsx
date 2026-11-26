@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { providerDisplayName } from "@/lib/chat/toolLogos";
+import { ToolLogo } from "./ToolLogos";
 
 export type ToolCallItem = {
   id: string;
@@ -124,7 +126,15 @@ function humanTitle(provider: string, capability: string): string {
   };
 
   const label = map[cleanCap] ?? map[capability] ?? cleanCap.replace(/_/g, " ");
-  return `${label} · ${provider}`;
+  return `${providerDisplayName(provider)} — ${label}`;
+}
+
+function statusDotClass(status: ToolCallItem["status"]): string {
+  if (status === "executing" || status === "approved") return "bg-amber-400 animate-pulse";
+  if (status === "GATE_PENDING") return "bg-amber-400";
+  if (status === "ok" || status === "executed") return "bg-emerald-400";
+  if (status === "rejected") return "bg-zinc-400";
+  return "bg-rose-400";
 }
 
 export function ActionCards({ toolCalls }: ActionCardsProps) {
@@ -152,27 +162,15 @@ export function ActionCards({ toolCalls }: ActionCardsProps) {
             key={tc.id}
             className="rounded-2xl border border-[var(--border)]/70 bg-[var(--surface)] overflow-hidden shadow-sm"
           >
-            {/* Header do card */}
+            {/* Header do card: logo do provedor + acao + estado */}
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]/30">
               <div className="flex items-center gap-2.5 min-w-0">
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--border)]/40 text-[11px] shrink-0">
-                  {isExecuting ? (
-                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                  ) : isGatePending ? (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                  ) : isOk ? (
-                    <span className="text-emerald-400 text-sm">✓</span>
-                  ) : isRejected ? (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-400">
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                    </svg>
-                  ) : (
-                    <span className="text-rose-400 text-sm">✕</span>
-                  )}
+                <span className="relative flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--border)]/40 text-[11px] shrink-0">
+                  <ToolLogo provider={tc.provider} size={14} />
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[var(--bg)] ${statusDotClass(tc.status)}`}
+                    aria-hidden
+                  />
                 </span>
 
                 <div className="min-w-0">
@@ -222,7 +220,7 @@ export function ActionCards({ toolCalls }: ActionCardsProps) {
               </div>
             </div>
 
-            {/* Corpo: Request + Response */}
+            {/* Corpo: Request + Response (recolhivel em uma linha) */}
             <div className="p-3 space-y-2.5">
               {isExecuting && !responseText && (
                 <div className="px-1 py-2 text-[12px] text-[var(--text-muted)] italic">
