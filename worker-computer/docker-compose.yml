@@ -1,0 +1,38 @@
+# Onda 2 — Computador persistente do Plutão no mini PC (US$ 0/mês)
+#
+# O adaptador self-hosted do Plutão fala CDP direto (mesma rota /chromium do
+# browserless). Este compose sobe o browserless open-source no mini PC com:
+#  - persistência de perfil em volume local (estado do navegador sobrevive);
+#  - token próprio (WORKER_TOKEN) — nunca exponha a porta além da rede local/
+#    túnel autenticado (Tailscale/WireGuard recomendado);
+#  - reinício automático (restart: unless-stopped) e limpeza de órfãos.
+#
+# Uso:
+#   WORKER_TOKEN=<token-forte> docker compose up -d
+#   # no Vercel:
+#   PLUTAO_COMPUTER_PROVIDER=self-hosted
+#   SELF_HOSTED_COMPUTER_ENDPOINT=wss://<mini-pc>:3000/chromium
+#   SELF_HOSTED_COMPUTER_TOKEN=<mesmo token>
+
+services:
+  chromium:
+    image: ghcr.io/browserless/chromium:latest
+    restart: unless-stopped
+    environment:
+      TOKEN: ${WORKER_TOKEN}
+      TIMEOUT: "1800000"          # 30 min por sessão (configurável)
+      CONCURRENT: "1"             # 1 navegador simultâneo
+      DEFAULT_STEALTH: "true"
+      # Persistência: perfil/estado do navegador sobrevive a reinícios.
+    volumes:
+      - chromium-profile:/data
+    ports:
+      - "127.0.0.1:3000:3000"     # bind apenas local — exponha via túnel autenticado
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  chromium-profile:
