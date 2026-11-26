@@ -397,3 +397,20 @@ html.view-desktop .desktop-top-nav {
     transition: none;
   }
 }
+
+/* Skeleton de carregamento de conteudos visuais */
+.chat-skeleton {
+  animation: plutao-skeleton 1.4s ease-in-out infinite;
+}
+
+@keyframes plutao-skeleton {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-skeleton {
+    animation: none;
+    opacity: 0.6;
+  }
+}
