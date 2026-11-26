@@ -10,7 +10,7 @@
  * NÃO concede permissão para executá-la.
  */
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { agentExperiences } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import type { KnowledgeKind, OperationalKnowledge } from "./operational-knowledge";
@@ -29,9 +29,8 @@ export async function experiencesAvailable(): Promise<boolean> {
     const db = getDb() as unknown as {
       execute: (sql: unknown) => Promise<{ rows?: Array<{ present?: string | null }> }>;
     };
-    const res = await db.execute(sql`SELECT to_regclass('agent_experiences')::text AS present`);
-    const rows = ((res as { rows?: Array<{ present?: string | null }> }).rows ?? []) as Array<{ present?: string | null }>;
-    return Boolean(rows[0]?.present);
+    await db.select({ probe: agentExperiences.id }).from(agentExperiences).limit(1);
+    return true;
   } catch {
     return false;
   }

@@ -53,10 +53,16 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!RUN) return;
-  await pool.query("TRUNCATE agent_experiences, users CASCADE");
+  // Não truncar tabelas compartilhadas: outros testes pg rodam em paralelo.
+  await pool.query(
+    "DELETE FROM agent_experiences WHERE user_id IN (SELECT id FROM users WHERE email = 'agentic-test@example.com')"
+  );
+  await pool.query("DELETE FROM users WHERE email = 'agentic-test@example.com'");
 });
 
 afterAll(async () => {
+  if (!RUN) return;
+  await cleanupMine();
   if (pool) await pool.end();
 });
 
@@ -65,6 +71,14 @@ async function newUser(): Promise<string> {
     "INSERT INTO users (email) VALUES ('agentic-test@example.com') RETURNING id::text AS id"
   );
   return res.rows[0].id as string;
+}
+
+/** Deleta somente as linhas deste teste, nunca tabelas inteiras. */
+async function cleanupMine(): Promise<void> {
+  await pool.query(
+    "DELETE FROM agent_experiences WHERE user_id IN (SELECT id FROM users WHERE email = 'agentic-test@example.com')"
+  );
+  await pool.query("DELETE FROM users WHERE email = 'agentic-test@example.com'");
 }
 
 d("experience-store — persistência de experiências", () => {
