@@ -29,7 +29,6 @@ import {
   saveChatScrollPosition,
   loadChatScrollPosition,
 } from "@/lib/chat/chatScroll";
-import { BrandMark } from "@/components/BrandMark";
 import { NixAvatar } from "@/components/chat/nix/NixAvatar";
 import { WelcomeHero } from "@/components/chat/WelcomeHero";
 import { SendMessageButton } from "@/components/SendMessageButton";

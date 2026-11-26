@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { NixAvatar } from "./nix/NixAvatar";
 import {
   buildQuickActions,
@@ -19,7 +19,7 @@ type WelcomeHeroProps = {
   onSelectAction: (prompt: string, missionId?: string) => void;
 };
 
-const KIND_ICONS: Record<QuickActionKind, React.ReactNode> = {
+const KIND_ICONS: Record<QuickActionKind, ReactNode> = {
   mission: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <circle cx="12" cy="12" r="9" />
@@ -91,12 +91,11 @@ export function WelcomeHero({ agentName, agentIdentity, context, localMode = fal
       </p>
 
       {actions.length > 0 ? (
-        <div className="mt-7 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2" role="list" aria-label="Ações rápidas">
+        <div className="mt-7 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Ações rápidas">
           {actions.map((a) => (
             <button
               key={a.id}
               type="button"
-              role="listitem"
               onClick={() => onSelectAction(a.prompt, a.missionId)}
               className="group flex cursor-pointer items-start gap-3 rounded-2xl bg-[var(--surface)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-elevated)]/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--selo)]/50"
             >
