@@ -26,9 +26,7 @@ export type ExperienceRecord = OperationalKnowledge & {
 /** Sonda de existência: nunca cria tabela por conta própria. */
 export async function experiencesAvailable(): Promise<boolean> {
   try {
-    const db = getDb() as unknown as {
-      execute: (sql: unknown) => Promise<{ rows?: Array<{ present?: string | null }> }>;
-    };
+    const db = getDb();
     await db.select({ probe: agentExperiences.id }).from(agentExperiences).limit(1);
     return true;
   } catch {
