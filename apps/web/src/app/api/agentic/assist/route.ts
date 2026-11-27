@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import { APP_SURFACES } from "@/lib/agentic/app-surface";
-import { describePage, diagnosePage } from "@/lib/agentic/ui-perception";
+import { describePage } from "@/lib/agentic/ui-perception";
 import { parseVoiceCommand, respondToVoiceCommand } from "@/lib/agentic/voice-assist";
-import { buildGuidedPlan } from "@/lib/agentic/guided-assist";
+import { buildGuidedPlan, diagnosePage } from "@/lib/agentic/guided-assist";
 import { listExperiences } from "@/lib/agentic/experience-store";
 import type { PageState } from "@/lib/agentic/ui-perception";
 
