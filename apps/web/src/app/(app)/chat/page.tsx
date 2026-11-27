@@ -195,6 +195,7 @@ function ChatPageInner() {
   const [selectedLocalModel, setSelectedLocalModelChoice] = useState<string>("cloud");
   const [localTokenReceived, setLocalTokenReceived] = useState(false);
   const lastUiUpdateRef = useRef<number>(0);
+  const localPairIdRef = useRef<string>(crypto.randomUUID());
   const pendingUiTextRef = useRef<string>("");
   const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -794,6 +795,7 @@ function ChatPageInner() {
 
       setSending(true);
       setLocalTokenReceived(false);
+      localPairIdRef.current = crypto.randomUUID();
       lastUiUpdateRef.current = 0;
       pendingUiTextRef.current = "";
       if (updateTimerRef.current) {
@@ -862,6 +864,44 @@ function ChatPageInner() {
             return { ...m, content: localResponse };
           })
         );
+
+        // Persistência server-side do par local (mesma tabela do cloud).
+        // Idempotente via clientMessageId; falha de rede NÃO perde a mensagem
+        // (ela permanece na sessão e no backup local do navegador).
+        void (async () => {
+          try {
+            let convId = activeConversationIdRef.current;
+            if (!convId) {
+              const createRes = await fetch("/api/conversations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: (text || "Conversa local").slice(0, 80) || "Conversa local",
+                }),
+              });
+              const createData = await createRes.json().catch(() => ({}));
+              if (createRes.ok && createData.conversation?.id) {
+                convId = createData.conversation.id as string;
+                setActiveConversationId(convId);
+                void refreshConversations();
+              } else {
+                return;
+              }
+            }
+            await fetch("/api/conversations/" + encodeURIComponent(convId) + "/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userText: text,
+                assistantText: localResponse,
+                clientMessageId: localPairIdRef.current,
+                model: localModelName,
+              }),
+            });
+          } catch {
+            /* offline: mensagem permanece apenas neste dispositivo */
+          }
+        })();
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Erro na inferência local";
         setError(`Falha na inferência local: ${errMsg}`);
