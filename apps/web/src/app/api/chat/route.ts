@@ -801,7 +801,11 @@ ${
                 }
               }
             } catch (err) {
-              const fallbackConfig = autoFallbackEnabled ? pickFallbackConfig(streamModelConfig) : null;
+              // Mesmo critério do caminho não-stream: erros de cliente (400/401/403/413/422)
+              // não são transitórios e não devem disparar fallback.
+              const errMsg = sanitizeError(err);
+              const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
+              const fallbackConfig = autoFallbackEnabled && !isClient4xx ? pickFallbackConfig(streamModelConfig) : null;
               if (fallbackConfig) {
                 streamModelConfig = fallbackConfig;
                 modelFallback = true;
