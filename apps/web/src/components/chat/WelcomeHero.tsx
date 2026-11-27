@@ -68,7 +68,7 @@ export function WelcomeHero({ agentName, agentIdentity, context, localMode = fal
   const continuity = continuityLine(context);
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-1 py-8 text-center sm:py-12">
+    <div className="flex min-h-full flex-col items-center justify-center px-1 py-8 text-center sm:py-12">
       <div className="relative flex items-center justify-center">
         <div className="nix-hero-glow absolute inset-0 rounded-full blur-2xl" aria-hidden
           style={{ background: "radial-gradient(circle, rgba(79,240,212,0.28) 0%, transparent 70%)" }} />
