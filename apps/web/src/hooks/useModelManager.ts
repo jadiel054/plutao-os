@@ -14,9 +14,20 @@ import {
   filterModels,
   getLocalProvider,
 } from "@plutao/domain";
+import {
+  warmLocalModel,
+  deleteCachedModelFiles,
+  type DownloadProgressSnapshot,
+} from "@/lib/localModels/downloadManager";
+
+type CancelRegistry = Map<string, () => void>;
+const cancelledModels = new Set<string>();
 
 const DOWNLOADED_MODELS_KEY = "plutao_downloaded_models";
 const ACTIVE_MODEL_KEY = "plutao_active_model_id";
+
+/** Downloads em curso (modelId → promise); evita duplicação e habilita cancelamento. */
+const activeDownloads = new Map<string, Promise<unknown>>();
 
 export interface TestResult {
   output: string;
@@ -144,22 +155,119 @@ export function useModelManager() {
     }
   }, []);
 
-  // Start Download (simulacao por setInterval removida)
+  // Start Download — REAL: baixa os arquivos do HF para o cache do navegador
+  // com progresso em bytes reais; marca "downloaded" somente após sucesso.
   const startDownload = useCallback((model: AIModel) => {
-    startDownloadAction(model, setProgresses);
+    if (model.providerType !== "local" || model.comingSoon || !model.hfRepo) return;
+    if (activeDownloads.has(model.id)) return;
+
+    cancelledModels.delete(model.id);
+    setProgresses((prev) => ({
+      ...prev,
+      [model.id]: {
+        modelId: model.id,
+        status: "downloading",
+        progress: 0,
+        loadedBytes: 0,
+        totalBytes: model.sizeBytes || 0,
+        speedMBs: 0,
+      },
+    }));
+
+    const onProgress = (snapshot: DownloadProgressSnapshot) => {
+      setProgresses((prev) => ({
+        ...prev,
+        [model.id]: {
+          modelId: model.id,
+          status: "downloading",
+          progress: snapshot.progress,
+          loadedBytes: snapshot.loadedBytes,
+          totalBytes: snapshot.totalBytes || model.sizeBytes || 0,
+          speedMBs: snapshot.speedMBs,
+        },
+      }));
+    };
+
+    const isCancelled = () => cancelledModels.has(model.id);
+
+    const promise = warmLocalModel({ hfRepo: model.hfRepo, device: "auto", onProgress, isCancelled })
+      .then((result) => {
+        activeDownloads.delete(model.id);
+        if (isCancelled() || (result as { cancelled?: boolean }).cancelled) {
+          setProgresses((prev) => {
+            const copy = { ...prev };
+            delete copy[model.id];
+            return copy;
+          });
+          return;
+        }
+        if (result.ok) {
+          setDownloadedModelIds((prev) => {
+            if (prev.includes(model.id)) return prev;
+            const next = [...prev, model.id];
+            if (typeof window !== "undefined") {
+              try { localStorage.setItem(DOWNLOADED_MODELS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+            }
+            return next;
+          });
+          setProgresses((prev) => {
+            const copy = { ...prev };
+            delete copy[model.id];
+            return copy;
+          });
+        } else {
+          setProgresses((prev) => ({
+            ...prev,
+            [model.id]: {
+              modelId: model.id,
+              status: "error",
+              progress: 0,
+              loadedBytes: 0,
+              totalBytes: model.sizeBytes || 0,
+              speedMBs: 0,
+              error: result.error,
+            },
+          }));
+        }
+      })
+      .catch(() => {
+        activeDownloads.delete(model.id);
+        setProgresses((prev) => ({
+          ...prev,
+          [model.id]: {
+            modelId: model.id,
+            status: "error",
+            progress: 0,
+            loadedBytes: 0,
+            totalBytes: model.sizeBytes || 0,
+            speedMBs: 0,
+            error: "Falha inesperada no download.",
+          },
+        }));
+      });
+
+    activeDownloads.set(model.id, promise);
   }, []);
 
-  // Pause / Cancel Download
+  // Pause / Cancel Download — interrompe a contabilização e agenda a limpeza
+  // dos arquivos já cacheados (limitação: o arquivo em curso do Transformers.js
+  // termina; os bytes parciais são removidos do Cache API em seguida).
   const cancelDownload = useCallback((modelId: string) => {
+    cancelledModels.add(modelId);
+    activeDownloads.delete(modelId);
     setProgresses((prev) => {
       const copy = { ...prev };
       delete copy[modelId];
       return copy;
     });
+    const model = PRESET_MODELS.find((m) => m.id === modelId);
+    if (model?.hfRepo) void deleteCachedModelFiles(model.hfRepo);
   }, []);
 
-  // Delete local model cache
+  // Delete local model cache — remove estado E os arquivos reais do Cache API
   const deleteModel = useCallback((modelId: string) => {
+    cancelledModels.add(modelId);
+    activeDownloads.delete(modelId);
     setDownloadedModelIds((prev) => {
       const next = prev.filter((id) => id !== modelId);
       saveDownloadedIds(next);
@@ -170,6 +278,8 @@ export function useModelManager() {
       delete copy[modelId];
       return copy;
     });
+    const model = PRESET_MODELS.find((m) => m.id === modelId);
+    if (model?.hfRepo) void deleteCachedModelFiles(model.hfRepo);
   }, [saveDownloadedIds]);
 
   // Run Test inference
