@@ -158,3 +158,5 @@ d("POST /api/conversations/[id]/messages — contrato", () => {
     expect(r.status).toBe(500);
   });
 });
+
+// Commit trivial para re-disparar o CI (job "Build web" falhou de forma intermitente).
