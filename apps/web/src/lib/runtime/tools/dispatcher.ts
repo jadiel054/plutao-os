@@ -28,13 +28,39 @@ import {
   planRecovery,
   type RecoveryPlan,
 } from "@/lib/agentic/obstacle-recovery";
-import { recordExperience } from "@/lib/agentic/experience-store";
+import {
+  findApplicableExperiences,
+  recordExperience,
+} from "@/lib/agentic/experience-store";
+import {
+  rankForRecovery,
+  shouldAutoRetry,
+  successExperienceFor,
+  summarizeKnownIssues,
+} from "@/lib/agentic/dispatch-recovery";
+import type { OperationalKnowledge } from "@/lib/agentic/operational-knowledge";
 import { isToolAllowedBySpecialist } from "@/lib/missions/specialistProfiles";
 import { emitAction, emitObservation } from "@/lib/events/appendConversationEvent";
 import { sanitizeText } from "@/lib/security/sanitize";
 
 function inputHash(name: string, input: string): string {
   return createHash("sha256").update(`${name}\0${input}`).digest("hex").slice(0, 16);
+}
+
+/** Experiência mínima (local) para resumir a falha corrente nos knownIssues. */
+function failedKnowledge(tool: string, error?: string): OperationalKnowledge {
+  return {
+    id: "local-" + inputHash(tool, error ?? ""),
+    subject: tool,
+    kind: "failed_method",
+    method: "dispatchTool(" + tool + ")",
+    observedAt: new Date().toISOString(),
+    requirements: {},
+    limitations: [],
+    usefulFor: [],
+    evidence: [],
+    cause: error,
+  };
 }
 
 async function dispatchLocal(
@@ -255,29 +281,38 @@ export async function dispatchTool(opts: {
     }
   }
 
-  const result = await dispatchLocal(opts.name, String(opts.input ?? ""), {
+  let result = await dispatchLocal(opts.name, String(opts.input ?? ""), {
     executionId: opts.executionId,
     userId: opts.userId,
     conversationId: cp.conversationId ?? null,
   });
 
-  // Núcleo agêntico — recuperação transversal de obstáculos: em falha de
-  // tool, classifica o obstáculo, sugere alternativas AUTORIZADAS do registro
-  // e registra a experiência (best-effort; nunca bloqueia o dispatch).
+  // Núcleo agêntico — recuperação transversal de obstáculos guiada por
+  // experiências: em falha de tool, consulta experiências aplicáveis do
+  // usuário, classifica o obstáculo, reordena alternativas AUTORIZADAS pela
+  // experiência real e tenta UM retry automático apenas para obstáculos
+  // transitórios (TIMEOUT/TRANSIENT). Registra a experiência (best-effort;
+  // nunca bloqueia o dispatch). Aprendizado NÃO concede autorização: as
+  // alternativas continuam vindo do registro de capacidades (fail-closed).
   let recovery: RecoveryPlan | null = null;
+  let knownIssues: string[] = [];
   if (!result.ok) {
     try {
       const obstacle = classifyObstacle(result.error ?? "");
+      const priorExperiences = await findApplicableExperiences(opts.userId, opts.name);
       recovery = planRecovery({
         goal: "concluir a etapa da missão com a tool " + opts.name,
         failedMethod: opts.name,
         obstacle,
-        alternatives: alternativesForTool({
-          tool: opts.name,
-          error: result.error ?? "",
-          goal: "concluir a etapa da missão",
-          enabledCapabilityIds: getEnabledCapabilities().map((c) => c.id),
-        }),
+        alternatives: rankForRecovery(
+          alternativesForTool({
+            tool: opts.name,
+            error: result.error ?? "",
+            goal: "concluir a etapa da missão",
+            enabledCapabilityIds: getEnabledCapabilities().map((c) => c.id),
+          }),
+          priorExperiences
+        ),
         policy: DEFAULT_RECOVERY_POLICY,
       });
       void recordExperience(opts.userId, {
@@ -288,6 +323,38 @@ export async function dispatchTool(opts: {
         obstacleKind: obstacle.kind,
         usefulFor: ["recuperação de obstáculos em missões"],
       });
+      if (shouldAutoRetry(obstacle)) {
+        const retry = await dispatchLocal(opts.name, String(opts.input ?? ""), {
+          executionId: opts.executionId,
+          userId: opts.userId,
+          conversationId: cp.conversationId ?? null,
+        });
+        if (retry.ok) {
+          result = retry;
+          recovery = null;
+          void recordExperience(
+            opts.userId,
+            successExperienceFor(opts.name, "retry automático resolveu obstáculo transitório")
+          );
+        } else {
+          result = retry;
+        }
+      }
+      if (!result.ok) {
+        knownIssues = summarizeKnownIssues(
+          priorExperiences.concat([failedKnowledge(opts.name, result.error ?? "erro")])
+        );
+      }
+    } catch (e) {
+      console.error("[dispatchTool recovery]", e);
+    }
+  } else if (cp.before?.tool === opts.name && cp.after && cp.after.ok === false) {
+    // Fecha o ciclo: a tool que falhou em chamada anterior agora teve sucesso.
+    try {
+      void recordExperience(
+        opts.userId,
+        successExperienceFor(opts.name, "sucesso após falha registrada anteriormente")
+      );
     } catch (e) {
       console.error("[dispatchTool recovery]", e);
     }
@@ -427,6 +494,6 @@ export async function dispatchTool(opts: {
     result,
     evidence: evidenceItem,
     message: result.ok ? "tool applied" : "tool failed (recorded)",
-    ...(recovery ? { recovery } : {}),
+    ...(recovery ? { recovery, knownIssues } : {}),
   };
 }
