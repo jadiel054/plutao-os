@@ -9,6 +9,7 @@ import { MissionTimeline, buildMissionTimeline } from "@/components/MissionTimel
 import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
 import { MissionApprovalPanel } from "@/components/MissionApprovalPanel";
 import { MissionDoDPanel } from "@/components/MissionDoDPanel";
+import { ConversationEventsPanel } from "@/components/ConversationEventsPanel";
 import { sanitizeError, sanitizeErrorForClient } from "@/lib/security/sanitize";
 
 type Props = { params: Promise<{ id: string }> };
@@ -16,7 +17,7 @@ type TaskData = { id: string; title: string; description?: string | null; status
 type ExecutionData = { id: string; status: string; currentTaskId?: string | null; checkpoint?: Record<string, unknown> | null; checkpointAt?: string | null; error?: string | null; startedAt?: string | null; updatedAt?: string | null; completedAt?: string | null };
 type JobData = { id: string; executionId: string; status: string; attempts: number; maxAttempts: number; availableAt?: string | null; lockedAt?: string | null; lastError?: string | null; updatedAt?: string | null; completedAt?: string | null };
 type EvidenceData = { id: string; type: string; content: string; source: string; taskId?: string | null; missionId?: string; executionId?: string; status?: string; metadata?: Record<string, unknown>; createdAt?: string };
-type MissionData = { id: string; objective: string; status: string; currentState?: string; definitionOfDone?: string | null; plan?: unknown; missionGraph?: { nodes?: Array<{ id?: string; title?: string; label?: string }> } | null; graphVersion?: number | null; completedSteps?: unknown; pendingSteps?: unknown; createdAt?: string; updatedAt?: string };
+type MissionData = { id: string; conversationId?: string | null; objective: string; status: string; currentState?: string; definitionOfDone?: string | null; plan?: unknown; missionGraph?: { nodes?: Array<{ id?: string; title?: string; label?: string }> } | null; graphVersion?: number | null; completedSteps?: unknown; pendingSteps?: unknown; createdAt?: string; updatedAt?: string };
 type OverviewData = { mission: MissionData; tasks: TaskData[]; executions: ExecutionData[]; runtimeJobs: JobData[]; evidence: EvidenceData[]; dod?: { passed?: boolean; summary?: string; checks?: Array<{ id: string; label: string; passed: boolean; detail?: string }> }; telemetry: unknown[]; lastUpdated?: string };
 
 function tone(status: string) {
@@ -179,6 +180,7 @@ export default function MissionDetailPage({ params }: Props) {
           <div className="space-y-5">
             <MissionDoDPanel passed={overview.dod?.passed ?? null} summary={overview.dod?.summary} checks={overview.dod?.checks ?? []} onVerify={() => void verifyDod()} busy={dodLoading} />
             <MissionApprovalPanel missionId={id} onChanged={() => void load(true)} />
+            {mission.conversationId ? <ConversationEventsPanel conversationId={mission.conversationId} /> : <p className="text-[11px] text-[var(--text-muted)] font-mono">Execução sem conversa vinculada: eventos aparecem na telemetria e evidências abaixo.</p>}
             <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <h2 className="mb-3 text-[11px] font-mono font-semibold text-[var(--text-muted)]">GRAFO DA MISSÃO</h2>
           {graphNodes.length === 0 ? <p className="text-xs text-[var(--text-muted)]">Grafo ainda não persistido.</p> : <ol className="space-y-1.5">{graphNodes.map((node, index) => <li key={node.id ?? index} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs"><span className="font-mono text-[var(--text-muted)]">{index + 1}</span><span>{node.title ?? node.label ?? node.id ?? "Nó"}</span></li>)}</ol>}

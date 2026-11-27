@@ -91,6 +91,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({
       mission: {
         id: mission.id,
+        conversationId: mission.conversationId,
         objective: mission.objective,
         status: mission.status,
         currentState: mission.currentState,
