@@ -9,11 +9,11 @@
  */
 
 import { appendConversationEvent } from "./appendConversationEvent";
-import type { ConversationEventDTO } from "./types";
+import type { ConversationEventDTO, ConversationEventType } from "./types";
 
 export type MissionEventPhase = "started" | "result" | "failed" | "completed" | "linked";
 
-const PHASE_TO_TYPE: Record<MissionEventPhase, string> = {
+const PHASE_TO_TYPE: Record<MissionEventPhase, ConversationEventType> = {
   started: "mission_started",
   result: "mission_result",
   failed: "mission_failed",
