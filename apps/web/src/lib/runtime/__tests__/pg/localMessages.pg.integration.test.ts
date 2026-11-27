@@ -29,7 +29,7 @@ const BOOTSTRAP = [
   'CREATE TABLE IF NOT EXISTS "users" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL);',
   "CREATE TABLE IF NOT EXISTS \"conversations\" (\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL, \"user_id\" uuid NOT NULL REFERENCES \"users\"(\"id\") ON DELETE cascade, \"title\" text NOT NULL DEFAULT 'Nova conversa', \"is_pinned\" boolean NOT NULL DEFAULT false, \"project_id\" uuid, \"share_token\" text, \"created_at\" timestamp with time zone DEFAULT now(), \"updated_at\" timestamp with time zone DEFAULT now());",
   "CREATE TABLE IF NOT EXISTS \"messages\" (\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL, \"conversation_id\" uuid NOT NULL REFERENCES \"conversations\"(\"id\") ON DELETE cascade, \"role\" text NOT NULL, \"content\" text NOT NULL, \"metadata\" jsonb, \"created_at\" timestamp with time zone DEFAULT now());",
-  'CREATE UNIQUE INDEX IF NOT EXISTS "messages_local_client_msg_uidx" ON "messages" ("conversation_id", "role", ("metadata"->>'clientMessageId')) WHERE "metadata"->>'clientMessageId' IS NOT NULL;',
+  "CREATE UNIQUE INDEX IF NOT EXISTS \"messages_local_client_msg_uidx\" ON \"messages\" (\"conversation_id\", \"role\", (\"metadata\"->>'clientMessageId')) WHERE \"metadata\"->>'clientMessageId' IS NOT NULL;",
 ].join("\n");
 
 function postReq(convId: string, body: unknown) {
