@@ -203,6 +203,69 @@ function ChatPageInner() {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), message, type, title }]);
   };
   const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
+
+  // Outbox de persistência local: pares ainda NÃO sincronizados com o servidor.
+  // Falha de rede ou HTTP 500 nunca é tratada como sucesso; a outbox reenvia
+  // automaticamente (timer + evento online).
+  const localOutboxRef = useRef<Map<string, { convId: string | null; userText: string; assistantText: string; model: string | null }>>(new Map());
+  const localOutboxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushingOutboxRef = useRef(false);
+  const flushLocalOutbox = useCallback(async () => {
+    if (flushingOutboxRef.current) return;
+    flushingOutboxRef.current = true;
+    try {
+      for (const [id, item] of Array.from(localOutboxRef.current.entries())) {
+        try {
+          let convId = item.convId ?? activeConversationIdRef.current;
+          if (!convId) {
+            const createRes = await fetch("/api/conversations", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ title: (item.userText || "Conversa local").slice(0, 80) || "Conversa local" }),
+            });
+            const createData = await createRes.json().catch(() => ({}));
+            if (createRes.ok && createData.conversation?.id) {
+              convId = createData.conversation.id as string;
+              setActiveConversationId(convId);
+            } else {
+              break;
+            }
+          }
+          const res = await fetch("/api/conversations/" + encodeURIComponent(convId) + "/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userText: item.userText, assistantText: item.assistantText, clientMessageId: id, model: item.model }),
+          });
+          if (res.ok) {
+            localOutboxRef.current.delete(id);
+          } else {
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+    } finally {
+      flushingOutboxRef.current = false;
+    }
+  }, []);
+  const enqueueLocalOutbox = useCallback(
+    (id: string, convId: string | null, userText: string, assistantText: string, model: string | null) => {
+      localOutboxRef.current.set(id, { convId, userText, assistantText, model });
+      if (localOutboxTimerRef.current) clearTimeout(localOutboxTimerRef.current);
+      localOutboxTimerRef.current = setTimeout(() => void flushLocalOutbox(), 4000);
+    },
+    [flushLocalOutbox]
+  );
+  const clearLocalOutbox = useCallback((id: string) => {
+    localOutboxRef.current.delete(id);
+  }, []);
+  // Reenvia a outbox quando a conexão voltar.
+  useEffect(() => {
+    const onOnline = () => void flushLocalOutbox();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [flushLocalOutbox]);
   // Título inteligente: a rota só atualiza títulos automáticos (nunca os renomeados).
   const updateConversationTitle = async (conversationId: string) => {
     try {
@@ -866,8 +929,10 @@ function ChatPageInner() {
         );
 
         // Persistência server-side do par local (mesma tabela do cloud).
-        // Idempotente via clientMessageId; falha de rede NÃO perde a mensagem
-        // (ela permanece na sessão e no backup local do navegador).
+        // Outbox + idempotência: clientMessageId capturado ANTES de qualquer await
+        // (imutável neste envio). Falha de rede ou HTTP 500 NÃO é sucesso: o par
+        // entra na outbox e é reenviado (timer 4s + evento online).
+        const clientMessageId = localPairIdRef.current;
         void (async () => {
           try {
             let convId = activeConversationIdRef.current;
@@ -885,21 +950,30 @@ function ChatPageInner() {
                 setActiveConversationId(convId);
                 void refreshConversations();
               } else {
+                enqueueLocalOutbox(clientMessageId, null, text, localResponse, localModelName);
+                addToast("Mensagem local aguardando sincronização com o servidor", "info");
                 return;
               }
             }
-            await fetch("/api/conversations/" + encodeURIComponent(convId) + "/messages", {
+            const persistRes = await fetch("/api/conversations/" + encodeURIComponent(convId) + "/messages", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 userText: text,
                 assistantText: localResponse,
-                clientMessageId: localPairIdRef.current,
+                clientMessageId,
                 model: localModelName,
               }),
             });
+            if (!persistRes.ok) {
+              enqueueLocalOutbox(clientMessageId, convId, text, localResponse, localModelName);
+              addToast("Mensagem local aguardando sincronização com o servidor", "info");
+              return;
+            }
+            clearLocalOutbox(clientMessageId);
           } catch {
-            /* offline: mensagem permanece apenas neste dispositivo */
+            enqueueLocalOutbox(clientMessageId, activeConversationIdRef.current, text, localResponse, localModelName);
+            addToast("Mensagem local aguardando sincronização com o servidor", "info");
           }
         })();
       } catch (err) {

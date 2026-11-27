@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, gt, asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { conversations, messages } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
@@ -106,26 +106,6 @@ export async function POST(
         : null;
     const localModel = typeof body.model === "string" ? body.model.slice(0, 120) : null;
 
-    // Dedupe: mesma clientMessageId já persistida nesta conversa → no-op.
-    if (clientMessageId) {
-      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const recent = await db
-        .select({ metadata: messages.metadata })
-        .from(messages)
-        .where(and(eq(messages.conversationId, id), gt(messages.createdAt, cutoff)))
-        .orderBy(asc(messages.createdAt))
-        .limit(200);
-      const already = recent.some(
-        (m) =>
-          m.metadata &&
-          typeof m.metadata === "object" &&
-          (m.metadata as Record<string, unknown>).clientMessageId === clientMessageId
-      );
-      if (already) {
-        return NextResponse.json({ persisted: false, duplicate: true });
-      }
-    }
-
     const now = new Date();
     const values: Array<{ conversationId: string; role: string; content: string; metadata: Record<string, unknown> | null; createdAt: Date }> = [];
     if (userText.trim()) {
@@ -144,11 +124,25 @@ export async function POST(
       metadata: { origin: "local", model: localModel, ...(clientMessageId ? { clientMessageId } : {}) },
       createdAt: new Date(now.getTime() + 10),
     });
-    await db.insert(messages).values(values);
+    // Idempotência ATÔMICA: índice único parcial (migration 0034) sobre
+    // (conversation_id, role, metadata->>clientMessageId). A corrida de duas
+    // requisições simultâneas é resolvida pelo banco (ON CONFLICT DO NOTHING),
+    // e o par user+assistant é gravado em UMA transação.
+    const inserted = await db.transaction(async (tx) => {
+      const rows = await tx
+        .insert(messages)
+        .values(values)
+        .onConflictDoNothing()
+        .returning({ id: messages.id });
+      await tx
+      .update(conversations)
+      .set({ updatedAt: new Date() })
+      .where(eq(conversations.id, id));
+      return rows;
+    });
 
-    await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, id));
-
-    return NextResponse.json({ persisted: true, duplicate: false });
+    const persisted = inserted.length > 0;
+    return NextResponse.json({ persisted, duplicate: !persisted && values.length > 0 });
   } catch (err) {
     console.error("[POST /api/conversations/[id]/messages]", err);
     return NextResponse.json({ error: "Erro ao persistir mensagens locais" }, { status: 500 });
