@@ -4,6 +4,8 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 jobs:
   tsc:
     runs-on: ubuntu-latest
