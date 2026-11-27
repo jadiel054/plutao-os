@@ -62,3 +62,70 @@ descoberta, percepção, voz, guiado). Integração (RUN_PG_TESTS):
 - Integração do plano de recuperação com execução real de missões multi-nó.
 - Percepção visual (o Computador, quando retomado, implementará a porta
   `InteractionExecutor` para interfaces externas).
+
+
+## Fase 2 — recuperação guiada por experiências, aprendizado, descoberta permanente e voz global
+
+Delta sobre a Fase 1 (PR #208, mergeada). Princípios mantidos: aprendizado
+NÃO concede autorização; persistência degrada graciosamente sem migrations;
+nada é declarado validado sem execução real.
+
+### Recuperação no dispatcher (guiada por experiências)
+
+- Em falha de tool, o dispatcher consulta as experiências aplicáveis do
+  usuário (findApplicableExperiences), reordena as alternativas AUTORIZADAS
+  pela experiência real (rankForRecovery) e registra a experiência de falha.
+- Retry único automático apenas para obstáculos TRANSIENT/TIMEOUT
+  (shouldAutoRetry); sucesso no retry registra experiência positiva
+  (successExperienceFor), fechando o ciclo.
+- Quando a recuperação não resolve, o resultado do dispatch inclui
+  "knownIssues": resumo do que já se sabe falho (summarizeKnownIssues),
+  alimentando prompts e views. Sucesso após falha anterior da mesma tool
+  também registra experiência positiva (fechamento do ciclo no fluxo normal).
+- Integração pura em dispatch-recovery.ts (funções testáveis, sem I/O).
+
+### Aprendizado de ferramentas (API)
+
+- POST /api/agentic/knowledge: intake de documentação com redação de
+  segredos (redactSecrets) ANTES de qualquer parse/persistência; probes GET
+  apenas em hosts da allowlist do SERVIDOR (env PLUTAO_AGENTIC_PROBE_HOSTS);
+  conhecimento persistido como "tool-learning:<tool>" com estado
+  hypothesis/confirmed conforme probe.
+- GET /api/agentic/knowledge: lista o conhecimento aprendido.
+- Aprender NÃO autoriza execução: permissões e gates existentes seguem
+  intactos.
+
+### Descoberta permanente de capacidades (API)
+
+- GET /api/agentic/capabilities: inventário atual (registro estático +
+  aprendidas + superfícies), diff contra o último snapshot e plano de estudo.
+- POST /api/agentic/capabilities: salva snapshot versionado.
+- Nova tabela agentic_capability_snapshots (migration 0033 — aplicação
+  manual no Neon pelo mantenedor). Sem a tabela, a API responde com
+  disponibilidade degradada; nada quebra.
+
+### Percepção e interação ampliadas
+
+- planInteraction agora produz etapas de DIGITAÇÃO ("escreva/digite/preencha
+  ... com \"texto\""), mirando o campo de entrada semântico da página.
+- Superfície /ajuda registrada (app-surface, rotas de percepção e navegação
+  por voz).
+- NixVoiceAssist: executor completo (click, toggle, digitação com setter
+  nativo + evento input, seleção de opção e navegação), snapshot com valores
+  reais e verificação pós-ação via API. Controles SENSÍVEIS exigem
+  confirmação falada explícita (confirmo/cancela); nada executa sem isso.
+
+### Voz global
+
+- Novo layout do grupo (app): NixVoiceAssist renderiza em TODAS as páginas
+  autenticadas (chat, cockpit, configurações, modelos, planos, artemis,
+  ajuda). O componente saiu do Chat para não duplicar.
+
+### Migrações e testes
+
+- 0032_agent_experiences (Fase 1) e 0033_agentic_capability_snapshots
+  (Fase 2) estão preparadas e PENDENTES de aplicação manual no Neon.
+- Testes: unitários (dispatch-recovery, knowledge-intake,
+  capability-snapshot, voice-assist, ui-perception) e de integração pg
+  (capability-snapshot.pg.integration.test.ts, padrão dos demais: mock de
+  @/lib/db, node-postgres, bootstrap idempotente, limpeza por ids).
