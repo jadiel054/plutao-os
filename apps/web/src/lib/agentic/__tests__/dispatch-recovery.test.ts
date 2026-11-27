@@ -3,7 +3,9 @@ import {
   computeKnownFailed,
   IDEMPOTENT_TOOLS,
   rankForRecovery,
+  retryDecision,
   shouldAutoRetry,
+  TRANSIENT_UNCERTAIN_NOTE,
   summarizeKnownIssues,
   TIMEOUT_UNCERTAIN_NOTE,
 } from "../dispatch-recovery";
@@ -32,8 +34,46 @@ describe("shouldAutoRetry", () => {
     expect(shouldAutoRetry(classifyObstacle("timeout after 30s"), "files.export_pdf")).toBe(true);
     expect(shouldAutoRetry(classifyObstacle("timeout after 30s"), "files.export_markdown")).toBe(true);
   });
-  it("TRANSIENT (falha de conexão) segue com retry mesmo em tool não idempotente", () => {
-    expect(shouldAutoRetry(classifyObstacle("ECONNRESET na rede"), "github")).toBe(true);
+  it("TRANSIENT em tool NÃO idempotente sem idempotency key NÃO tem retry automático", () => {
+    expect(shouldAutoRetry(classifyObstacle("ECONNRESET na rede"), "github")).toBe(false);
+  });
+});
+
+// Bloqueador 1 — retry seguro: resultado incerto verificado antes de repetir.
+describe("retryDecision (bloqueador 1)", () => {
+  it("timeout DEPOIS de a operação remota produzir efeito: resultado incerto, sem repetição", () => {
+    const d2 = retryDecision(classifyObstacle("timeout after 30s"), "github");
+    expect(d2.outcome).toBe("uncertain");
+    expect(d2.reason).toContain("incerto");
+    expect(d2.reason).toContain("verifique o estado");
+  });
+  it("falha de conexão APÓS o envio da operação: resultado incerto, sem repetição", () => {
+    const d2 = retryDecision(classifyObstacle("ECONNRESET na rede"), "supabase");
+    expect(d2.outcome).toBe("uncertain");
+    expect(d2.reason).toContain(TRANSIENT_UNCERTAIN_NOTE);
+  });
+  it("operação mutável COM idempotency key: retry seguro (deduplicado)", () => {
+    const d2 = retryDecision(classifyObstacle("timeout after 30s"), "github", { hasIdempotencyKey: true });
+    expect(d2.outcome).toBe("safe_retry");
+    expect(d2.reason).toContain("idempotency key");
+  });
+  it("operação idempotente: recuperação segura com retry automático", () => {
+    const d2 = retryDecision(classifyObstacle("ECONNRESET na rede"), "files.export_pdf");
+    expect(d2.outcome).toBe("safe_retry");
+  });
+  it("operacao mutável sem possibilidade de verificação permanece incerta (nunca reexecutada)", () => {
+    for (const err of ["timeout after 30s", "ECONNRESET na rede"]) {
+      const d2 = retryDecision(classifyObstacle(err), "process");
+      expect(d2.outcome).toBe("uncertain");
+      expect(shouldAutoRetry(classifyObstacle(err), "process")).toBe(false);
+    }
+  });
+  it("obstáculo não transitório: sem retry (plano de recuperação assume)", () => {
+    const d2 = retryDecision(classifyObstacle("403 forbidden"), "github", { hasIdempotencyKey: true });
+    expect(d2.outcome).toBe("no_retry");
+  });
+  it("sem tool informada (compatibilidade legada): mantém retry para transitórios", () => {
+    expect(retryDecision(classifyObstacle("ECONNRESET na rede")).outcome).toBe("safe_retry");
   });
 });
 

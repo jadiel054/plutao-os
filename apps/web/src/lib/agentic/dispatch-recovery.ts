@@ -38,18 +38,55 @@ export const IDEMPOTENT_TOOLS: ReadonlySet<string> = new Set([
 export const TIMEOUT_UNCERTAIN_NOTE =
   "resultado incerto: TIMEOUT em tool não idempotente; verifique o estado remoto antes de repetir a ação";
 
+/** Mensagem padrão de resultado incerto após falha de conexão (TRANSIENT) em tool não idempotente. */
+export const TRANSIENT_UNCERTAIN_NOTE =
+  "resultado incerto: falha de conexão após o envio; a operação remota pode ter sido executada; verifique o estado antes de repetir a ação";
+
+/** Contexto de retry: idempotency key informada pela tool/input. */
+export type RetryContext = { hasIdempotencyKey?: boolean };
+
+export type RetryDecision =
+  | { outcome: "safe_retry"; reason: string }
+  | { outcome: "uncertain"; reason: string }
+  | { outcome: "no_retry"; reason: string };
+
 /**
- * Decisão de retry automático.
- * - Sem tool informada (compatibilidade): apenas obstáculos TRANSIENT/TIMEOUT.
- * - Com tool informada: TIMEOUT exige tool idempotente; TRANSIENT (falha de
- *   conexão, request tipicamente não processado) segue permitido.
+ * Decisão SEGURA de retry automático — NÃO se apoia na classificação do
+ * erro como prova de que a operação não foi executada:
+ * - tool idempotente registrada: retry seguro (repetir não duplica efeitos).
+ * - idempotency key informada no input: retry seguro (deduplicado pelo
+ *   dispatcher via histórico de toolCalls).
+ * - tool mutável SEM idempotency key: NUNCA repete automaticamente. TIMEOUT
+ *   e falha de conexão podem ocorrer DEPOIS de a operação remota produzir
+ *   efeito; o resultado fica INCERTO e exige verificação do estado real
+ *   antes de qualquer repetição (feedback explícito ao usuário).
+ * - obstáculo não transitório: sem retry (segue plano de recuperação).
  */
-export function shouldAutoRetry(obstacle: Obstacle, tool?: string): boolean {
-  if (!AUTO_RETRY_KINDS.has(obstacle.kind)) return false;
-  if (obstacle.kind === "TIMEOUT" && tool !== undefined) {
-    return IDEMPOTENT_TOOLS.has(tool);
+export function retryDecision(
+  obstacle: Obstacle,
+  tool?: string,
+  ctx?: RetryContext
+): RetryDecision {
+  if (!AUTO_RETRY_KINDS.has(obstacle.kind)) {
+    return { outcome: "no_retry", reason: "obstáculo não transitório; a recuperação segue o plano/alternativas autorizadas" };
   }
-  return true;
+  if (tool !== undefined && IDEMPOTENT_TOOLS.has(tool)) {
+    return { outcome: "safe_retry", reason: "tool idempotente: repetição não duplica efeitos" };
+  }
+  if (ctx?.hasIdempotencyKey) {
+    return { outcome: "safe_retry", reason: "idempotency key informada: repetição é deduplicada pelo dispatcher" };
+  }
+  if (tool === undefined) {
+    // Compatibilidade com chamadas legadas sem tool identificada.
+    return { outcome: "safe_retry", reason: "tool não informada (compatibilidade)" };
+  }
+  const note = obstacle.kind === "TIMEOUT" ? TIMEOUT_UNCERTAIN_NOTE : TRANSIENT_UNCERTAIN_NOTE;
+  return { outcome: "uncertain", reason: note + " (tool: " + tool + ")" };
+}
+
+/** Compatibilidade: decisão booleana derivada de retryDecision. */
+export function shouldAutoRetry(obstacle: Obstacle, tool?: string, ctx?: RetryContext): boolean {
+  return retryDecision(obstacle, tool, ctx).outcome === "safe_retry";
 }
 
 /**

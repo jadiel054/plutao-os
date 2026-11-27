@@ -34,7 +34,7 @@ import {
 } from "@/lib/agentic/experience-store";
 import {
   rankForRecovery,
-  shouldAutoRetry,
+  retryDecision,
   successExperienceFor,
   summarizeKnownIssues,
   TIMEOUT_UNCERTAIN_NOTE,
@@ -324,7 +324,10 @@ export async function dispatchTool(opts: {
         obstacleKind: obstacle.kind,
         usefulFor: ["recuperação de obstáculos em missões"],
       });
-      if (shouldAutoRetry(obstacle, opts.name)) {
+      const retryDecisionResult = retryDecision(obstacle, opts.name, {
+        hasIdempotencyKey: idempotencyKey !== null,
+      });
+      if (retryDecisionResult.outcome === "safe_retry") {
         const retry = await dispatchLocal(opts.name, String(opts.input ?? ""), {
           executionId: opts.executionId,
           userId: opts.userId,
@@ -340,11 +343,14 @@ export async function dispatchTool(opts: {
         } else {
           result = retry;
         }
-      } else if (obstacle.kind === "TIMEOUT") {
-        // Segurança de retry: TIMEOUT pode significar sucesso remoto. Em tools
-        // não idempotentes, NÃO repetir sem antes verificar o estado; o
-        // resultado é reportado como incerto.
-        knownIssues = knownIssues.concat([TIMEOUT_UNCERTAIN_NOTE + " (tool: " + opts.name + ")"]);
+      } else if (retryDecisionResult.outcome === "uncertain") {
+        // Segurança de retry: TIMEOUT ou falha de conexão podem ocorrer DEPOIS
+        // de a operação remota produzir efeito. Em tools mutáveis sem
+        // idempotency key, NÃO repetir automaticamente; feedback explícito de
+        // resultado incerto ao usuário (verificar antes de repetir).
+        knownIssues = knownIssues.concat([retryDecisionResult.reason]);
+      } else {
+        knownIssues = knownIssues.concat([retryDecisionResult.reason]);
       }
       if (!result.ok) {
         knownIssues = summarizeKnownIssues(
@@ -372,9 +378,11 @@ export async function dispatchTool(opts: {
   const stepIndex = (cp.stepIndex ?? 0) + 1;
 
   let gateId: string | null = null;
+  let idempotencyKey: string | null = null;
   try {
     const parsedInput = JSON.parse(String(opts.input ?? "")) as Record<string, unknown>;
     gateId = typeof parsedInput._gateId === "string" ? parsedInput._gateId : null;
+    idempotencyKey = typeof parsedInput._idempotencyKey === "string" ? parsedInput._idempotencyKey : null;
   } catch {
     /* tool inputs are validated by their executor */
   }
