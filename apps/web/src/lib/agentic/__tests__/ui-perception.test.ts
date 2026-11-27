@@ -7,7 +7,7 @@ import {
   resolveTargetControl,
   verifyInteractionExpectations,
   type InteractionExecutor,
-  type StateExpectation,,
+  type StateExpectation,
   classifyPostActionVerification } from "../ui-perception";
 import type { AppSurface, SurfaceControl } from "../app-surface";
 
