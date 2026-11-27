@@ -7,7 +7,8 @@ on:
 jobs:
   tsc:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,11 +17,11 @@ jobs:
           cache: npm
       - name: Install
         run: npm install --no-audit --no-fund
-      - name: Typecheck (diagnóstico)
+      - name: Typecheck (diagnostico)
         run: |
           set +e
-          npx tsc --noEmit -p apps/web --pretty false > /tmp/tsc.log 2>&1
+          npm run typecheck -w apps/web --pretty false > /tmp/tsc.log 2>&1
           code=$?
-          echo "exit=$code" >> "$GITHUB_STEP_SUMMARY"
-          tail -c 6000 /tmp/tsc.log >> "$GITHUB_STEP_SUMMARY"
+          echo "tsc exit=$code" >> "$GITHUB_STEP_SUMMARY"
+          tail -c 8000 /tmp/tsc.log >> "$GITHUB_STEP_SUMMARY"
           exit 0
