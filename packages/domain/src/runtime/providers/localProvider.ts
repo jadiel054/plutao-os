@@ -116,6 +116,9 @@ export class LocalProvider {
   
   /** Indica se o Transformers.js já foi importado */
   private transformersLoaded: boolean = false;
+
+  /** Módulo Transformers.js importado dinamicamente (somente no navegador) */
+  private transformersModule: any | null = null;
   
   /** Promessa para evitar múltiplos carregamentos simultâneos */
   private loadPromise: Promise<void> | null = null;
@@ -212,10 +215,10 @@ export class LocalProvider {
           throw new Error("LocalProvider requires browser environment");
         }
 
-        // Importa Transformers.js dinamicamente
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-        await import("@huggingface/transformers");
-        
+        // Importa Transformers.js dinamicamente e guarda a referência do módulo.
+        // (import() dinâmico NÃO define nada em window; guardar em campo de instância.)
+        this.transformersModule = await import("@huggingface/transformers");
+
         this.transformersLoaded = true;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -254,10 +257,9 @@ export class LocalProvider {
         // Resolve dispositivo
         const resolvedDevice = await this.resolveDevice();
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        const { pipeline } = window as any;
+        const pipeline = this.transformersModule?.pipeline;
         
-        if (!pipeline) {
+        if (typeof pipeline !== "function") {
           throw new Error("Transformers.js pipeline not available");
         }
 
