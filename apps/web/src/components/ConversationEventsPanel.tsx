@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { mergeEvents, type PanelEvent } from "@/lib/events/eventsPanelLogic";
+import { mergeEvents, nextBackoffMs, type PanelEvent } from "@/lib/events/eventsPanelLogic";
 
 type Status = "idle" | "connecting" | "live" | "reconnecting" | "error";
 
@@ -57,9 +57,11 @@ export function ConversationEventsPanel({
         (cursor != null ? "?cursor=" + cursor : "");
       es = new EventSource(url);
 
+      // NOTA: "ready" NÃO reseta o contador de falhas. O backoff cresce a cada
+      // erro consecutivo até o teto (nextBackoffMs), mesmo depois de já ter
+      // havido conexão estabelecida; evita loop de reconexão agressiva.
       es.addEventListener("ready", () => {
         if (cancelled) return;
-        attempt = 0;
         setStatus("live");
       });
 
@@ -88,8 +90,7 @@ export function ConversationEventsPanel({
         setStatus("reconnecting");
         es?.close();
         attempt += 1;
-        const delay = Math.min(15_000, 1_000 * 2 ** Math.min(attempt, 4));
-        timer = setTimeout(connect, delay);
+        timer = setTimeout(connect, nextBackoffMs(attempt));
       });
     };
 

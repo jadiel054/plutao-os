@@ -47,3 +47,18 @@ describe("nextBackoffMs", () => {
     expect(nextBackoffMs(-3)).toBe(1000);
   });
 });
+
+describe("backoff do painel — falhas repetidas após conexão estabelecida", () => {
+  it("sem reset em ready: atrasos crescem 2s, 4s, 8s, 15s, 15s... até o teto", () => {
+    // Simula o ciclo do painel: cada "error" incrementa attempt e o "ready"
+    // NÃO zera o contador. Reconexões 1 a 6 consecutivas:
+    let attempt = 0;
+    const delays: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      attempt += 1; // erro
+      delays.push(nextBackoffMs(attempt));
+      // "ready" chega aqui e NÃO altera attempt
+    }
+    expect(delays).toEqual([2000, 4000, 8000, 15000, 15000, 15000]);
+  });
+});
