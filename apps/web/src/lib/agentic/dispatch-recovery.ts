@@ -6,16 +6,50 @@
  * cálculo de métodos que já falharam, ranking de alternativas por
  * experiência e resumo de problemas conhecidos. A integração no
  * dispatchTool injeta as experiências reais do usuário.
+ *
+ * Segurança de retry: TIMEOUT só justifica retry automático em tools
+ * registradas como idempotentes (IDEMPOTENT_TOOLS) — um timeout pode
+ * significar sucesso remoto, e repetir uma ação não idempotente sem
+ * verificar o estado pode duplicar efeitos. Para tools não idempotentes,
+ * o resultado após TIMEOUT é reportado como incerto (TIMEOUT_UNCERTAIN_NOTE)
+ * e a ação NÃO é repetida automaticamente.
  */
 
 import { rankAlternatives, type OperationalKnowledge } from "./operational-knowledge";
 import type { AlternativeCandidate, Obstacle } from "./obstacle-recovery";
 
-/** Obstáculos que justificam UM retry automático do mesmo método. */
+/** Obstáculos que podem justificar UM retry automático do mesmo método. */
 const AUTO_RETRY_KINDS = new Set(["TRANSIENT", "TIMEOUT"]);
 
-export function shouldAutoRetry(obstacle: Obstacle): boolean {
-  return AUTO_RETRY_KINDS.has(obstacle.kind);
+/**
+ * Tools com execução IDEMPOTENTE verificada (repetir a mesma chamada não
+ * duplica efeitos). Somente estas podem ter retry automático após TIMEOUT.
+ * Manter esta lista ESTrita: adicionar uma tool exige confirmar que seu
+ * executor é idempotente (ou usa idempotency key).
+ */
+export const IDEMPOTENT_TOOLS: ReadonlySet<string> = new Set([
+  "files.export_pdf",
+  "files.export_xlsx",
+  "files.export_markdown",
+  "files.export_html",
+]);
+
+/** Mensagem padrão de resultado incerto após TIMEOUT em tool não idempotente. */
+export const TIMEOUT_UNCERTAIN_NOTE =
+  "resultado incerto: TIMEOUT em tool não idempotente; verifique o estado remoto antes de repetir a ação";
+
+/**
+ * Decisão de retry automático.
+ * - Sem tool informada (compatibilidade): apenas obstáculos TRANSIENT/TIMEOUT.
+ * - Com tool informada: TIMEOUT exige tool idempotente; TRANSIENT (falha de
+ *   conexão, request tipicamente não processado) segue permitido.
+ */
+export function shouldAutoRetry(obstacle: Obstacle, tool?: string): boolean {
+  if (!AUTO_RETRY_KINDS.has(obstacle.kind)) return false;
+  if (obstacle.kind === "TIMEOUT" && tool !== undefined) {
+    return IDEMPOTENT_TOOLS.has(tool);
+  }
+  return true;
 }
 
 /**

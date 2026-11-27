@@ -8,13 +8,16 @@
  * do cliente, sem coordenadas) + resposta falada. Compartilha o contexto da
  * página; não é uma experiência de voz isolada. Controles SENSÍVEIS exigem
  * confirmação falada explícita (confirmo/cancela). Recusa em navegadores sem
- * suporte (componente não renderiza).
+ * suporte (componente não renderiza). Páginas não registradas NUNCA são
+ * assumidas como Chat. Sucesso só é anunciado APÓS verificação real do
+ * estado (snapshot do DOM + confirmação do servidor).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { findSurface } from "@/lib/agentic/app-surface";
-import { findControl, type InteractionStep } from "@/lib/agentic/ui-perception";
+import { findControl, verifyInteractionExpectations, type InteractionStep, type StateExpectation } from "@/lib/agentic/ui-perception";
+import { pageIdForRoute } from "@/lib/agentic/voice-assist";
 
 type AssistResponse = {
   command?: { intent: string };
@@ -29,7 +32,12 @@ type AssistResponse = {
 const CONFIRM_WORDS = ["confirmo", "confirma", "sim", "pode"];
 const CANCEL_WORDS = ["cancela", "cancelar", "não", "nao", "desiste"];
 
-type StepOutcome = { ok: boolean; observed?: string; error?: string };
+type StepOutcome = {
+  ok: boolean;
+  observed?: string;
+  error?: string;
+  verified?: boolean;
+};
 
 function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string): void {
   const proto =
@@ -56,7 +64,7 @@ export function NixVoiceAssist() {
   const pendingRef = useRef<{ pageId: string; steps: InteractionStep[] } | null>(null);
 
   const pageId = useCallback(
-    () => findSurface(window.location.pathname)?.pageId ?? "chat",
+    () => pageIdForRoute(window.location.pathname),
     []
   );
 
@@ -91,6 +99,7 @@ export function NixVoiceAssist() {
 
   const executeSteps = useCallback(
     async (page: string, steps: InteractionStep[]): Promise<StepOutcome> => {
+      const expectations: StateExpectation[] = [];
       for (const step of steps) {
         const action = step.action;
         if (action.type === "navigate") {
@@ -113,33 +122,49 @@ export function NixVoiceAssist() {
           } else {
             (el as HTMLElement).click();
           }
+          expectations.push({ id: control.testId, expect: action.to });
         } else if (action.type === "type") {
+          if (!action.text) {
+            return { ok: false, error: "digitação recusada: texto vazio não é executado (o campo não seria limpo)" };
+          }
           if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
             setInputValue(el, action.text);
-          } else if (el instanceof HTMLSelectElement) {
-            const option = [...el.options].find(
-              (o) => o.value === action.text || o.text.toLowerCase() === action.text.toLowerCase()
-            );
-            if (!option) {
-              return { ok: false, error: "opção não encontrada no select: " + action.text };
-            }
-            el.value = option.value;
-            el.dispatchEvent(new Event("change", { bubbles: true }));
           } else {
             return { ok: false, error: "controle não aceita digitação: " + action.control };
           }
+          expectations.push({ id: control.testId, expect: action.text });
+        } else if (action.type === "select") {
+          if (!(el instanceof HTMLSelectElement)) {
+            return { ok: false, error: "controle não é um select: " + action.control };
+          }
+          const option = [...el.options].find(
+            (o) => o.value === action.value || o.text === action.value
+          );
+          if (!option) {
+            return { ok: false, error: "opção inexistente no select (correspondência exata exigida): " + action.value };
+          }
+          el.value = option.value;
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          expectations.push({ id: control.testId, expect: option.value });
         } else {
           return { ok: false, error: "ação não suportada pelo executor do cliente" };
         }
       }
-      return { ok: true, observed: "interação executada" };
+      const check = verifyInteractionExpectations(expectations, snapshotState().controls);
+      return {
+        ok: true,
+        observed: "interação executada",
+        verified: check.ok,
+        error: check.ok ? undefined : "estado divergente após a ação: " + check.mismatches.concat(check.unverifiable.map((id) => id + " não verificado")).join("; "),
+      };
     },
-    [router]
+    [router, snapshotState]
   );
 
-  const verifyAfterAction = useCallback(async () => {
+  /** Verificação real: requer confirmação do servidor (HTTP ok). */
+  const verifyAfterAction = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
     try {
-      await fetch("/api/agentic/assist", {
+      const res = await fetch("/api/agentic/assist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -148,21 +173,35 @@ export function NixVoiceAssist() {
           pageState: snapshotState(),
         }),
       });
+      if (!res.ok) {
+        return { ok: false, error: "verificação no servidor falhou (HTTP " + res.status + ")" };
+      }
+      return { ok: true };
     } catch {
-      /* verificação best-effort */
+      return { ok: false, error: "verificação indisponível" };
     }
   }, [pageId, snapshotState]);
 
   const runInteraction = useCallback(
     async (interaction: { pageId: string; steps: InteractionStep[] }) => {
       const outcome = await executeSteps(interaction.pageId, interaction.steps);
-      await verifyAfterAction();
       if (!outcome.ok && outcome.error) {
         setLastReply(outcome.error);
         speak(outcome.error);
-      } else if (outcome.ok) {
-        setLastReply("Interação concluída.");
-        speak("Interação concluída.");
+        return;
+      }
+      const post = await verifyAfterAction();
+      if (outcome.verified && post.ok) {
+        const msg = "Interação concluída e confirmada.";
+        setLastReply(msg);
+        speak(msg);
+      } else {
+        const reason =
+          outcome.error ??
+          (post.ok ? "estado final não pôde ser verificado" : post.error ?? "verificação indisponível");
+        const msg = "Ação NÃO confirmada: " + reason;
+        setLastReply(msg);
+        speak(msg);
       }
     },
     [executeSteps, speak, verifyAfterAction]
