@@ -93,6 +93,20 @@ export function planInteraction(pageId: string, goal: string): { steps: Interact
     return { steps };
   }
 
+  const typeWords = /(escreva|digite|preencha)/;
+  if (typeWords.test(goalLower)) {
+    const textMatch = goalLower.match(/\bcom\s+["“](.+?)["”]/);
+    const text = textMatch ? textMatch[1] : "";
+    const inputControl =
+      surface.controls.find((c) => ["input", "search", "textarea"].includes(c.kind)) ?? null;
+    steps.push({
+      action: { type: "type", control: inputControl ? inputControl.id : "input", text },
+      instruction: text
+        ? "Digitar no campo de entrada"
+        : "Digitar no campo de entrada (texto não especificado; perguntar ao usuário)",
+      verify: inputControl ? { control: inputControl.id } : undefined,
+    });
+  }
   const toggleWords = /(desativ|ativ|ligue|desligue|habilite|desabilite|marc|desmarc)/;
   const stateWords = /(está|esta|ativad|desativad|ligad|habilitad)/;
   for (const control of surface.controls) {
@@ -125,6 +139,7 @@ const APP_SURFACE_ROUTES: Array<{ pageId: string; route: string }> = [
   { pageId: "modelos", route: "/modelos" },
   { pageId: "planos", route: "/planos" },
   { pageId: "artemis", route: "/artemis" },
+  { pageId: "ajuda", route: "/ajuda" },
 ];
 
 /**

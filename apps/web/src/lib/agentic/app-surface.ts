@@ -77,6 +77,12 @@ export const APP_SURFACES: AppSurface[] = [
     purpose: "Painel do dispositivo Artemis (execução em device físico).",
     controls: [],
   },
+  {
+    pageId: "ajuda",
+    route: "/ajuda",
+    purpose: "Ajuda e informações do sistema: tutoriais, diagnóstico e documentação.",
+    controls: [],
+  },
 ];
 
 export function findSurface(pageId: string): AppSurface | null {
