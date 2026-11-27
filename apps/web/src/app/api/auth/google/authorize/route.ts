@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const state = randomBytes(16).toString("hex");
   const rawNext = req.nextUrl.searchParams.get("next");
-  const nextPath = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/cockpit";
+  const nextPath = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/chat";
   const mobile = req.nextUrl.searchParams.get("mobile") === "1";
   const redirectUri = `${baseUrl}/api/auth/google/callback`;
 

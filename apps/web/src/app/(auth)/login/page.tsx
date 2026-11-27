@@ -8,7 +8,7 @@ import { migrateGuestChatLocalStorage } from "@/lib/auth/migrateGuestChatLocalSt
 import { isNativeCapacitor, openOAuthInSystemBrowser } from "@/lib/auth/mobileOAuth";
 
 function safeNextPath(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/cockpit";
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/chat";
   return raw;
 }
 
