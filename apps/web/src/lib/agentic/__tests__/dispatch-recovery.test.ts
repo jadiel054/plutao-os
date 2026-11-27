@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { computeKnownFailed, rankForRecovery, shouldAutoRetry, summarizeKnownIssues } from "../dispatch-recovery";
+import {
+  computeKnownFailed,
+  IDEMPOTENT_TOOLS,
+  rankForRecovery,
+  shouldAutoRetry,
+  summarizeKnownIssues,
+  TIMEOUT_UNCERTAIN_NOTE,
+} from "../dispatch-recovery";
 import { classifyObstacle } from "../obstacle-recovery";
 import type { OperationalKnowledge } from "../operational-knowledge";
 
@@ -15,6 +22,30 @@ describe("shouldAutoRetry", () => {
     expect(shouldAutoRetry(classifyObstacle("403 forbidden"))).toBe(false);
     expect(shouldAutoRetry(classifyObstacle("429 rate limit"))).toBe(false);
     expect(shouldAutoRetry(classifyObstacle("422 invalid input"))).toBe(false);
+  });
+  it("TIMEOUT em tool NÃO idempotente NÃO tem retry automático", () => {
+    expect(shouldAutoRetry(classifyObstacle("timeout after 30s"), "github")).toBe(false);
+    expect(shouldAutoRetry(classifyObstacle("timeout after 30s"), "process")).toBe(false);
+    expect(shouldAutoRetry(classifyObstacle("timeout after 30s"), "supabase")).toBe(false);
+  });
+  it("TIMEOUT em tool IDEMPOTENTE tem retry automático", () => {
+    expect(shouldAutoRetry(classifyObstacle("timeout after 30s"), "files.export_pdf")).toBe(true);
+    expect(shouldAutoRetry(classifyObstacle("timeout after 30s"), "files.export_markdown")).toBe(true);
+  });
+  it("TRANSIENT (falha de conexão) segue com retry mesmo em tool não idempotente", () => {
+    expect(shouldAutoRetry(classifyObstacle("ECONNRESET na rede"), "github")).toBe(true);
+  });
+});
+
+describe("IDEMPOTENT_TOOLS e resultado incerto", () => {
+  it("lista contém apenas tools com execução idempotente verificada", () => {
+    expect(IDEMPOTENT_TOOLS.has("files.export_pdf")).toBe(true);
+    expect(IDEMPOTENT_TOOLS.has("github")).toBe(false);
+    expect(IDEMPOTENT_TOOLS.has("process")).toBe(false);
+  });
+  it("TIMEOUT_UNCERTAIN_NOTE comunica resultado incerto", () => {
+    expect(TIMEOUT_UNCERTAIN_NOTE).toContain("incerto");
+    expect(TIMEOUT_UNCERTAIN_NOTE).toContain("verifique o estado remoto");
   });
 });
 
