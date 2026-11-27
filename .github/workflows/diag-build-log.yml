@@ -6,6 +6,8 @@ on:
 
 permissions:
   pull-requests: write
+  actions: read
+  contents: read
 
 env:
   ONNXRUNTIME_NODE_INSTALL_CUDA: skip
@@ -16,23 +18,23 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Install
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          npm install --no-audit --no-fund 2>&1 | tee /tmp/install.log
-      - name: Build web (diagnostic)
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          NODE_ENV=production npm run build -w apps/web 2>&1 | tee /tmp/webbuild.log
-      - name: Publish logs to PR
+      - name: Fetch failed CI job log
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          { echo "=== INSTALL TAIL ==="; tail -c 2500 /tmp/install.log 2>/dev/null || echo "(sem log de install)"; echo; echo "=== BUILD WEB TAIL ==="; tail -c 6000 /tmp/webbuild.log 2>/dev/null || echo "(sem log de build)"; } > /tmp/diag.txt
+          set -e
+          HEAD_SHA='${{ github.event.pull_request.head.sha }}'
+          RUN_ID=$(gh api "repos/jadiel054/plutao-os/actions/runs?head_sha=$HEAD_SHA" --jq ".workflow_runs[] | select(.name == \"CI\") | .id" | head -n1)
+          echo "RUN_ID=$RUN_ID" | tee /tmp/runid.txt
+          gh api "repos/jadiel054/plutao-os/actions/runs/$RUN_ID/logs" > /tmp/cilogs.zip || true
+          mkdir -p /tmp/cilogs && (unzip -o /tmp/cilogs.zip -d /tmp/cilogs || true)
+          cat /tmp/cilogs/0_build.txt 2>/dev/null | tail -c 6000 > /tmp/cibuildtail.txt || true
+          ls /tmp/cilogs | head -50 > /tmp/cilogslist.txt || true
+      - name: Publish CI log tail to PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo "=== CI RUN ==="; cat /tmp/runid.txt 2>/dev/null || true; echo; echo "=== LOG FILES ==="; cat /tmp/cilogslist.txt 2>/dev/null || true; echo; echo "=== FAILED CI LOG (tail) ==="; cat /tmp/cibuildtail.txt 2>/dev/null || echo "(vazio)"; } > /tmp/diag.txt
           gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/diag.txt || true
