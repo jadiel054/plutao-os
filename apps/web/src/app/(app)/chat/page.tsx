@@ -1873,7 +1873,10 @@ function ChatPageInner() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => handleSelectModelChoice("cloud")}
+                onClick={() => {
+                  handleSelectModelChoice("cloud");
+                  void regenerateLast();
+                }}
                 className="px-2.5 py-1 rounded-lg border border-[var(--border)] text-[var(--text-primary)] font-semibold text-[11px] shrink-0 cursor-pointer"
               >
                 Usar Nuvem
