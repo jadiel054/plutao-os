@@ -9,16 +9,13 @@ permissions:
   actions: read
   contents: read
 
-env:
-  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-
 jobs:
   diag:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch failed CI job log
+      - name: Wait for CI run then fetch failed log
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -26,15 +23,23 @@ jobs:
           set -e
           HEAD_SHA='${{ github.event.pull_request.head.sha }}'
           RUN_ID=$(gh api "repos/jadiel054/plutao-os/actions/runs?head_sha=$HEAD_SHA" --jq ".workflow_runs[] | select(.name == \"CI\") | .id" | head -n1)
-          echo "RUN_ID=$RUN_ID" | tee /tmp/runid.txt
+          echo "RUN_ID=$RUN_ID"
+          for i in $(seq 1 40); do
+            ST=$(gh api "repos/jadiel054/plutao-os/actions/runs/$RUN_ID" --jq .status)
+            echo "status=$ST ($i)"
+            if [ "$ST" = "completed" ]; then break; fi
+            sleep 15
+          done
           gh api "repos/jadiel054/plutao-os/actions/runs/$RUN_ID/logs" > /tmp/cilogs.zip || true
-          mkdir -p /tmp/cilogs && (unzip -o /tmp/cilogs.zip -d /tmp/cilogs || true)
-          cat /tmp/cilogs/0_build.txt 2>/dev/null | tail -c 6000 > /tmp/cibuildtail.txt || true
-          ls /tmp/cilogs | head -50 > /tmp/cilogslist.txt || true
-      - name: Publish CI log tail to PR
+          rm -rf /tmp/cilogs && mkdir -p /tmp/cilogs && (unzip -o /tmp/cilogs.zip -d /tmp/cilogs || true)
+          echo "--- arquivos ---" > /tmp/diag.txt
+          ls /tmp/cilogs >> /tmp/diag.txt 2>/dev/null || true
+          echo "--- job build (tail) ---" >> /tmp/diag.txt
+          CAT=$(ls /tmp/cilogs | grep -i build | head -1)
+          if [ -n "$CAT" ]; then tail -c 6000 "/tmp/cilogs/$CAT" >> /tmp/diag.txt; else echo "(nenhum log de build)"; fi
+      - name: Publish to PR
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          { echo "=== CI RUN ==="; cat /tmp/runid.txt 2>/dev/null || true; echo; echo "=== LOG FILES ==="; cat /tmp/cilogslist.txt 2>/dev/null || true; echo; echo "=== FAILED CI LOG (tail) ==="; cat /tmp/cibuildtail.txt 2>/dev/null || echo "(vazio)"; } > /tmp/diag.txt
           gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/diag.txt || true
