@@ -431,3 +431,48 @@ html.view-desktop .desktop-top-nav {
     opacity: 0.7;
   }
 }
+
+
+/* ============================================================
+   Preferências de aparência globais (tema claro + densidade)
+   Aplicadas via data-theme/data-density em <html> pelo AppearanceApplier.
+   ============================================================ */
+
+html[data-theme="light"] {
+  --base: #F4F7F5;
+  --bg: #F4F7F5;
+  --surface: rgba(15, 60, 40, 0.06);
+  --surface-elevated: #FFFFFF;
+  --mid: #DCE7E1;
+  --pinho: #DCE7E1;
+  --papel: #FFFFFF;
+
+  --border: rgba(10, 40, 28, 0.10);
+  --border-subtle: rgba(10, 40, 28, 0.07);
+  --border-strong: rgba(10, 40, 28, 0.16);
+
+  --text-primary: #14231C;
+  --text-secondary: #44584E;
+  --text-muted: #6B8377;
+
+  --selo: #1E8F5A;
+  --accent: #1E8F5A;
+  --accent-hover: #17744A;
+  --accent-muted: #DCEDE3;
+  --nucleo: #44584E;
+
+  --cyan: #1E7A6A;
+  --user-gradient-start: #2FA76F;
+  --user-gradient-end: #23885B;
+
+  --agent-surface: rgba(15, 60, 40, 0.05);
+  --agent-border: rgba(10, 40, 28, 0.10);
+}
+
+html[data-theme="light"] body {
+  background-image: radial-gradient(ellipse at center, #F8FAF8 0%, #EDF2EF 100%);
+}
+
+html[data-density="compact"] body {
+  --plutao-font-scale: 0.9;
+}
