@@ -42,6 +42,18 @@ describe("planInteraction", () => {
   it("recusa objetivo não mapeado", () => {
     expect(planInteraction("chat", "delete tudo")?.refused).toBeTruthy();
   });
+  it("digitação: extrai texto após 'com' e mira campo de entrada", () => {
+    const plan = planInteraction("chat", "escreva no campo de busca com \"plutão\"");
+    const step = plan.steps[0];
+    expect(step.action.type).toBe("type");
+    if (step.action.type !== "type") throw new Error("tipo inesperado");
+    expect(step.action.text).toBe("plutão");
+    expect(step.action.control).toBe("chat.input");
+  });
+  it("navega para a superfície de ajuda", () => {
+    const plan = planInteraction("chat", "abra a ajuda");
+    expect(plan.steps[0].action).toEqual({ type: "navigate", route: "/ajuda" });
+  });
 });
 
 describe("executeInteraction", () => {

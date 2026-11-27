@@ -13,6 +13,7 @@ export type VoiceIntent =
   | "read_screen"
   | "query_state"
   | "toggle_control"
+  | "fill_input"
   | "explain"
   | "navigate"
   | "guided_goal"
@@ -24,7 +25,7 @@ export type ParsedVoiceCommand = {
   raw: string;
 };
 
-const NAV_ROUTES = ["chat", "cockpit", "configuracoes", "modelos", "planos", "artemis"];
+const NAV_ROUTES = ["chat", "cockpit", "configuracoes", "modelos", "planos", "artemis", "ajuda"];
 
 export function parseVoiceCommand(text: string): ParsedVoiceCommand {
   const raw = String(text ?? "").trim();
@@ -42,6 +43,9 @@ export function parseVoiceCommand(text: string): ParsedVoiceCommand {
   }
   if (/(está ativad|esta ativad|está ligad|está habilitad|qual o estado|que opção)/.test(t)) {
     return { intent: "query_state", raw };
+  }
+  if (/(escreva|digite|preencha)/.test(t)) {
+    return { intent: "fill_input", raw };
   }
   if (/(desative|ative|desabilit|habilite|ligue|desligue)/.test(t)) {
     return { intent: "toggle_control", raw };
@@ -114,6 +118,21 @@ export function respondToVoiceCommand(
           ? "Esse controle é sensível: confirma a alteração?"
           : "Executando: " + plan.steps.map((s) => s.instruction).join("; ") + ".",
         intent: "toggle_control",
+        interaction: { pageId: context.pageId, steps: plan.steps },
+      };
+    }
+    case "fill_input": {
+      const plan = planInteraction(context.pageId, command.raw);
+      if (plan.refused || plan.steps.length === 0) {
+        return {
+          reply: "Não encontrei um campo de entrada na página " + context.pageId + ".",
+          intent: "fill_input",
+          refused: plan.refused ?? "sem campo de entrada",
+        };
+      }
+      return {
+        reply: "Executando: " + plan.steps.map((s) => s.instruction).join("; ") + ".",
+        intent: "fill_input",
         interaction: { pageId: context.pageId, steps: plan.steps },
       };
     }

@@ -10,6 +10,8 @@ describe("parseVoiceCommand", () => {
     expect(parseVoiceCommand("Nix, abra o cockpit").intent).toBe("navigate");
     expect(parseVoiceCommand("Nix, volte para o chat").intent).toBe("navigate");
     expect(parseVoiceCommand("Configure isso para atingir meu objetivo").intent).toBe("guided_goal");
+    expect(parseVoiceCommand("Nix, escreva bom dia com \"bom dia\" no campo").intent).toBe("fill_input");
+    expect(parseVoiceCommand("Nix, abra a ajuda").intent).toBe("navigate");
   });
 });
 
