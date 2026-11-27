@@ -6,7 +6,7 @@
  * complementa; a base é SEMPRE a informação estruturada.
  */
 
-export type ControlKind = "toggle" | "button" | "input" | "select" | "nav" | "text";
+export type ControlKind = "toggle" | "button" | "input" | "search" | "textarea" | "select" | "nav" | "text";
 
 export type SurfaceControl = {
   id: string;

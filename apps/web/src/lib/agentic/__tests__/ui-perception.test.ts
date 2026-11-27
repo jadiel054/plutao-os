@@ -6,11 +6,10 @@ import {
   planInteraction,
   resolveTargetControl,
   verifyInteractionExpectations,
-  type AppSurface,
   type InteractionExecutor,
   type StateExpectation,
 } from "../ui-perception";
-import type { SurfaceControl } from "../app-surface";
+import type { AppSurface, SurfaceControl } from "../app-surface";
 
 describe("describePage", () => {
   it("descreve a página com estado declarado", () => {
