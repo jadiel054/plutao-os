@@ -22,7 +22,7 @@ export type GuidedPlan = {
   refused?: string;
 };
 
-const OBJECTIVE_KEYWORDS: Array<{ match: RegExp; build: (surfaces: AppSurface[]) => GuidedStep[] }> = [
+const OBJECTIVE_KEYWORDS: Array<{ match: RegExp; build: (surfaces: AppSurface[]) => Array<Omit<GuidedStep, "index">> }> = [
   {
     match: /conector|integrac|integração|api externa/i,
     build: () => [
