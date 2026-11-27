@@ -110,6 +110,75 @@ const CLOUD_ROUTES: Record<string, CloudRoute> = {
   },
 };
 
+
+/**
+ * Política EXPLÍCITA de transitoriedade para fallback cloud.
+ * NÃO classifica por regex de código HTTP sobre mensagem sanitizada:
+ * usa httpStatus/http_status anexado pelo client.ts; sem status, só
+ * falhas de rede/timeout identificadas (nomes/códigos conhecidos).
+ * Fallback permitido: 408, 429, 5xx e falhas de rede/timeout.
+ * Proibido: demais 4xx (400/401/402/403/404/413/422...).
+ */
+export function isTransientCloudFailure(err: unknown): boolean {
+  const anyErr = err as { httpStatus?: unknown; http_status?: unknown; status?: unknown; code?: unknown } | null;
+  const status = anyErr?.httpStatus ?? anyErr?.http_status ?? anyErr?.status;
+  if (typeof status === "number" && Number.isFinite(status) && status >= 400) {
+    return status === 408 || status === 429 || (status >= 500 && status <= 599);
+  }
+  const message = err instanceof Error ? err.message + " " + err.name : String(err ?? "");
+  const code = typeof anyErr?.code === "string" ? anyErr.code : "";
+  const haystack = (message + " " + code).toLowerCase();
+  return /timed?[ _]?out|econnreset|econnrefused|enotfound|eai_again|socket hang up|fetch failed|failed to fetch|network error|premature close|undici/.test(haystack);
+}
+/**
+ * Config de fallback para falha do provedor primário (5xx/timeout/rede,
+ * nunca 4xx de cliente). Retorna a primeira config DISTINTA da primária
+ * entre: config global do ambiente (MODEL_*), Gemini (se GEMINI_API_KEY)
+ * e Groq (se GROQ_API_KEY/MODEL_API_KEY). Retorna null se não há alternativa.
+ */
+export function pickFallbackConfig(primary: ModelConfig): ModelConfig | null {
+  const candidates: ModelConfig[] = [];
+  const globalCfg = getModelConfig();
+  if (globalCfg) candidates.push(globalCfg);
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  if (geminiKey) {
+    candidates.push({
+      provider: "gemini",
+      apiKey: geminiKey,
+      model: "gemini-3.1-flash-lite",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    });
+  }
+  const groqKey = process.env.GROQ_API_KEY?.trim() || process.env.MODEL_API_KEY?.trim();
+  if (groqKey) {
+    candidates.push({
+      provider: "openai",
+      apiKey: groqKey,
+      model: "llama-3.3-70b-versatile",
+      baseUrl: "https://api.groq.com/openai/v1",
+    });
+    // Quando a primária JÁ é a rota Groq/llama, oferecer um modelo DISTINTO
+    // na MESMA rota (mesma chave), para o fallback não esbarrar em "sem
+    // alternativa" quando só existe uma credencial configurada.
+    if (
+      primary.baseUrl === "https://api.groq.com/openai/v1" &&
+      primary.model !== "deepseek-r1-distill-llama-70b"
+    ) {
+      candidates.push({
+        provider: "openai",
+        apiKey: groqKey,
+        model: "deepseek-r1-distill-llama-70b",
+        baseUrl: "https://api.groq.com/openai/v1",
+      });
+    }
+  }
+  return (
+    candidates.find(
+      (c) =>
+        !(c.provider === primary.provider && c.model === primary.model && c.baseUrl === primary.baseUrl)
+    ) ?? null
+  );
+}
 function firstEnv(keys: string[]): string | null {
   for (const k of keys) {
     const v = process.env[k]?.trim();

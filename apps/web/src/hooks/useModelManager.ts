@@ -14,9 +14,18 @@ import {
   filterModels,
   getLocalProvider,
 } from "@plutao/domain";
+import {
+  warmLocalModel,
+  deleteCachedModelFiles,
+  type DownloadProgressSnapshot,
+} from "@/lib/localModels/downloadManager";
+import { DownloadCoordinator } from "@/lib/localModels/downloadCoordinator";
 
 const DOWNLOADED_MODELS_KEY = "plutao_downloaded_models";
 const ACTIVE_MODEL_KEY = "plutao_active_model_id";
+
+/** Serialização/invalidação de downloads por modelo (geração + lock). */
+const coordinator = new DownloadCoordinator();
 
 export interface TestResult {
   output: string;
@@ -144,22 +153,125 @@ export function useModelManager() {
     }
   }, []);
 
-  // Start Download (simulacao por setInterval removida)
+  // Start Download — REAL: baixa os arquivos do HF para o cache do navegador
+  // com progresso em bytes reais; marca "downloaded" somente após sucesso.
+  // Concorrência: um download por modelo (lock até a promise finalizar) e
+  // geração por operação — operação antiga não atualiza estado da nova.
   const startDownload = useCallback((model: AIModel) => {
-    startDownloadAction(model, setProgresses);
+    if (model.providerType !== "local" || model.comingSoon || !model.hfRepo) return;
+    const gen = coordinator.begin(model.id);
+    if (gen === null) return; // já existe operação ativa para este modelo
+
+    setProgresses((prev) => ({
+      ...prev,
+      [model.id]: {
+        modelId: model.id,
+        status: "downloading",
+        progress: 0,
+        loadedBytes: 0,
+        totalBytes: model.sizeBytes || 0,
+        speedMBs: 0,
+      },
+    }));
+
+    const onProgress = (snapshot: DownloadProgressSnapshot) => {
+      if (coordinator.isStale(model.id, gen)) return; // operação antiga: ignorar
+      setProgresses((prev) => ({
+        ...prev,
+        [model.id]: {
+          modelId: model.id,
+          status: "downloading",
+          progress: snapshot.progress,
+          loadedBytes: snapshot.loadedBytes,
+          totalBytes: snapshot.totalBytes || model.sizeBytes || 0,
+          speedMBs: snapshot.speedMBs,
+        },
+      }));
+    };
+
+    const isCancelled = () => coordinator.isCancelled(model.id, gen);
+
+    const promise = warmLocalModel({ hfRepo: model.hfRepo, device: "auto", onProgress, isCancelled })
+      .then((result) => {
+        coordinator.finish(model.id, gen); // libera o lock SEMPRE que a promise antiga termina
+        if (coordinator.isStale(model.id, gen)) return; // não toca no estado da operação nova
+        if (isCancelled() || (result as { cancelled?: boolean }).cancelled) {
+          setProgresses((prev) => {
+            const copy = { ...prev };
+            delete copy[model.id];
+            return copy;
+          });
+          return;
+        }
+        if (result.ok) {
+          setDownloadedModelIds((prev) => {
+            if (prev.includes(model.id)) return prev;
+            const next = [...prev, model.id];
+            if (typeof window !== "undefined") {
+              try { localStorage.setItem(DOWNLOADED_MODELS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+            }
+            return next;
+          });
+          setProgresses((prev) => {
+            const copy = { ...prev };
+            delete copy[model.id];
+            return copy;
+          });
+        } else {
+          setProgresses((prev) => ({
+            ...prev,
+            [model.id]: {
+              modelId: model.id,
+              status: "error",
+              progress: 0,
+              loadedBytes: 0,
+              totalBytes: model.sizeBytes || 0,
+              speedMBs: 0,
+              error: result.error,
+            },
+          }));
+        }
+      })
+      .catch(() => {
+        coordinator.finish(model.id, gen);
+        if (coordinator.isStale(model.id, gen)) return;
+        setProgresses((prev) => ({
+          ...prev,
+          [model.id]: {
+            modelId: model.id,
+            status: "error",
+            progress: 0,
+            loadedBytes: 0,
+            totalBytes: model.sizeBytes || 0,
+            speedMBs: 0,
+            error: "Falha inesperada no download.",
+          },
+        }));
+      });
+
+    void promise;
   }, []);
 
-  // Pause / Cancel Download
+  // Pause / Cancel Download — invalida a geração atual (a operação em curso
+  // para de contabilizar e não altera estado) e agenda a limpeza dos arquivos
+  // já cacheados. Limitação REAL do Transformers.js: o arquivo em curso NÃO é
+  // interrompido (sem AbortSignal exposto); os bytes parciais são removidos do
+  // Cache API em seguida. O lock só é liberado quando a promise antiga finaliza.
   const cancelDownload = useCallback((modelId: string) => {
+    coordinator.cancel(modelId);
     setProgresses((prev) => {
       const copy = { ...prev };
       delete copy[modelId];
       return copy;
     });
+    const model = PRESET_MODELS.find((m) => m.id === modelId);
+    if (model?.hfRepo) void deleteCachedModelFiles(model.hfRepo);
   }, []);
 
-  // Delete local model cache
+  // Delete local model cache — remove estado E os arquivos reais do Cache API;
+  // invalida a geração em curso (operação antiga não pode marcar como concluído).
   const deleteModel = useCallback((modelId: string) => {
+    coordinator.cancel(modelId);
     setDownloadedModelIds((prev) => {
       const next = prev.filter((id) => id !== modelId);
       saveDownloadedIds(next);
@@ -170,6 +282,8 @@ export function useModelManager() {
       delete copy[modelId];
       return copy;
     });
+    const model = PRESET_MODELS.find((m) => m.id === modelId);
+    if (model?.hfRepo) void deleteCachedModelFiles(model.hfRepo);
   }, [saveDownloadedIds]);
 
   // Run Test inference

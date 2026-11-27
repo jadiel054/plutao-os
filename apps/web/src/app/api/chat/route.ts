@@ -10,7 +10,7 @@ import { loadConnectorRuntime, runConnectedConnectorTools, type ConnectorRuntime
 import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { buildFollowUps } from "@/lib/chat/buildFollowUps";
 import { getModelConfig } from "@/lib/runtime/model/config";
-import { resolveCloudModelConfig } from "@/lib/runtime/model/resolveConfig";
+import { isTransientCloudFailure, pickFallbackConfig, resolveCloudModelConfig } from "@/lib/runtime/model/resolveConfig";
 import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
@@ -334,6 +334,7 @@ export async function POST(req: NextRequest) {
         id: users.id,
         plan: users.plan,
         preferredModel: users.preferredModel,
+        preferences: users.preferences,
       })
       .from(users)
       .where(eq(users.id, user.id))
@@ -341,6 +342,9 @@ export async function POST(req: NextRequest) {
 
     const userRecord = userRows[0];
     const planDef = getPlanDefinition(userRecord?.plan);
+    // Preferência do usuário: fallback automático de modelo (default ON).
+    const autoFallbackEnabled =
+      (userRecord?.preferences as { model?: { autoFallback?: boolean } } | null)?.model?.autoFallback !== false;
 
     // 2. Query today's usage_counters
     const todayStr = new Date().toISOString().split("T")[0];
@@ -797,13 +801,24 @@ ${
                 }
               }
             } catch (err) {
-              const isGemini = streamModelConfig.provider === "gemini";
-              const fallbackConfig = isGemini ? getModelConfig() : null;
-              if (isGemini && fallbackConfig) {
+              // Mesmo critério do caminho não-stream: erros de cliente (400/401/403/413/422)
+              // não são transitórios e não devem disparar fallback.
+              const errMsg = sanitizeError(err);
+              // Política explícita (mesma regra do caminho não-stream): status HTTP
+              // estruturado (httpStatus) ou falha de rede/timeout identificada.
+              const transient = isTransientCloudFailure(err);
+              const fallbackConfig = autoFallbackEnabled && transient ? pickFallbackConfig(streamModelConfig) : null;
+              if (fallbackConfig) {
+                console.warn("[chat stream] fallback para", fallbackConfig.model, "-", errMsg);
                 streamModelConfig = fallbackConfig;
                 modelFallback = true;
+                // Reinicializa TODO o estado do parser: nenhum raciocínio parcial
+                // do provedor primário pode se misturar ao fallback.
                 rawFullOutput = "";
                 reasoningBuffer = "";
+                inReasoningBlock = false;
+                inAnswerBlock = false;
+                dynamicReasoningSteps.length = 0;
                 const generator = streamChatCompletion(streamModelConfig, payloadMessages);
                 for await (const chunk of generator) {
                   rawFullOutput += chunk;
@@ -1213,14 +1228,15 @@ ${
     try {
       result = await chatCompletion(effectiveModelConfig, payloadMessages);
     } catch (err) {
-      const isGemini = effectiveModelConfig.provider === "gemini";
-      const fallbackConfig = isGemini ? getModelConfig() : null;
+      const fallbackConfig = autoFallbackEnabled ? pickFallbackConfig(effectiveModelConfig) : null;
 
       const errMsg = sanitizeError(err);
-      const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
+      // Política explícita: status HTTP estruturado (httpStatus) ou falha de
+      // rede/timeout identificada — nunca regex de código sobre mensagem.
+      const transient = isTransientCloudFailure(err);
 
-      if (isGemini && fallbackConfig && !isClient4xx) {
-        console.warn("[chat] Gemini indisponível, fallback para", fallbackConfig.model, "-", errMsg);
+      if (fallbackConfig && transient) {
+        console.warn("[chat] Provedor primário indisponível, fallback para", fallbackConfig.model, "-", errMsg);
 
         if (VISION_CAPABLE_PROVIDERS.includes(fallbackConfig.provider) && validatedArtifacts.length > 0) {
           const imageParts = await buildImageParts(validatedArtifacts);

@@ -7,6 +7,11 @@ export const CONVERSATION_EVENT_TYPES = [
   "observation",
   "plan",
   "state_update",
+  "mission_started",
+  "mission_result",
+  "mission_failed",
+  "mission_completed",
+  "mission_linked",
 ] as const;
 
 export type ConversationEventType = (typeof CONVERSATION_EVENT_TYPES)[number];

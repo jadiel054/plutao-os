@@ -33,6 +33,21 @@ export function SettingsModelsSection({ onNotify }: Props) {
       if (savedToggle !== null) {
         setAutoFallbackEnabled(savedToggle === "true");
       }
+      // Preferência no servidor prevalece (persistida entre dispositivos).
+      (async () => {
+        try {
+          const res = await fetch("/api/user/preferences", { cache: "no-store" });
+          if (!res.ok) return;
+          const data = await res.json().catch(() => null);
+          const serverValue = data?.preferences?.model?.autoFallback;
+          if (typeof serverValue === "boolean") {
+            setAutoFallbackEnabled(serverValue);
+            localStorage.setItem("plutao_auto_model_fallback", String(serverValue));
+          }
+        } catch {
+          /* offline: mantém valor local */
+        }
+      })();
       const savedLogs = localStorage.getItem("plutao_model_failures");
       if (savedLogs) {
         setFailureLogs(JSON.parse(savedLogs));
@@ -132,6 +147,11 @@ export function SettingsModelsSection({ onNotify }: Props) {
               setAutoFallbackEnabled(next);
               localStorage.setItem("plutao_auto_model_fallback", String(next));
               onNotify(`Substituição automática ${next ? "ativada" : "desativada"}`, "info");
+              void fetch("/api/user/preferences", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model: { autoFallback: next } }),
+              }).catch(() => onNotify("Preferência salva apenas neste dispositivo", "warning"));
             }}
             className={`px-3 py-1.5 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer border shrink-0 ${
               autoFallbackEnabled

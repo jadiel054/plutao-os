@@ -30,8 +30,13 @@ type AppearancePrefs = {
   fontScale?: "small" | "default" | "large" | "xlarge";
 };
 
+type ModelPrefs = {
+  autoFallback?: boolean;
+};
+
 type PreferencesShape = {
   voice?: VoicePrefs;
+  model?: ModelPrefs;
   notifications?: NotificationPrefs;
   appearance?: AppearancePrefs;
   onboarding_seen?: boolean;
@@ -75,6 +80,14 @@ function sanitizeNotifications(input: unknown): NotificationPrefs | undefined {
   if (typeof n.soundAlerts === "string" && n.soundAlerts.length <= 64) out.soundAlerts = n.soundAlerts;
 
   return out;
+}
+
+function sanitizeModel(input: unknown): ModelPrefs | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const m = input as Record<string, unknown>;
+  if (m.autoFallback === undefined) return {};
+  if (typeof m.autoFallback !== "boolean") return undefined;
+  return { autoFallback: m.autoFallback };
 }
 
 function sanitizeAppearance(input: unknown): AppearancePrefs | undefined {
@@ -130,6 +143,13 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "notifications inválido" }, { status: 400 });
       }
       if (notifications) patch.notifications = notifications;
+    }
+    if ("model" in body) {
+      const model = sanitizeModel(body.model);
+      if (model === undefined && body.model != null) {
+        return NextResponse.json({ error: "model inválido" }, { status: 400 });
+      }
+      if (model) patch.model = model;
     }
     if ("appearance" in body) {
       const appearance = sanitizeAppearance(body.appearance);
@@ -197,6 +217,14 @@ export async function PATCH(req: NextRequest) {
             appearance: {
               ...(typeof current.appearance === "object" && current.appearance ? current.appearance : {}),
               ...patch.appearance,
+            },
+          }
+        : {}),
+      ...(patch.model
+        ? {
+            model: {
+              ...(typeof current.model === "object" && current.model ? current.model : {}),
+              ...patch.model,
             },
           }
         : {}),

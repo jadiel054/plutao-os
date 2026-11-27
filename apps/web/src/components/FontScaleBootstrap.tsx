@@ -1,42 +1,35 @@
 "use client";
 
 import { useEffect } from "react";
+import {
+  applyFontScale,
+  isFontScale,
+  readAppearancePrefs,
+  writeAppearancePrefs,
+  type FontScale,
+} from "@/lib/appearance";
 
-type FontScale = "small" | "default" | "large" | "xlarge";
+export { applyFontScale } from "@/lib/appearance";
 
-const multipliers: Record<FontScale, string> = {
-  small: "0.9",
-  default: "1",
-  large: "1.12",
-  xlarge: "1.25",
-};
-
-export function applyFontScale(value: FontScale) {
-  document.documentElement.style.setProperty("--plutao-font-scale", multipliers[value]);
-  document.documentElement.dataset.fontScale = value;
-}
-
+/**
+ * Bootstrap da escala de fonte. A gravação usa writeAppearancePrefs, que MESCLA
+ * com as preferências existentes: tema claro, densidade compacta e idioma não
+ * são perdidos (antes, gravava apenas { fontScale }).
+ */
 export function FontScaleBootstrap() {
   useEffect(() => {
     let cancelled = false;
-    const cached = localStorage.getItem("plutao_pref_appearance");
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached) as { fontScale?: FontScale };
-        if (parsed.fontScale && parsed.fontScale in multipliers) applyFontScale(parsed.fontScale);
-      } catch {
-        /* ignore malformed local cache */
-      }
-    }
+    const cached = readAppearancePrefs();
+    if (cached.fontScale && isFontScale(cached.fontScale)) applyFontScale(cached.fontScale);
 
     void fetch("/api/user/preferences", { cache: "no-store" })
       .then(async (response) => (response.ok ? response.json() : null))
       .then((data: { preferences?: { appearance?: { fontScale?: FontScale } } } | null) => {
         if (cancelled) return;
         const value = data?.preferences?.appearance?.fontScale;
-        if (value && value in multipliers) {
+        if (value && isFontScale(value)) {
           applyFontScale(value);
-          localStorage.setItem("plutao_pref_appearance", JSON.stringify({ fontScale: value }));
+          writeAppearancePrefs({ fontScale: value }); // merge, preserva os demais campos
         }
       })
       .catch(() => undefined);

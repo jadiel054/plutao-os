@@ -26,6 +26,7 @@ import {
 import { MAX_TOTAL_ITERATIONS, runAgentLoop } from "@/lib/runtime/agent-loop";
 import { getOwnedExecution, writeCheckpoint } from "@/lib/runtime/service";
 import { logProjectionError, syncGraphNodeTask } from "@/lib/missions/graphTasks";
+import { emitMissionEvent } from "@/lib/events/missionEventEmitter";
 
 type SerialGraphResult =
   | { kind: "complete"; iterations: number }
@@ -243,6 +244,18 @@ export async function runNextMissionGraphNodeSerial(opts: {
     } catch (error) {
       logProjectionError("RUNNING", error);
     }
+    try {
+      await emitMissionEvent({
+        conversationId: mission.conversationId,
+        missionId: opts.missionId,
+        executionId: opts.executionId,
+        nodeId: node.id,
+        phase: "started",
+        title: "Nó iniciado: " + node.title,
+      });
+    } catch {
+      /* eventos nunca quebram a execução */
+    }
   }
 
   let totalIterations = 0;
@@ -306,6 +319,20 @@ export async function runNextMissionGraphNodeSerial(opts: {
       } catch (error) {
         logProjectionError("PASSED", error);
       }
+      try {
+        await emitMissionEvent({
+          conversationId: mission.conversationId,
+          missionId: opts.missionId,
+          executionId: opts.executionId,
+          nodeId: node.id,
+          phase: "result",
+          ok: true,
+          title: "Nó verificado: " + node.title,
+          detail: "Definition of Done satisfeita por evidências",
+        });
+      } catch {
+        /* eventos nunca quebram a execução */
+      }
       const completed = finishSerialMissionGraphNode(runtime, node.id, { status: "PASSED" });
       if (!completed || !(await persistRuntime(opts.executionId, opts.userId, completed))) {
         return {
@@ -317,6 +344,19 @@ export async function runNextMissionGraphNodeSerial(opts: {
         };
       }
       if (isSerialMissionGraphComplete(completed)) {
+        try {
+          await emitMissionEvent({
+            conversationId: mission.conversationId,
+            missionId: opts.missionId,
+            executionId: opts.executionId,
+            phase: "completed",
+            ok: true,
+            title: "Missão concluída",
+            detail: "Todos os nós do grafo passaram na Definition of Done",
+          });
+        } catch {
+          /* eventos nunca quebram a execução */
+        }
         return { kind: "complete", iterations: totalIterations };
       }
       return { kind: "continuation", iterations: totalIterations, nodeId: node.id };
@@ -353,6 +393,20 @@ export async function runNextMissionGraphNodeSerial(opts: {
       errorCode: failureCode,
     });
     if (failed) await persistRuntime(opts.executionId, opts.userId, failed);
+    try {
+      await emitMissionEvent({
+        conversationId: mission.conversationId,
+        missionId: opts.missionId,
+        executionId: opts.executionId,
+        nodeId: node.id,
+        phase: "failed",
+        ok: false,
+        title: "Nó falhou: " + node.title,
+        error: failureCode,
+      });
+    } catch {
+      /* eventos nunca quebram a execução */
+    }
     return {
       kind: "failed",
       iterations: totalIterations,
