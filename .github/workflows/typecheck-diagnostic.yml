@@ -1,30 +1,15 @@
-name: typecheck-diagnostic
+# Workflow temporario DESATIVADO: o diagnostico de typecheck identificou os
+# erros e as correcoes foram aplicadas neste branch. Este arquivo deve ser
+# removido fisicamente pelo mantenedor antes do merge (o conector em uso
+# nao suporta exclusao de arquivos). Sem gatilhos: nunca e executado.
+name: typecheck-diagnostic (desativado)
 
 on:
-  pull_request:
   workflow_dispatch:
 
-env:
-  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 jobs:
-  tsc:
+  disabled:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    continue-on-error: true
+    if: ${{ false }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install
-        run: npm install --no-audit --no-fund
-      - name: Typecheck (diagnostico)
-        run: |
-          set +e
-          npm run typecheck -w apps/web --pretty false > /tmp/tsc.log 2>&1
-          code=$?
-          echo "tsc exit=$code" >> "$GITHUB_STEP_SUMMARY"
-          tail -c 8000 /tmp/tsc.log >> "$GITHUB_STEP_SUMMARY"
-          grep "error TS" /tmp/tsc.log | head -20 | sed 's/`//g' | while IFS= read -r line; do echo "::error::$line"; done
-          exit 0
+      - run: echo "desativado"
