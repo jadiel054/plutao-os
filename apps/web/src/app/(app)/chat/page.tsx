@@ -1664,6 +1664,7 @@ function ChatPageInner() {
 
       <main className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden p-4">
         {messages.length === 0 ? (
+          <div className="chat-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <WelcomeHero
             agentName={agentName}
             agentIdentity={agentIdentity}
@@ -1701,6 +1702,7 @@ function ChatPageInner() {
               void handleSend(undefined, action.prompt);
             }}
           />
+          </div>
         ) : (
           <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="chat-scroll min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain pb-5">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)]/40 bg-[var(--bg)]/85 pb-2 text-[10px] text-[var(--text-muted)] backdrop-blur-md">
