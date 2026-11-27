@@ -1,0 +1,26 @@
+name: typecheck-diagnostic
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tsc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Typecheck (diagnóstico)
+        run: |
+          set +e
+          npx tsc --noEmit -p apps/web --pretty false > /tmp/tsc.log 2>&1
+          code=$?
+          echo "exit=$code" >> "$GITHUB_STEP_SUMMARY"
+          tail -c 6000 /tmp/tsc.log >> "$GITHUB_STEP_SUMMARY"
+          exit 0
