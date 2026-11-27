@@ -1,0 +1,33 @@
+name: tsc
+
+on:
+  push:
+    branches: [vibe/agentic-core-phase2]
+  pull_request:
+
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+
+jobs:
+  tsc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Typecheck workspace
+        run: npx tsc --noEmit -p apps/web || true
+      - name: Emit type errors
+        if: always()
+        run: npx tsc --noEmit -p apps/web 2>&1 | grep "error TS" | while read -r line; do echo "::error::$line"; done || true
+      - name: Vitest (agentic + runtime tools)
+        if: always()
+        run: |
+          npx vitest run apps/web/src/lib/agentic apps/web/src/lib/runtime/tools 2>&1 | tail -80 > /tmp/vt.txt || true
+          cat /tmp/vt.txt
+          grep -E "FAIL|Error:" /tmp/vt.txt | while read -r line; do echo "::error::$line"; done || true
