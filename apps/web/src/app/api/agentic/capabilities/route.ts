@@ -3,8 +3,10 @@ import { getAuthOrGuestUser } from "@/lib/auth/session";
 import {
   buildCurrentInventory,
   lastSnapshot,
+  MAX_SNAPSHOTS_PER_USER,
   saveSnapshot,
   snapshotsAvailable,
+  SNAPSHOT_RETENTION_DAYS,
 } from "@/lib/agentic/capability-snapshot";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,11 @@ export const dynamic = "force-dynamic";
  * GET: inventário atual + diff contra o último snapshot + plano de estudo.
  * POST: salva um novo snapshot (com diff). Degrada graciosamente sem a
  * tabela (migration 0033 pendente). Descobrir NÃO concede autorização.
+ *
+ * LIMITAÇÃO DOCUMENTADA: a descoberta é MANUAL (gerada em GET e gravada em
+ * POST). NÃO há coleta contínua ou agendada nesta fase — o inventário NÃO
+ * deve ser apresentado como continuamente atualizado. Os snapshots têm
+ * limite por usuário e retenção automática (poda após cada gravação).
  */
 function diffInventories(
   current: { capabilities: Array<{ id: string }>; surfaces: Array<{ pageId: string }> },
@@ -54,6 +61,10 @@ export async function GET() {
     return NextResponse.json({
       available: true,
       snapshotsAvailable: await snapshotsAvailable(),
+      discoveryMode: "manual",
+      discoveryNote:
+        "O inventário é gerado sob demanda (GET) e gravado manualmente (POST); não há descoberta contínua ou agendada nesta fase.",
+      limits: { maxSnapshotsPerUser: MAX_SNAPSHOTS_PER_USER, retentionDays: SNAPSHOT_RETENTION_DAYS },
       capabilityCount: inventory.capabilities.length,
       surfaceCount: inventory.surfaces.length,
       generatedAt: inventory.generatedAt,
@@ -80,6 +91,8 @@ export async function POST() {
     const saved = await saveSnapshot(user.id, inventory, diff);
     return NextResponse.json({
       saved,
+      discoveryMode: "manual",
+      limits: { maxSnapshotsPerUser: MAX_SNAPSHOTS_PER_USER, retentionDays: SNAPSHOT_RETENTION_DAYS },
       diff,
       capabilityCount: inventory.capabilities.length,
       surfaceCount: inventory.surfaces.length,

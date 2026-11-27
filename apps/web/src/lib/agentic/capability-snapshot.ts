@@ -1,13 +1,20 @@
 /**
  * Descoberta permanente de capacidades — persistência de snapshots.
  *
- * Tabela 'agentic_capability_snapshots' (migration 0033 — preparada,
- * aplicação no Neon é manual pelo mantenedor). Sem a tabela, degrada de
- * forma graciosa (snapshot indisponível; inventário e diff seguem
- * funcionando em memória).
+ * Tabela agentic_capability_snapshots (migration 0033 — aplicada no Neon
+ * pelo mantenedor). Sem a tabela, degrada de forma graciosa (snapshot
+ * indisponível; inventário e diff seguem funcionando em memória).
+ *
+ * Limites e retenção: no máximo MAX_SNAPSHOTS_PER_USER snapshots por
+ * usuário, com retenção de SNAPSHOT_RETENTION_DAYS dias (poda automática
+ * após cada gravação, snapshotsToPrune). Todas as consultas filtram por
+ * userId — um usuário nunca lê, modifica ou apaga snapshots de outro.
+ *
+ * NOTA: a descoberta é MANUAL (GET/POST na API); não há coleta contínua
+ * ou agendada nesta fase — documentado na API e na arquitetura.
  */
 
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { agentExperiences, agenticCapabilitySnapshots } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import {
@@ -17,6 +24,11 @@ import {
 } from "./capability-discovery";
 import { APP_SURFACES } from "./app-surface";
 import type { ExperienceRecord } from "./experience-store";
+
+/** Limite de gravação por usuário (evita crescimento ilimitado). */
+export const MAX_SNAPSHOTS_PER_USER = 20;
+/** Retenção dos snapshots antigos, em dias. */
+export const SNAPSHOT_RETENTION_DAYS = 90;
 
 /** Experiências de aprendizado de ferramentas viram capacidades aprendidas. */
 export function learnedFromExperiences(exps: ExperienceRecord[]): SystemCapability[] {
@@ -52,6 +64,31 @@ export async function snapshotsAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function toTime(v: Date | string): number {
+  return v instanceof Date ? v.getTime() : new Date(v).getTime();
+}
+
+/**
+ * Pura e testável: dados os snapshots do USUÁRIO (já filtrados por userId
+ * pelo chamador), retorna os ids a podar — excedentes além do limite (os
+ * mais recentes são mantidos) e todos anteriores ao corte de retenção.
+ */
+export function snapshotsToPrune(
+  rows: Array<{ id: string; createdAt: Date | string }>,
+  now: Date,
+  max = MAX_SNAPSHOTS_PER_USER,
+  retentionDays = SNAPSHOT_RETENTION_DAYS
+): string[] {
+  const cutoff = now.getTime() - retentionDays * 24 * 60 * 60 * 1000;
+  const byDesc = [...rows].sort((a, b) => toTime(b.createdAt) - toTime(a.createdAt));
+  const keep = new Set(byDesc.slice(0, max).map((r) => r.id));
+  const prune: string[] = [];
+  for (const r of rows) {
+    if (!keep.has(r.id) || toTime(r.createdAt) < cutoff) prune.push(r.id);
+  }
+  return prune;
 }
 
 function toInventory(raw: unknown): CapabilityInventory | null {
@@ -104,6 +141,21 @@ export async function saveSnapshot(
       diffSummary,
       createdAt: new Date(),
     });
+    // Retenção: poda limitada AO PRÓPRIO usuário (isolamento garantido
+    // pelo filtro eq(userId) no delete).
+    const rows = await db
+      .select({ id: agenticCapabilitySnapshots.id, createdAt: agenticCapabilitySnapshots.createdAt })
+      .from(agenticCapabilitySnapshots)
+      .where(eq(agenticCapabilitySnapshots.userId, userId));
+    const toPrune = snapshotsToPrune(
+      rows.map((r) => ({ id: String(r.id), createdAt: r.createdAt as unknown as Date })),
+      new Date()
+    );
+    if (toPrune.length > 0) {
+      await db
+        .delete(agenticCapabilitySnapshots)
+        .where(and(eq(agenticCapabilitySnapshots.userId, userId), inArray(agenticCapabilitySnapshots.id, toPrune)));
+    }
     return { stored: true };
   } catch (err) {
     console.error("[capability-snapshot] gravação falhou", err instanceof Error ? err.message : String(err));

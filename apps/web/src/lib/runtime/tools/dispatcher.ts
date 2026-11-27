@@ -37,6 +37,7 @@ import {
   shouldAutoRetry,
   successExperienceFor,
   summarizeKnownIssues,
+  TIMEOUT_UNCERTAIN_NOTE,
 } from "@/lib/agentic/dispatch-recovery";
 import type { OperationalKnowledge } from "@/lib/agentic/operational-knowledge";
 import { isToolAllowedBySpecialist } from "@/lib/missions/specialistProfiles";
@@ -323,7 +324,7 @@ export async function dispatchTool(opts: {
         obstacleKind: obstacle.kind,
         usefulFor: ["recuperação de obstáculos em missões"],
       });
-      if (shouldAutoRetry(obstacle)) {
+      if (shouldAutoRetry(obstacle, opts.name)) {
         const retry = await dispatchLocal(opts.name, String(opts.input ?? ""), {
           executionId: opts.executionId,
           userId: opts.userId,
@@ -339,6 +340,11 @@ export async function dispatchTool(opts: {
         } else {
           result = retry;
         }
+      } else if (obstacle.kind === "TIMEOUT") {
+        // Segurança de retry: TIMEOUT pode significar sucesso remoto. Em tools
+        // não idempotentes, NÃO repetir sem antes verificar o estado; o
+        // resultado é reportado como incerto.
+        knownIssues = knownIssues.concat([TIMEOUT_UNCERTAIN_NOTE + " (tool: " + opts.name + ")"]);
       }
       if (!result.ok) {
         knownIssues = summarizeKnownIssues(
