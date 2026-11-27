@@ -19,15 +19,13 @@ import {
   deleteCachedModelFiles,
   type DownloadProgressSnapshot,
 } from "@/lib/localModels/downloadManager";
-
-type CancelRegistry = Map<string, () => void>;
-const cancelledModels = new Set<string>();
+import { DownloadCoordinator } from "@/lib/localModels/downloadCoordinator";
 
 const DOWNLOADED_MODELS_KEY = "plutao_downloaded_models";
 const ACTIVE_MODEL_KEY = "plutao_active_model_id";
 
-/** Downloads em curso (modelId → promise); evita duplicação e habilita cancelamento. */
-const activeDownloads = new Map<string, Promise<unknown>>();
+/** Serialização/invalidação de downloads por modelo (geração + lock). */
+const coordinator = new DownloadCoordinator();
 
 export interface TestResult {
   output: string;
@@ -157,11 +155,13 @@ export function useModelManager() {
 
   // Start Download — REAL: baixa os arquivos do HF para o cache do navegador
   // com progresso em bytes reais; marca "downloaded" somente após sucesso.
+  // Concorrência: um download por modelo (lock até a promise finalizar) e
+  // geração por operação — operação antiga não atualiza estado da nova.
   const startDownload = useCallback((model: AIModel) => {
     if (model.providerType !== "local" || model.comingSoon || !model.hfRepo) return;
-    if (activeDownloads.has(model.id)) return;
+    const gen = coordinator.begin(model.id);
+    if (gen === null) return; // já existe operação ativa para este modelo
 
-    cancelledModels.delete(model.id);
     setProgresses((prev) => ({
       ...prev,
       [model.id]: {
@@ -175,6 +175,7 @@ export function useModelManager() {
     }));
 
     const onProgress = (snapshot: DownloadProgressSnapshot) => {
+      if (coordinator.isStale(model.id, gen)) return; // operação antiga: ignorar
       setProgresses((prev) => ({
         ...prev,
         [model.id]: {
@@ -188,11 +189,12 @@ export function useModelManager() {
       }));
     };
 
-    const isCancelled = () => cancelledModels.has(model.id);
+    const isCancelled = () => coordinator.isCancelled(model.id, gen);
 
     const promise = warmLocalModel({ hfRepo: model.hfRepo, device: "auto", onProgress, isCancelled })
       .then((result) => {
-        activeDownloads.delete(model.id);
+        coordinator.finish(model.id, gen); // libera o lock SEMPRE que a promise antiga termina
+        if (coordinator.isStale(model.id, gen)) return; // não toca no estado da operação nova
         if (isCancelled() || (result as { cancelled?: boolean }).cancelled) {
           setProgresses((prev) => {
             const copy = { ...prev };
@@ -231,7 +233,8 @@ export function useModelManager() {
         }
       })
       .catch(() => {
-        activeDownloads.delete(model.id);
+        coordinator.finish(model.id, gen);
+        if (coordinator.isStale(model.id, gen)) return;
         setProgresses((prev) => ({
           ...prev,
           [model.id]: {
@@ -246,15 +249,16 @@ export function useModelManager() {
         }));
       });
 
-    activeDownloads.set(model.id, promise);
+    void promise;
   }, []);
 
-  // Pause / Cancel Download — interrompe a contabilização e agenda a limpeza
-  // dos arquivos já cacheados (limitação: o arquivo em curso do Transformers.js
-  // termina; os bytes parciais são removidos do Cache API em seguida).
+  // Pause / Cancel Download — invalida a geração atual (a operação em curso
+  // para de contabilizar e não altera estado) e agenda a limpeza dos arquivos
+  // já cacheados. Limitação REAL do Transformers.js: o arquivo em curso NÃO é
+  // interrompido (sem AbortSignal exposto); os bytes parciais são removidos do
+  // Cache API em seguida. O lock só é liberado quando a promise antiga finaliza.
   const cancelDownload = useCallback((modelId: string) => {
-    cancelledModels.add(modelId);
-    activeDownloads.delete(modelId);
+    coordinator.cancel(modelId);
     setProgresses((prev) => {
       const copy = { ...prev };
       delete copy[modelId];
@@ -264,10 +268,10 @@ export function useModelManager() {
     if (model?.hfRepo) void deleteCachedModelFiles(model.hfRepo);
   }, []);
 
-  // Delete local model cache — remove estado E os arquivos reais do Cache API
+  // Delete local model cache — remove estado E os arquivos reais do Cache API;
+  // invalida a geração em curso (operação antiga não pode marcar como concluído).
   const deleteModel = useCallback((modelId: string) => {
-    cancelledModels.add(modelId);
-    activeDownloads.delete(modelId);
+    coordinator.cancel(modelId);
     setDownloadedModelIds((prev) => {
       const next = prev.filter((id) => id !== modelId);
       saveDownloadedIds(next);
