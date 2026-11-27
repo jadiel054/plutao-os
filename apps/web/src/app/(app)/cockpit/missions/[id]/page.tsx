@@ -10,6 +10,7 @@ import { MissionEvidencePanel } from "@/components/MissionEvidencePanel";
 import { MissionApprovalPanel } from "@/components/MissionApprovalPanel";
 import { MissionDoDPanel } from "@/components/MissionDoDPanel";
 import { ConversationEventsPanel } from "@/components/ConversationEventsPanel";
+import { MissionLinkConversation } from "@/components/MissionLinkConversation";
 import { sanitizeError, sanitizeErrorForClient } from "@/lib/security/sanitize";
 
 type Props = { params: Promise<{ id: string }> };
@@ -180,7 +181,19 @@ export default function MissionDetailPage({ params }: Props) {
           <div className="space-y-5">
             <MissionDoDPanel passed={overview.dod?.passed ?? null} summary={overview.dod?.summary} checks={overview.dod?.checks ?? []} onVerify={() => void verifyDod()} busy={dodLoading} />
             <MissionApprovalPanel missionId={id} onChanged={() => void load(true)} />
-            {mission.conversationId ? <ConversationEventsPanel conversationId={mission.conversationId} /> : <p className="text-[11px] text-[var(--text-muted)] font-mono">Execução sem conversa vinculada: eventos aparecem na telemetria e evidências abaixo.</p>}
+            {mission.conversationId ? (
+  <ConversationEventsPanel conversationId={mission.conversationId} />
+) : (
+  <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+    <h2 className="mb-1 text-[11px] font-mono font-semibold text-amber-300">EVENTOS DA MISSÃO</h2>
+    <p className="mb-2 text-xs text-[var(--text-secondary)]">
+      Esta missão não está vinculada a uma conversa. Os eventos de execução aparecem
+      apenas na telemetria e nas evidências abaixo. Ao vincular uma conversa, os
+      próximos eventos passam a ser registrados no painel de eventos dela.
+    </p>
+    <MissionLinkConversation missionId={id} onLinked={() => void load(true)} />
+  </section>
+)}
             <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <h2 className="mb-3 text-[11px] font-mono font-semibold text-[var(--text-muted)]">GRAFO DA MISSÃO</h2>
           {graphNodes.length === 0 ? <p className="text-xs text-[var(--text-muted)]">Grafo ainda não persistido.</p> : <ol className="space-y-1.5">{graphNodes.map((node, index) => <li key={node.id ?? index} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--base)] px-3 py-2 text-xs"><span className="font-mono text-[var(--text-muted)]">{index + 1}</span><span>{node.title ?? node.label ?? node.id ?? "Nó"}</span></li>)}</ol>}
