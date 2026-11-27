@@ -490,3 +490,25 @@ export const agentExperiences = pgTable(
     index("agent_experiences_user_id_idx").on(t.userId),
   ]
 );
+
+
+/**
+ * Núcleo agêntico — snapshots do inventário de capacidades
+ * (descoberta permanente; histórico versionado por usuário).
+ * Migration: 0033_agentic_capability_snapshots (aplicação manual no Neon).
+ */
+export const agenticCapabilitySnapshots = pgTable(
+  "agentic_capability_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    inventory: jsonb("inventory").notNull(),
+    diffSummary: jsonb("diff_summary").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("agentic_capability_snapshots_user_created_idx").on(t.userId, t.createdAt),
+  ]
+);

@@ -2,35 +2,222 @@
   "version": "7",
   "dialect": "postgresql",
   "entries": [
-    { "idx": 0, "version": "7", "when": 1725868800000, "tag": "0000_baseline", "breakpoints": true },
-    { "idx": 1, "version": "7", "when": 1726000000000, "tag": "0001_executions", "breakpoints": true },
-    { "idx": 2, "version": "7", "when": 1726400000000, "tag": "0002_missions_idempotency_key", "breakpoints": true },
-    { "idx": 3, "version": "7", "when": 1726500000000, "tag": "0003_artifacts", "breakpoints": true },
-    { "idx": 4, "version": "7", "when": 1726600000000, "tag": "0004_connectors", "breakpoints": true },
-    { "idx": 5, "version": "7", "when": 1726700000000, "tag": "0005_messages_edited", "breakpoints": true },
-    { "idx": 6, "version": "7", "when": 1726800000000, "tag": "0006_plans_billing", "breakpoints": true },
-    { "idx": 7, "version": "7", "when": 1726900000000, "tag": "0007_social_auth_magic_links", "breakpoints": true },
-    { "idx": 8, "version": "7", "when": 1727000000000, "tag": "0008_conversation_actions", "breakpoints": true },
-    { "idx": 9, "version": "7", "when": 1727100000000, "tag": "0009_mcp_oauth_grants", "breakpoints": true },
-    { "idx": 10, "version": "7", "when": 1727200000000, "tag": "0010_guest_mode", "breakpoints": true },
-    { "idx": 11, "version": "7", "when": 1727300000000, "tag": "0011_write_gates", "breakpoints": true },
-    { "idx": 12, "version": "7", "when": 1727400000000, "tag": "0012_stripe_billing", "breakpoints": true },
-    { "idx": 13, "version": "7", "when": 1727600000000, "tag": "0015_user_preferences", "breakpoints": true },
-    { "idx": 14, "version": "7", "when": 1727700000000, "tag": "0016_conversations", "breakpoints": true },
-    { "idx": 15, "version": "7", "when": 1727800000000, "tag": "0017_conversation_events", "breakpoints": true },
-    { "idx": 16, "version": "7", "when": 1727900000000, "tag": "0018_model_vitrine", "breakpoints": true },
-    { "idx": 17, "version": "7", "when": 1728000000000, "tag": "0019_consent_records", "breakpoints": true },
-    { "idx": 18, "version": "7", "when": 1728100000000, "tag": "0020_mcp_oauth_clients", "breakpoints": true },
-    { "idx": 19, "version": "7", "when": 1791374400000, "tag": "0021_hardening_write_gates", "breakpoints": true },
-    { "idx": 20, "version": "7", "when": 1791374460000, "tag": "0022_persistent_guards", "breakpoints": true },
-    { "idx": 21, "version": "7", "when": 1791374520000, "tag": "0023_plan_entitlement_lock", "breakpoints": true },
-    { "idx": 22, "version": "7", "when": 1791374580000, "tag": "0024_autonomous_platform_foundation", "breakpoints": true },
-    { "idx": 23, "version": "7", "when": 1791374640000, "tag": "0025_mission_intake", "breakpoints": true },
-    { "idx": 24, "version": "7", "when": 1791374700000, "tag": "0026_mission_graph_v2", "breakpoints": true },
-    { "idx": 25, "version": "7", "when": 1791374760000, "tag": "0027_artemis_tasks", "breakpoints": true },
-    { "idx": 26, "version": "7", "when": 1794299081000, "tag": "0028_mcp_write_consent", "breakpoints": true },
-    { "idx": 27, "version": "7", "when": 1794299141000, "tag": "0030_task_graph_node", "breakpoints": true },
-    { "idx": 28, "version": "7", "when": 1795766400000, "tag": "0031_computer_sessions", "breakpoints": true },
-    { "idx": 29, "version": "7", "when": 1795766460000, "tag": "0032_agent_experiences", "breakpoints": true }
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1725868800000,
+      "tag": "0000_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1726000000000,
+      "tag": "0001_executions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1726400000000,
+      "tag": "0002_missions_idempotency_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1726500000000,
+      "tag": "0003_artifacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1726600000000,
+      "tag": "0004_connectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1726700000000,
+      "tag": "0005_messages_edited",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1726800000000,
+      "tag": "0006_plans_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1726900000000,
+      "tag": "0007_social_auth_magic_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1727000000000,
+      "tag": "0008_conversation_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1727100000000,
+      "tag": "0009_mcp_oauth_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1727200000000,
+      "tag": "0010_guest_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1727300000000,
+      "tag": "0011_write_gates",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1727400000000,
+      "tag": "0012_stripe_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1727600000000,
+      "tag": "0015_user_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1727700000000,
+      "tag": "0016_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1727800000000,
+      "tag": "0017_conversation_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1727900000000,
+      "tag": "0018_model_vitrine",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1728000000000,
+      "tag": "0019_consent_records",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1728100000000,
+      "tag": "0020_mcp_oauth_clients",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791374400000,
+      "tag": "0021_hardening_write_gates",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791374460000,
+      "tag": "0022_persistent_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791374520000,
+      "tag": "0023_plan_entitlement_lock",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791374580000,
+      "tag": "0024_autonomous_platform_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791374640000,
+      "tag": "0025_mission_intake",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791374700000,
+      "tag": "0026_mission_graph_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791374760000,
+      "tag": "0027_artemis_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794299081000,
+      "tag": "0028_mcp_write_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794299141000,
+      "tag": "0030_task_graph_node",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1795766400000,
+      "tag": "0031_computer_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1795766460000,
+      "tag": "0032_agent_experiences",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795766520000,
+      "tag": "0033_agentic_capability_snapshots",
+      "breakpoints": true
+    }
   ]
 }
