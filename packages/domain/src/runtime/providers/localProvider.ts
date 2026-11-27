@@ -120,8 +120,11 @@ export class LocalProvider {
   /** Módulo Transformers.js importado dinamicamente (somente no navegador) */
   private transformersModule: any | null = null;
   
-  /** Promessa para evitar múltiplos carregamentos simultâneos */
-  private loadPromise: Promise<void> | null = null;
+  /** Promessa do carregamento do Transformers.js (separada do pipeline) */
+  private transformersPromise: Promise<void> | null = null;
+
+  /** Promessa do carregamento do pipeline de geração */
+  private pipelinePromise: Promise<void> | null = null;
 
   constructor(config: Partial<LocalModelConfig> = {}) {
     this.modelId = config.modelId || DEFAULT_LOCAL_CONFIG.modelId;
@@ -203,12 +206,13 @@ export class LocalProvider {
       return;
     }
 
-    // Evita múltiplos carregamentos simultâneos
-    if (this.loadPromise) {
-      return this.loadPromise;
+    // Evita múltiplos carregamentos simultâneos (promise dedicada: não compartilha
+    // estado com o carregamento do pipeline, que tem ciclo de vida próprio).
+    if (this.transformersPromise) {
+      return this.transformersPromise;
     }
 
-    this.loadPromise = (async () => {
+    const promise = (async () => {
       try {
         // Verifica se estamos no navegador
         if (typeof window === "undefined") {
@@ -222,14 +226,17 @@ export class LocalProvider {
         this.transformersLoaded = true;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        this.loadError = `Failed to load Transformers.js: ${errorMessage}`;
+        this.loadError = "Failed to load Transformers.js: " + errorMessage;
         this.status = "error";
         throw new Error(this.loadError);
       }
     })();
-
-    await this.loadPromise;
-    this.loadPromise = null;
+    this.transformersPromise = promise;
+    try {
+      await promise;
+    } finally {
+      this.transformersPromise = null;
+    }
   }
 
   /**
@@ -241,55 +248,69 @@ export class LocalProvider {
       return;
     }
 
-    // Evita múltiplos carregamentos simultâneos
-    if (this.loadPromise) {
-      return this.loadPromise;
+    // Evita múltiplos carregamentos simultâneos: chamadas concorrentes aguardam
+    // a MESMA promise em andamento (sem recursão e sem reutilizar a promise
+    // atual dentro dela própria, o que causava ciclo).
+    if (this.pipelinePromise) {
+      return this.pipelinePromise;
     }
 
-    this.loadPromise = (async () => {
-      try {
-        this.status = "loading";
-        this.loadError = null;
+    const promise = (async () => {
+      // Tentativas SEQUENCIAIS: modelo primário primeiro, fallback leve depois.
+      const candidates =
+        this.modelId !== FALLBACK_LOCAL_MODEL_ID
+          ? [this.modelId, FALLBACK_LOCAL_MODEL_ID]
+          : [this.modelId];
+      let lastError = "Failed to load local model";
 
-        // Carrega Transformers.js
-        await this.loadTransformers();
+      for (const candidate of candidates) {
+        try {
+          this.status = "loading";
+          this.loadError = null;
 
-        // Resolve dispositivo
-        const resolvedDevice = await this.resolveDevice();
+          // Carrega Transformers.js
+          await this.loadTransformers();
 
-        const pipeline = this.transformersModule?.pipeline;
-        
-        if (typeof pipeline !== "function") {
-          throw new Error("Transformers.js pipeline not available");
-        }
+          // Resolve dispositivo
+          const resolvedDevice = await this.resolveDevice();
 
-        // Carrega o pipeline de geração de texto
-        this.pipeline = await pipeline("text-generation", this.modelId, {
-          device: resolvedDevice,
-          cache: this.useCache ? "indexeddb" : undefined,
-        });
+          const pipeline = this.transformersModule?.pipeline;
+          if (typeof pipeline !== "function") {
+            throw new Error("Transformers.js pipeline not available");
+          }
 
-        this.status = "loaded";
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        this.loadError = `Failed to load model ${this.modelId}: ${errorMessage}`;
-        this.status = "error";
-        
-        // Tenta fallback para modelo alternativo
-        if (this.modelId !== FALLBACK_LOCAL_MODEL_ID) {
-          console.warn(`Model ${this.modelId} failed, trying fallback...`);
-          this.modelId = FALLBACK_LOCAL_MODEL_ID;
-          // Tenta novamente com fallback
+          // Carrega o pipeline de geração de texto
+          const loaded = await pipeline("text-generation", candidate, {
+            device: resolvedDevice,
+            cache: this.useCache ? "indexeddb" : undefined,
+          });
+
+          // Só publica estado após sucesso do candidato.
+          this.modelId = candidate;
+          this.pipeline = loaded;
+          this.status = "loaded";
+          return;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          lastError = "Failed to load model " + candidate + ": " + errorMessage;
+          this.loadError = lastError;
           this.pipeline = null;
-          return this.loadPipeline();
+          if (candidate !== candidates[candidates.length - 1]) {
+            console.warn("Model " + candidate + " failed, trying fallback...");
+          }
         }
-        
-        throw new Error(this.loadError);
       }
+
+      this.status = "error";
+      throw new Error(lastError);
     })();
 
-    await this.loadPromise;
-    this.loadPromise = null;
+    this.pipelinePromise = promise;
+    try {
+      await promise;
+    } finally {
+      this.pipelinePromise = null;
+    }
   }
 
   /**
