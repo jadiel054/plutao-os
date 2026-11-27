@@ -157,6 +157,35 @@ export function verifyInteractionExpectations(
   return { ok: mismatches.length === 0 && unverifiable.length === 0, mismatches, unverifiable };
 }
 
+/** Veredito da verificação pós-ação a partir da evidência real observada. */
+export type PostActionVerdict =
+  | { verdict: "confirmed"; detail: string }
+  | { verdict: "divergent"; detail: string }
+  | { verdict: "unverifiable"; detail: string };
+
+/**
+ * Classificação do resultado da verificação pós-ação. A evidência é
+ * SEMPRE o estado observado (snapshot) comparado às expectativas da
+ * ação original: resposta HTTP 200 ou texto do assistente NÃO comprova
+ * sucesso. Diferencia sucesso confirmado, divergência e resultado não
+ * verificável (nestes dois últimos, NUNCA declarar sucesso).
+ */
+export function classifyPostActionVerification(
+  check: { ok: boolean; mismatches: string[]; unverifiable: string[] },
+  hadExpectations: boolean
+): PostActionVerdict {
+  if (!hadExpectations) {
+    return { verdict: "unverifiable", detail: "ação sem expectativa de estado verificável" };
+  }
+  if (check.unverifiable.length > 0) {
+    return { verdict: "unverifiable", detail: "estado não observado para: " + check.unverifiable.join(", ") };
+  }
+  if (check.mismatches.length > 0) {
+    return { verdict: "divergent", detail: "estado divergente do esperado: " + check.mismatches.join("; ") };
+  }
+  return { verdict: "confirmed", detail: "todas as expectativas confirmadas no estado observado" };
+}
+
 function extractQuoted(goal: string): string {
   const m = goal.match(/\bcom\s+["“](.+?)["”]/);
   return m ? m[1] : "";

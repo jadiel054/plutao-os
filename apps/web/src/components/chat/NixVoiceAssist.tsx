@@ -10,12 +10,13 @@
  * confirmação falada explícita (confirmo/cancela). Recusa em navegadores sem
  * suporte (componente não renderiza). Páginas não registradas NUNCA são
  * assumidas como Chat. Sucesso só é anunciado APÓS verificação real do
- * estado (snapshot do DOM + confirmação do servidor).
+ * estado: novo snapshot do DOM comparado às expectativas da própria ação
+ * (resposta HTTP ou texto do servidor NÃO é evidência de sucesso).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { findControl, verifyInteractionExpectations, type InteractionStep, type StateExpectation } from "@/lib/agentic/ui-perception";
+import { classifyPostActionVerification, findControl, verifyInteractionExpectations, type InteractionStep, type StateExpectation } from "@/lib/agentic/ui-perception";
 import { pageIdForRoute } from "@/lib/agentic/voice-assist";
 
 type AssistResponse = {
@@ -35,7 +36,8 @@ type StepOutcome = {
   ok: boolean;
   observed?: string;
   error?: string;
-  verified?: boolean;
+  /** Expectativas geradas pela PRÓPRIA ação — base da verificação vinculada. */
+  expectations?: StateExpectation[];
 };
 
 function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string): void {
@@ -149,37 +151,16 @@ export function NixVoiceAssist() {
           return { ok: false, error: "ação não suportada pelo executor do cliente" };
         }
       }
-      const check = verifyInteractionExpectations(expectations, snapshotState().controls);
+      // A verificação acontece em runInteraction com um NOVO snapshot:
+      // evidência real do estado final, vinculada às expectativas da ação.
       return {
         ok: true,
         observed: "interação executada",
-        verified: check.ok,
-        error: check.ok ? undefined : "estado divergente após a ação: " + check.mismatches.concat(check.unverifiable.map((id) => id + " não verificado")).join("; "),
+        expectations,
       };
     },
     [router, snapshotState]
   );
-
-  /** Verificação real: requer confirmação do servidor (HTTP ok). */
-  const verifyAfterAction = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
-    try {
-      const res = await fetch("/api/agentic/assist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: "verificação pós-ação",
-          pageId: pageId(),
-          pageState: snapshotState(),
-        }),
-      });
-      if (!res.ok) {
-        return { ok: false, error: "verificação no servidor falhou (HTTP " + res.status + ")" };
-      }
-      return { ok: true };
-    } catch {
-      return { ok: false, error: "verificação indisponível" };
-    }
-  }, [pageId, snapshotState]);
 
   const runInteraction = useCallback(
     async (interaction: { pageId: string; steps: InteractionStep[] }) => {
@@ -189,21 +170,24 @@ export function NixVoiceAssist() {
         speak(outcome.error);
         return;
       }
-      const post = await verifyAfterAction();
-      if (outcome.verified && post.ok) {
-        const msg = "Interação concluída e confirmada.";
-        setLastReply(msg);
-        speak(msg);
+      // Verificação VINCULADA à ação original: novo snapshot do DOM (evidência
+      // real do estado final) comparado às expectativas geradas pela ação. A
+      // resposta do servidor NÃO é usada como prova de sucesso.
+      const expectations = outcome.expectations ?? [];
+      const check = verifyInteractionExpectations(expectations, snapshotState().controls);
+      const verdict = classifyPostActionVerification(check, expectations.length > 0);
+      let msg: string;
+      if (verdict.verdict === "confirmed") {
+        msg = "Interação concluída e confirmada.";
+      } else if (verdict.verdict === "divergent") {
+        msg = "Ação NÃO confirmada: " + verdict.detail + ".";
       } else {
-        const reason =
-          outcome.error ??
-          (post.ok ? "estado final não pôde ser verificado" : post.error ?? "verificação indisponível");
-        const msg = "Ação NÃO confirmada: " + reason;
-        setLastReply(msg);
-        speak(msg);
+        msg = "Ação NÃO confirmada: resultado não pôde ser verificado (" + verdict.detail + "). Verifique o estado antes de repetir.";
       }
+      setLastReply(msg);
+      speak(msg);
     },
-    [executeSteps, speak, verifyAfterAction]
+    [executeSteps, speak, snapshotState]
   );
 
   const handleUtterance = useCallback(

@@ -8,7 +8,7 @@ import {
   verifyInteractionExpectations,
   type InteractionExecutor,
   type StateExpectation,
-} from "../ui-perception";
+, classifyPostActionVerification } from "../ui-perception";
 import type { AppSurface, SurfaceControl } from "../app-surface";
 
 describe("describePage", () => {
@@ -194,5 +194,31 @@ describe("executeInteraction", () => {
     const out = await executeInteraction("modelos", plan.steps, strict);
     expect(out.completed).toBe(false);
     expect(out.refused).toContain("verificação pós-ação falhou");
+  });
+});
+// Bloqueador 2 — verificação pós-ação vinculada à ação original.
+describe("classifyPostActionVerification (bloqueador 2)", () => {
+  it("confirma sucesso APENAS com evidência real do estado observado", () => {
+    const v = classifyPostActionVerification({ ok: true, mismatches: [], unverifiable: [] }, true);
+    expect(v.verdict).toBe("confirmed");
+    expect(v.detail).toContain("confirmadas");
+  });
+  it("resposta OK sem mudança real de estado é DIVERGÊNCIA, não sucesso", () => {
+    const v = classifyPostActionVerification({ ok: false, mismatches: ["cfg.autonomia: esperado false, observado true"], unverifiable: [] }, true);
+    expect(v.verdict).toBe("divergent");
+    expect(v.detail).toContain("divergente");
+  });
+  it("estado final divergente do esperado nunca confirma a ação", () => {
+    const v = classifyPostActionVerification({ ok: false, mismatches: ["a: esperado x, observado y"], unverifiable: [] }, true);
+    expect(v.verdict).toBe("divergent");
+  });
+  it("estado final impossível de verificar é NÃO VERIFICÁVEL (nunca sucesso)", () => {
+    const v = classifyPostActionVerification({ ok: false, mismatches: [], unverifiable: ["cfg.autonomia"] }, true);
+    expect(v.verdict).toBe("unverifiable");
+    expect(v.detail).toContain("cfg.autonomia");
+  });
+  it("ação sem expectativas verificáveis não é declarada sucesso", () => {
+    const v = classifyPostActionVerification({ ok: true, mismatches: [], unverifiable: [] }, false);
+    expect(v.verdict).toBe("unverifiable");
   });
 });
