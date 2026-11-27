@@ -1,0 +1,95 @@
+name: android-diag
+
+on:
+  push:
+    branches: [vibe/agentic-core-phase2]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/android/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: |
+          set -o pipefail
+          cd apps/android
+          npm ci --workspaces=false --include=dev 2>&1 | tee /tmp/s1.log > /dev/null
+      - name: Comment install log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/s1.log > /tmp/c1.txt
+          gh pr comment 209 --body-file /tmp/c1.txt || true
+
+      - name: Add Android platform
+        run: |
+          set -o pipefail
+          cd apps/android
+          ./node_modules/.bin/cap add android 2>&1 | tee /tmp/s2.log > /dev/null
+      - name: Comment add log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/s2.log > /tmp/c2.txt
+          gh pr comment 209 --body-file /tmp/c2.txt || true
+
+      - name: Sync Capacitor
+        run: |
+          set -o pipefail
+          cd apps/android
+          ./node_modules/.bin/cap sync android 2>&1 | tee /tmp/s3.log > /dev/null
+      - name: Comment sync log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/s3.log > /tmp/c3.txt
+          gh pr comment 209 --body-file /tmp/c3.txt || true
+
+      - name: Apply branding
+        run: |
+          set -o pipefail
+          cd apps/android
+          node scripts/apply-branding.mjs 2>&1 | tee /tmp/s4.log > /dev/null
+      - name: Comment branding log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/s4.log > /tmp/c4.txt
+          gh pr comment 209 --body-file /tmp/c4.txt || true
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          cd apps/android/android
+          chmod +x gradlew
+          ./gradlew assembleDebug 2>&1 | tee /tmp/s5.log > /dev/null
+      - name: Comment gradle log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/s5.log > /tmp/c5.txt
+          gh pr comment 209 --body-file /tmp/c5.txt || true
