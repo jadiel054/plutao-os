@@ -110,6 +110,26 @@ const CLOUD_ROUTES: Record<string, CloudRoute> = {
   },
 };
 
+
+/**
+ * Política EXPLÍCITA de transitoriedade para fallback cloud.
+ * NÃO classifica por regex de código HTTP sobre mensagem sanitizada:
+ * usa httpStatus/http_status anexado pelo client.ts; sem status, só
+ * falhas de rede/timeout identificadas (nomes/códigos conhecidos).
+ * Fallback permitido: 408, 429, 5xx e falhas de rede/timeout.
+ * Proibido: demais 4xx (400/401/402/403/404/413/422...).
+ */
+export function isTransientCloudFailure(err: unknown): boolean {
+  const anyErr = err as { httpStatus?: unknown; http_status?: unknown; status?: unknown; code?: unknown } | null;
+  const status = anyErr?.httpStatus ?? anyErr?.http_status ?? anyErr?.status;
+  if (typeof status === "number" && Number.isFinite(status) && status >= 400) {
+    return status === 408 || status === 429 || (status >= 500 && status <= 599);
+  }
+  const message = err instanceof Error ? err.message + " " + err.name : String(err ?? "");
+  const code = typeof anyErr?.code === "string" ? anyErr.code : "";
+  const haystack = (message + " " + code).toLowerCase();
+  return /timed?[ _]?out|econnreset|econnrefused|enotfound|eai_again|socket hang up|fetch failed|failed to fetch|network error|premature close|undici/.test(haystack);
+}
 /**
  * Config de fallback para falha do provedor primário (5xx/timeout/rede,
  * nunca 4xx de cliente). Retorna a primeira config DISTINTA da primária

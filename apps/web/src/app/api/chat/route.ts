@@ -10,7 +10,7 @@ import { loadConnectorRuntime, runConnectedConnectorTools, type ConnectorRuntime
 import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { buildFollowUps } from "@/lib/chat/buildFollowUps";
 import { getModelConfig } from "@/lib/runtime/model/config";
-import { pickFallbackConfig, resolveCloudModelConfig } from "@/lib/runtime/model/resolveConfig";
+import { isTransientCloudFailure, pickFallbackConfig, resolveCloudModelConfig } from "@/lib/runtime/model/resolveConfig";
 import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
@@ -804,13 +804,21 @@ ${
               // Mesmo critério do caminho não-stream: erros de cliente (400/401/403/413/422)
               // não são transitórios e não devem disparar fallback.
               const errMsg = sanitizeError(err);
-              const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
-              const fallbackConfig = autoFallbackEnabled && !isClient4xx ? pickFallbackConfig(streamModelConfig) : null;
+              // Política explícita (mesma regra do caminho não-stream): status HTTP
+              // estruturado (httpStatus) ou falha de rede/timeout identificada.
+              const transient = isTransientCloudFailure(err);
+              const fallbackConfig = autoFallbackEnabled && transient ? pickFallbackConfig(streamModelConfig) : null;
               if (fallbackConfig) {
+                console.warn("[chat stream] fallback para", fallbackConfig.model, "-", errMsg);
                 streamModelConfig = fallbackConfig;
                 modelFallback = true;
+                // Reinicializa TODO o estado do parser: nenhum raciocínio parcial
+                // do provedor primário pode se misturar ao fallback.
                 rawFullOutput = "";
                 reasoningBuffer = "";
+                inReasoningBlock = false;
+                inAnswerBlock = false;
+                dynamicReasoningSteps.length = 0;
                 const generator = streamChatCompletion(streamModelConfig, payloadMessages);
                 for await (const chunk of generator) {
                   rawFullOutput += chunk;
@@ -1223,9 +1231,11 @@ ${
       const fallbackConfig = autoFallbackEnabled ? pickFallbackConfig(effectiveModelConfig) : null;
 
       const errMsg = sanitizeError(err);
-      const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
+      // Política explícita: status HTTP estruturado (httpStatus) ou falha de
+      // rede/timeout identificada — nunca regex de código sobre mensagem.
+      const transient = isTransientCloudFailure(err);
 
-      if (fallbackConfig && !isClient4xx) {
+      if (fallbackConfig && transient) {
         console.warn("[chat] Provedor primário indisponível, fallback para", fallbackConfig.model, "-", errMsg);
 
         if (VISION_CAPABLE_PROVIDERS.includes(fallbackConfig.provider) && validatedArtifacts.length > 0) {
