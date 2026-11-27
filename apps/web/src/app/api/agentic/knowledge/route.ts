@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { lookup } from "node:dns/promises";
 import { getAuthOrGuestUser } from "@/lib/auth/session";
 import {
   buildIntake,
   knowledgeFromIntake,
   probePolicyFromEnv,
   runProbes,
+  safeProbeFetch,
   type ProbeResult,
 } from "@/lib/agentic/knowledge-intake";
 import { recordExperience } from "@/lib/agentic/experience-store";
@@ -14,10 +16,11 @@ export const dynamic = "force-dynamic";
 
 /**
  * Aprendizado de ferramentas (API). GET: lista o conhecimento aprendido.
- * POST: intake de documentação — redação de segredos, parse do contrato,
- * probes GET somente em hosts da allowlist do SERVIDOR (env
- * PLUTAO_AGENTIC_PROBE_HOSTS) e persistência como conhecimento operacional
- * (hypothesis até probe bem-sucedido). Aprender NÃO concede autorização.
+ * POST: intake de documentação — redação de segredos antes de qualquer
+ * parse/persistência; probes GET somente em hosts da allowlist do SERVIDOR
+ * (env PLUTAO_AGENTIC_PROBE_HOSTS), SEM seguir redirects automaticamente
+ * (cada destino é revalidado, DNS é checado contra IP privado/local, com
+ * timeout e limite de tamanho). Aprender NÃO concede autorização.
  */
 export async function GET() {
   const user = await getAuthOrGuestUser();
@@ -51,11 +54,12 @@ export async function POST(req: Request) {
   const documentationText = (body.documentationText ?? "").slice(0, 20000);
   const baseUrl = body.baseUrl ? String(body.baseUrl).slice(0, 500) : undefined;
 
+  const policy = probePolicyFromEnv(process.env);
   const intake = buildIntake({
     toolName,
     documentationText,
     baseUrl,
-    policy: probePolicyFromEnv(process.env),
+    policy,
   });
   if (!intake.accepted) {
     return NextResponse.json({ accepted: false, reason: intake.reason }, { status: 400 });
@@ -64,8 +68,13 @@ export async function POST(req: Request) {
   let probeResults: ProbeResult[] = [];
   if (intake.probePlan.length > 0) {
     probeResults = await runProbes(intake.probePlan, async (url) => {
-      const res = await fetch(url, { method: "GET", redirect: "follow" });
-      return { ok: res.ok, text: await res.text() };
+      const r = await safeProbeFetch(url, {
+        allowedHosts: policy.allowedHosts,
+        resolveDns: async (hostname) =>
+          (await lookup(hostname, { all: true })).map((a) => a.address),
+      });
+      if (!r.ok) throw new Error(r.error ?? "probe recusado");
+      return { ok: true, text: r.text ?? "" };
     });
   }
 
