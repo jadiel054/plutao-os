@@ -55,6 +55,7 @@ export const APP_SURFACES: AppSurface[] = [
     purpose: "Configurações do usuário: preferências, conectores, autonomia do agente.",
     controls: [
       { id: "config.autonomy", label: "Modo de autonomia do agente", kind: "select", stateKey: "users.preferences.autonomyMode", sensitive: true, description: "standard/elevated/full — controla atrito de aprovação de escritas." },
+      { id: "config.notifications", label: "Notificações push", kind: "toggle", testId: "notifications-toggle", stateKey: "users.preferences.pushNotifications" },
     ],
   },
   {
