@@ -596,9 +596,10 @@ function ChatPageInner() {
           const fromConvQuery = searchParams.get("conversation");
           if (fromConvQuery && convs.some((c) => c.id === fromConvQuery)) {
             await selectConversation(fromConvQuery);
-          } else {
-            await selectConversation(convs[0].id);
           }
+          // Sem ?conversation= na URL: abre um Chat novo e limpo.
+          // A última conversa NÃO é restaurada automaticamente; o histórico
+          // permanece acessível pelo drawer.
         }
 
         const savedMission = localStorage.getItem(`plutao_chat_mission_${email}`);
