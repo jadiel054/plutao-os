@@ -16,19 +16,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
       - name: Install
-        run: npm install --no-audit --no-fund
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm install --no-audit --no-fund 2>&1 | tee /tmp/install.log
       - name: Build web (diagnostic)
-        id: build
         continue-on-error: true
         run: |
           set -o pipefail
           NODE_ENV=production npm run build -w apps/web 2>&1 | tee /tmp/webbuild.log
-      - name: Publish build tail to PR
+      - name: Publish logs to PR
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tail -c 6000 /tmp/webbuild.log > /tmp/webtail.txt
-          gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/webtail.txt || true
+          { echo "=== INSTALL TAIL ==="; tail -c 2500 /tmp/install.log 2>/dev/null || echo "(sem log de install)"; echo; echo "=== BUILD WEB TAIL ==="; tail -c 6000 /tmp/webbuild.log 2>/dev/null || echo "(sem log de build)"; } > /tmp/diag.txt
+          gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/diag.txt || true
