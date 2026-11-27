@@ -15,7 +15,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { findSurface } from "@/lib/agentic/app-surface";
 import { findControl, verifyInteractionExpectations, type InteractionStep, type StateExpectation } from "@/lib/agentic/ui-perception";
 import { pageIdForRoute } from "@/lib/agentic/voice-assist";
 

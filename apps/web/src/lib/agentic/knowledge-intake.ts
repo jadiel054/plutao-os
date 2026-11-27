@@ -151,8 +151,10 @@ export async function safeProbeFetch(
   const timeoutMs = opts.timeoutMs ?? 8000;
   const maxBytes = opts.maxBytes ?? 200000;
   const maxRedirects = opts.maxRedirects ?? 3;
-  const fetchImpl = opts.fetchImpl;
-  if (!fetchImpl) return { ok: false, error: "fetch não configurado" };
+  const fetchImpl =
+    opts.fetchImpl ??
+    ((url: string, init?: { redirect?: "manual"; signal?: AbortSignal }) =>
+      fetch(url, init));
   let current = url;
   for (let i = 0; i <= maxRedirects; i++) {
     const v = await validateProbeUrl(current, opts.allowedHosts, opts.resolveDns);
