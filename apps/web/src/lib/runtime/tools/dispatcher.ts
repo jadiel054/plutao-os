@@ -288,6 +288,16 @@ export async function dispatchTool(opts: {
     conversationId: cp.conversationId ?? null,
   });
 
+
+  let gateId: string | null = null;
+  let idempotencyKey: string | null = null;
+  try {
+    const parsedInput = JSON.parse(String(opts.input ?? "")) as Record<string, unknown>;
+    gateId = typeof parsedInput._gateId === "string" ? parsedInput._gateId : null;
+    idempotencyKey = typeof parsedInput._idempotencyKey === "string" ? parsedInput._idempotencyKey : null;
+  } catch {
+    /* tool inputs are validated by their executor */
+  }
   // Núcleo agêntico — recuperação transversal de obstáculos guiada por
   // experiências: em falha de tool, consulta experiências aplicáveis do
   // usuário, classifica o obstáculo, reordena alternativas AUTORIZADAS pela
@@ -377,15 +387,6 @@ export async function dispatchTool(opts: {
   const taskId = opts.taskId ?? execution.currentTaskId ?? null;
   const stepIndex = (cp.stepIndex ?? 0) + 1;
 
-  let gateId: string | null = null;
-  let idempotencyKey: string | null = null;
-  try {
-    const parsedInput = JSON.parse(String(opts.input ?? "")) as Record<string, unknown>;
-    gateId = typeof parsedInput._gateId === "string" ? parsedInput._gateId : null;
-    idempotencyKey = typeof parsedInput._idempotencyKey === "string" ? parsedInput._idempotencyKey : null;
-  } catch {
-    /* tool inputs are validated by their executor */
-  }
   const evidenceMetadata = cp.missionGraphRuntime?.activeNodeId || gateId
     ? {
         ...(cp.missionGraphRuntime?.activeNodeId
