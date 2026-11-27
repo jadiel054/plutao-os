@@ -6,7 +6,8 @@
  * Web Speech API (pt-BR) → POST /api/agentic/assist (núcleo agêntico) →
  * execução autorizada de interações na própria página (InteractionExecutor
  * do cliente, sem coordenadas) + resposta falada. Compartilha o contexto da
- * página; não é uma experiência de voz isolada. Recusa em navegadores sem
+ * página; não é uma experiência de voz isolada. Controles SENSÍVEIS exigem
+ * confirmação falada explícita (confirmo/cancela). Recusa em navegadores sem
  * suporte (componente não renderiza).
  */
 
@@ -25,12 +26,34 @@ type AssistResponse = {
   };
 };
 
+const CONFIRM_WORDS = ["confirmo", "confirma", "sim", "pode"];
+const CANCEL_WORDS = ["cancela", "cancelar", "não", "nao", "desiste"];
+
+type StepOutcome = { ok: boolean; observed?: string; error?: string };
+
+function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string): void {
+  const proto =
+    el instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  if (setter) setter.call(el, text);
+  else el.value = text;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function findByTestId(testId: string): HTMLElement | null {
+  return document.querySelector('[data-testid="' + testId + '"]');
+}
+
 export function NixVoiceAssist() {
   const router = useRouter();
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [lastReply, setLastReply] = useState<string | null>(null);
   const recognitionRef = useRef<{ start: () => void; stop: () => void } | null>(null);
+  const pendingRef = useRef<{ pageId: string; steps: InteractionStep[] } | null>(null);
 
   const pageId = useCallback(
     () => findSurface(window.location.pathname)?.pageId ?? "chat",
@@ -39,10 +62,12 @@ export function NixVoiceAssist() {
 
   const snapshotState = useCallback(() => {
     const controls: Array<{ id: string; state?: string | boolean | number }> = [];
-    document.querySelectorAll<HTMLInputElement>("[data-testid]").forEach((el) => {
+    document.querySelectorAll<HTMLElement>("[data-testid]").forEach((el) => {
       const id = el.getAttribute("data-testid");
       if (!id) return;
       if (el instanceof HTMLInputElement && el.type === "checkbox") controls.push({ id, state: el.checked });
+      else if (el instanceof HTMLInputElement && el.type === "text") controls.push({ id, state: el.value });
+      else if (el instanceof HTMLSelectElement) controls.push({ id, state: el.value });
     });
     return {
       pageId: pageId(),
@@ -65,36 +90,105 @@ export function NixVoiceAssist() {
   }, []);
 
   const executeSteps = useCallback(
-    async (page: string, steps: InteractionStep[]) => {
+    async (page: string, steps: InteractionStep[]): Promise<StepOutcome> => {
       for (const step of steps) {
-        if (step.action.type === "toggle") {
-          const control = findControl(page, step.action.control);
-          const testId = control?.testId;
-          const el = testId
-            ? document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)
-            : null;
-          if (!el) {
-            return { ok: false, error: "controle não encontrado na página: " + step.action.control };
-          }
+        const action = step.action;
+        if (action.type === "navigate") {
+          router.push(action.route);
+          continue;
+        }
+        const control = findControl(page, action.control);
+        if (!control?.testId) {
+          return { ok: false, error: "controle sem seletor semântico: " + action.control };
+        }
+        const el = findByTestId(control.testId);
+        if (!el) {
+          return { ok: false, error: "controle não encontrado na página: " + action.control };
+        }
+        if (action.type === "click") {
           el.click();
-        } else if (step.action.type === "navigate") {
-          router.push(step.action.route);
-        } else if (step.action.type === "click") {
-          const control = findControl(page, step.action.control);
-          const el = control?.testId
-            ? document.querySelector<HTMLInputElement>(`[data-testid="${control.testId}"]`)
-            : null;
-          el?.click();
+        } else if (action.type === "toggle") {
+          if (el instanceof HTMLInputElement && el.type === "checkbox") {
+            if (el.checked !== action.to) el.click();
+          } else {
+            (el as HTMLElement).click();
+          }
+        } else if (action.type === "type") {
+          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+            setInputValue(el, action.text);
+          } else if (el instanceof HTMLSelectElement) {
+            const option = [...el.options].find(
+              (o) => o.value === action.text || o.text.toLowerCase() === action.text.toLowerCase()
+            );
+            if (!option) {
+              return { ok: false, error: "opção não encontrada no select: " + action.text };
+            }
+            el.value = option.value;
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+          } else {
+            return { ok: false, error: "controle não aceita digitação: " + action.control };
+          }
+        } else {
+          return { ok: false, error: "ação não suportada pelo executor do cliente" };
         }
       }
-      return { ok: true as const };
+      return { ok: true, observed: "interação executada" };
     },
     [router]
+  );
+
+  const verifyAfterAction = useCallback(async () => {
+    try {
+      await fetch("/api/agentic/assist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "verificação pós-ação",
+          pageId: pageId(),
+          pageState: snapshotState(),
+        }),
+      });
+    } catch {
+      /* verificação best-effort */
+    }
+  }, [pageId, snapshotState]);
+
+  const runInteraction = useCallback(
+    async (interaction: { pageId: string; steps: InteractionStep[] }) => {
+      const outcome = await executeSteps(interaction.pageId, interaction.steps);
+      await verifyAfterAction();
+      if (!outcome.ok && outcome.error) {
+        setLastReply(outcome.error);
+        speak(outcome.error);
+      } else if (outcome.ok) {
+        setLastReply("Interação concluída.");
+        speak("Interação concluída.");
+      }
+    },
+    [executeSteps, speak, verifyAfterAction]
   );
 
   const handleUtterance = useCallback(
     async (text: string) => {
       try {
+        // Confirmação falada de controle sensível pendente.
+        const pending = pendingRef.current;
+        if (pending) {
+          const t = text.toLowerCase().trim();
+          if (CANCEL_WORDS.some((w) => t === w || t.startsWith(w))) {
+            pendingRef.current = null;
+            const msg = "Ação cancelada.";
+            setLastReply(msg);
+            speak(msg);
+            return;
+          }
+          if (CONFIRM_WORDS.some((w) => t === w || t.startsWith(w))) {
+            pendingRef.current = null;
+            await runInteraction(pending);
+            return;
+          }
+        }
+
         const res = await fetch("/api/agentic/assist", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -115,28 +209,18 @@ export function NixVoiceAssist() {
         const interaction = data.response?.interaction;
         if (interaction && interaction.steps.length > 0) {
           const sensitive = interaction.steps.some((s) => s.sensitive);
-          if (sensitive) return; // exige confirmação humana; reply já pede confirmação
-          const outcome = await executeSteps(interaction.pageId, interaction.steps);
-          // Verificação pós-ação: devolve o novo snapshot ao núcleo.
-          await fetch("/api/agentic/assist", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: "verificação pós-ação",
-              pageId: pageId(),
-              pageState: snapshotState(),
-            }),
-          });
-          if (!outcome.ok && outcome.error) {
-            setLastReply(outcome.error);
-            speak(outcome.error);
+          if (sensitive) {
+            // Guarda o plano e aguarda confirmação falada explícita.
+            pendingRef.current = interaction;
+            return;
           }
+          await runInteraction(interaction);
         }
       } catch {
         /* rede/parse — não interrompe o uso */
       }
     },
-    [executeSteps, pageId, router, snapshotState, speak]
+    [pageId, router, runInteraction, snapshotState, speak]
   );
 
   useEffect(() => {
