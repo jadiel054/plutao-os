@@ -6,6 +6,13 @@
  * A execução de interações acontece via portas (executors) autorizadas — o
  * Computador, quando retomado, implementa a mesma porta para interfaces
  * externas. Nada de coordenadas fixas como base.
+ *
+ * Regras de segurança de interação:
+ * - Resolução EXPLÍCITA do controle-alvo: ao mencionar um controle, somente
+ *   ele é alterado; controles ambíguos ou não identificáveis recusam a ação
+ *   (pede esclarecimento ao usuário) em vez de alterar múltiplos controles.
+ * - Digitação SEM texto definido é recusada (nunca limpa o campo).
+ * - Seleção de select exige valor exato de opção (sem aproximação).
  */
 
 import { findSurface, type AppSurface, type SurfaceControl } from "./app-surface";
@@ -43,7 +50,9 @@ export function describePage(pageIdOrRoute: string, state?: PageState): PageDesc
       state: stateById.get(c.id),
     })),
     notes: [
-      state?.visibleText ? "texto visível informado pelo cliente (" + state.visibleText.length + " chars)" : "sem texto visual informado",
+      state?.visibleText
+        ? "texto visível informado pelo cliente: " + JSON.stringify(state.visibleText.slice(0, 220))
+        : "sem texto visual informado",
     ],
   };
 }
@@ -60,10 +69,56 @@ export function findControl(pageId: string, query: string): SurfaceControl | nul
   );
 }
 
+/** O objetivo menciona este controle? (id ou palavras do rótulo) */
+function controlMentioned(control: SurfaceControl, goalLower: string): boolean {
+  const idTail = (control.id.split(".").pop() ?? "").toLowerCase();
+  if (idTail.length > 3 && goalLower.includes(idTail)) return true;
+  return control.label
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .some((w) => w.length > 3 && goalLower.includes(w));
+}
+
+export type TargetResolution =
+  | { ok: true; control: SurfaceControl }
+  | { ok: false; reason: string };
+
+/**
+ * Resolução SEGURA do controle-alvo: somente UM controle. Se o objetivo
+ * menciona exatamente um controle compatível, ele é o alvo; se menciona
+ * mais de um, é ambíguo (recusa); se não menciona nenhum, só aceita quando
+ * existe EXATAMENTE um candidato na página — caso contrário, recusa pedindo
+ * esclarecimento.
+ */
+export function resolveTargetControl(
+  surface: AppSurface,
+  goalLower: string,
+  kinds?: Array<SurfaceControl["kind"]>
+): TargetResolution {
+  const pool = surface.controls.filter((c) =>
+    kinds ? kinds.includes(c.kind) : c.kind === "toggle" || c.kind === "select"
+  );
+  if (pool.length === 0) return { ok: false, reason: "nenhum controle compatível na página" };
+  const mentioned = pool.filter((c) => controlMentioned(c, goalLower));
+  if (mentioned.length > 1) {
+    return {
+      ok: false,
+      reason: "controles ambíguos para este comando (" + mentioned.map((c) => c.id).join(", ") + "); especifique qual controle alterar",
+    };
+  }
+  if (mentioned.length === 1) return { ok: true, control: mentioned[0] };
+  if (pool.length === 1) return { ok: true, control: pool[0] };
+  return {
+    ok: false,
+    reason: "não foi possível identificar o controle com segurança; especifique o nome do controle",
+  };
+}
+
 export type InteractionAction =
   | { type: "click"; control: string }
   | { type: "toggle"; control: string; to: boolean }
   | { type: "type"; control: string; text: string }
+  | { type: "select"; control: string; value: string }
   | { type: "navigate"; route: string };
 
 export type InteractionStep = {
@@ -73,9 +128,73 @@ export type InteractionStep = {
   verify?: { control?: string; expect?: string };
 };
 
+/** Expectativa de estado pós-ação (para verificação real no cliente). */
+export type StateExpectation = { id: string; expect: string | boolean | number };
+
+/**
+ * Verificação REAL pós-ação: compara o estado observado (snapshot do DOM)
+ * com o esperado. Estados ausentes são "unverifiable" (não confirmado);
+ * divergências são listadas em mismatches. Sucesso só é anunciado quando
+ * todas as expectativas são confirmadas.
+ */
+export function verifyInteractionExpectations(
+  expectations: StateExpectation[],
+  observed: Array<{ id: string; state?: string | boolean | number }>
+): { ok: boolean; mismatches: string[]; unverifiable: string[] } {
+  const byId = new Map(observed.map((o) => [o.id, o.state]));
+  const mismatches: string[] = [];
+  const unverifiable: string[] = [];
+  for (const e of expectations) {
+    if (!byId.has(e.id) || byId.get(e.id) === undefined) {
+      unverifiable.push(e.id);
+      continue;
+    }
+    const actual = byId.get(e.id);
+    if (actual !== e.expect) {
+      mismatches.push(e.id + ": esperado " + JSON.stringify(e.expect) + ", observado " + JSON.stringify(actual));
+    }
+  }
+  return { ok: mismatches.length === 0 && unverifiable.length === 0, mismatches, unverifiable };
+}
+
+/** Veredito da verificação pós-ação a partir da evidência real observada. */
+export type PostActionVerdict =
+  | { verdict: "confirmed"; detail: string }
+  | { verdict: "divergent"; detail: string }
+  | { verdict: "unverifiable"; detail: string };
+
+/**
+ * Classificação do resultado da verificação pós-ação. A evidência é
+ * SEMPRE o estado observado (snapshot) comparado às expectativas da
+ * ação original: resposta HTTP 200 ou texto do assistente NÃO comprova
+ * sucesso. Diferencia sucesso confirmado, divergência e resultado não
+ * verificável (nestes dois últimos, NUNCA declarar sucesso).
+ */
+export function classifyPostActionVerification(
+  check: { ok: boolean; mismatches: string[]; unverifiable: string[] },
+  hadExpectations: boolean
+): PostActionVerdict {
+  if (!hadExpectations) {
+    return { verdict: "unverifiable", detail: "ação sem expectativa de estado verificável" };
+  }
+  if (check.unverifiable.length > 0) {
+    return { verdict: "unverifiable", detail: "estado não observado para: " + check.unverifiable.join(", ") };
+  }
+  if (check.mismatches.length > 0) {
+    return { verdict: "divergent", detail: "estado divergente do esperado: " + check.mismatches.join("; ") };
+  }
+  return { verdict: "confirmed", detail: "todas as expectativas confirmadas no estado observado" };
+}
+
+function extractQuoted(goal: string): string {
+  const m = goal.match(/\bcom\s+["“](.+?)["”]/);
+  return m ? m[1] : "";
+}
+
 /**
  * Plano de interação estruturado (não coordenadas). Toggles sensíveis
- * exigem confirmação humana explícita.
+ * exigem confirmação humana explícita. Digitação sem texto e seleção sem
+ * valor exato são RECUSADAS (pedem esclarecimento) em vez de executadas.
  */
 export function planInteraction(pageId: string, goal: string): { steps: InteractionStep[]; refused?: string } {
   const surface = findSurface(pageId);
@@ -93,29 +212,71 @@ export function planInteraction(pageId: string, goal: string): { steps: Interact
     return { steps };
   }
 
+  const selectWords = /(selecione|escolha|defina)/;
+  if (selectWords.test(goalLower)) {
+    const value = extractQuoted(goal) || goal.match(/\bpara\s+["“](.+?)["”]/i)?.[1] || "";
+    if (!value) {
+      return { steps: [], refused: "valor da opção não especificado; pergunte ao usuário qual opção exata selecionar" };
+    }
+    const target = resolveTargetControl(surface, goalLower, ["select"]);
+    if (!target.ok) return { steps: [], refused: target.reason };
+    steps.push({
+      action: { type: "select", control: target.control.id, value },
+      instruction: "Selecionar a opção exata \"" + value + "\" em " + target.control.label,
+      sensitive: target.control.sensitive,
+      verify: { control: target.control.id, expect: value },
+    });
+    return { steps };
+  }
+
+  const typeWords = /(escreva|digite|preencha)/;
+  if (typeWords.test(goalLower)) {
+    const text = extractQuoted(goal);
+    if (!text) {
+      return { steps: [], refused: "texto a digitar não especificado; pergunte ao usuário (ação recusada para não limpar o campo)" };
+    }
+    const inputKinds: Array<SurfaceControl["kind"]> = ["input", "search", "textarea"];
+    const inputPool = surface.controls.filter((c) => inputKinds.includes(c.kind));
+    const resolved = resolveTargetControl(surface, goalLower, inputKinds);
+    let inputControl: SurfaceControl | null;
+    if (resolved.ok) inputControl = resolved.control;
+    else if (inputPool.length > 1) return { steps: [], refused: resolved.reason };
+    else inputControl = inputPool[0] ?? null;
+    if (!inputControl) return { steps: [], refused: "nenhum campo de entrada na página " + pageId };
+    steps.push({
+      action: { type: "type", control: inputControl.id, text },
+      instruction: "Digitar no campo " + inputControl.label + " preservando o texto exato informado",
+      verify: { control: inputControl.id, expect: text },
+    });
+    return { steps };
+  }
+
   const toggleWords = /(desativ|ativ|ligue|desligue|habilite|desabilite|marc|desmarc)/;
   const stateWords = /(está|esta|ativad|desativad|ligad|habilitad)/;
-  for (const control of surface.controls) {
-    if ((control.kind === "toggle" || control.kind === "select") && toggleWords.test(goalLower)) {
-      const to = !/desativ|deslig|desabil|desmarc/.test(goalLower);
-      steps.push({
-        action: { type: "toggle", control: control.id, to },
-        instruction: (to ? "Ativar " : "Desativar ") + control.label,
-        sensitive: control.sensitive,
-        verify: { control: control.id, expect: to ? "ativado" : "desativado" },
-      });
-    } else if (stateWords.test(goalLower) && (control.kind === "toggle" || control.kind === "select")) {
-      steps.push({
-        action: { type: "click", control: control.id },
-        instruction: "Verificar estado de " + control.label,
-        verify: { control: control.id },
-      });
-    }
+  if (toggleWords.test(goalLower)) {
+    const target = resolveTargetControl(surface, goalLower);
+    if (!target.ok) return { steps: [], refused: target.reason };
+    const to = !/desativ|deslig|desabil|desmarc/.test(goalLower);
+    steps.push({
+      action: { type: "toggle", control: target.control.id, to },
+      instruction: (to ? "Ativar " : "Desativar ") + target.control.label,
+      sensitive: target.control.sensitive,
+      verify: { control: target.control.id, expect: to ? "ativado" : "desativado" },
+    });
+    return { steps };
   }
-  if (steps.length === 0) {
-    return { steps: [], refused: "objetivo não mapeado para controles da página " + pageId };
+  if (stateWords.test(goalLower)) {
+    const target = resolveTargetControl(surface, goalLower);
+    if (!target.ok) return { steps: [], refused: target.reason };
+    steps.push({
+      action: { type: "click", control: target.control.id },
+      instruction: "Verificar estado de " + target.control.label,
+      verify: { control: target.control.id },
+    });
+    return { steps };
   }
-  return { steps };
+
+  return { steps: [], refused: "objetivo não mapeado para controles da página " + pageId };
 }
 
 const APP_SURFACE_ROUTES: Array<{ pageId: string; route: string }> = [
@@ -125,6 +286,7 @@ const APP_SURFACE_ROUTES: Array<{ pageId: string; route: string }> = [
   { pageId: "modelos", route: "/modelos" },
   { pageId: "planos", route: "/planos" },
   { pageId: "artemis", route: "/artemis" },
+  { pageId: "ajuda", route: "/ajuda" },
 ];
 
 /**

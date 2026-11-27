@@ -62,3 +62,106 @@ descoberta, percepção, voz, guiado). Integração (RUN_PG_TESTS):
 - Integração do plano de recuperação com execução real de missões multi-nó.
 - Percepção visual (o Computador, quando retomado, implementará a porta
   `InteractionExecutor` para interfaces externas).
+
+
+## Fase 2 — recuperação guiada por experiências, aprendizado, descoberta permanente e voz global
+
+Delta sobre a Fase 1 (PR #208, mergeada). Princípios mantidos: aprendizado
+NÃO concede autorização; persistência degrada graciosamente sem migrations;
+nada é declarado validado sem execução real.
+
+### Recuperação no dispatcher (guiada por experiências)
+
+- Em falha de tool, o dispatcher consulta as experiências aplicáveis do
+  usuário (findApplicableExperiences), reordena as alternativas AUTORIZADAS
+  pela experiência real (rankForRecovery) e registra a experiência de falha.
+- Retry único automático APENAS para obstáculos TRANSIENT (falha de
+  conexão, request tipicamente não processado) e TIMEOUT — este último
+  SOMENTE para tools registradas como idempotentes (IDEMPOTENT_TOOLS em
+  dispatch-recovery.ts, lista estrita). TIMEOUT pode significar sucesso
+  remoto: em tools não idempotentes a ação NÃO é repetida sem antes
+  verificar o estado, e o resultado é reportado como incerto
+  (TIMEOUT_UNCERTAIN_NOTE nos knownIssues). Sucesso no retry registra
+  experiência positiva (successExperienceFor), fechando o ciclo.
+- Quando a recuperação não resolve, o resultado do dispatch inclui
+  "knownIssues": resumo do que já se sabe falho (summarizeKnownIssues),
+  alimentando prompts e views. Sucesso após falha anterior da mesma tool
+  também registra experiência positiva (fechamento do ciclo no fluxo normal).
+- Integração pura em dispatch-recovery.ts (funções testáveis, sem I/O).
+
+### Aprendizado de ferramentas (API)
+
+- POST /api/agentic/knowledge: intake de documentação com redação de
+  segredos (redactSecrets) ANTES de qualquer parse/persistência; probes GET
+  apenas em hosts da allowlist do SERVIDOR (env PLUTAO_AGENTIC_PROBE_HOSTS).
+  Segurança SSRF (knowledge-intake.ts): fetch com redirect MANUAL — cada
+  destino de redirect é revalidado (allowlist + bloqueio de loopback,
+  privado, link-local, metadata em IPv4/IPv6, incluindo ::ffff:), a
+  resolução DNS é checada contra IP privado/local, com timeout e limite de
+  tamanho da resposta; a evidência é redigida (redactSecrets) antes de
+  persistir ou retornar. Conhecimento persistido como "tool-learning:<tool>"
+  com estado hypothesis/confirmed conforme probe.
+- GET /api/agentic/knowledge: lista o conhecimento aprendido.
+- Aprender NÃO autoriza execução: permissões e gates existentes seguem
+  intactos.
+
+### Descoberta permanente de capacidades (API)
+
+- GET /api/agentic/capabilities: inventário atual (registro estático +
+  aprendidas + superfícies), diff contra o último snapshot e plano de estudo.
+- POST /api/agentic/capabilities: salva snapshot versionado.
+- LIMITAÇÃO DOCUMENTADA: a descoberta é MANUAL (gerada em GET, gravada em
+  POST); NÃO há coleta contínua ou agendada nesta fase — o inventário não
+  deve ser apresentado como continuamente atualizado (a API declara
+  discoveryMode "manual").
+- Limites e retenção: máximo MAX_SNAPSHOTS_PER_USER (20) snapshots por
+  usuário e retenção de SNAPSHOT_RETENTION_DAYS (90) dias, com poda após
+  cada gravação (snapshotsToPrune). Todas as leituras e a poda filtram por
+  userId — nenhum usuário lê, modifica ou apaga snapshots de outro.
+- Nova tabela agentic_capability_snapshots (migration 0033 — aplicada no
+  Neon e verificada pelo mantenedor). Sem a tabela, a API responde com
+  disponibilidade degradada; nada quebra.
+
+### Percepção e interação ampliadas
+
+- Resolução SEGURA do controle-alvo (resolveTargetControl): ao mencionar um
+  controle, somente ele é alterado; controles ambíguos ou não identificáveis
+  RECUSAM a ação e pedem esclarecimento — nunca múltiplos controles.
+- planInteraction produz etapas de DIGITAÇÃO ("escreva/digite/preencha ...
+  com \"texto\"") mirando o campo de entrada semântico; digitação SEM texto
+  especificado é RECUSADA (nunca limpa o campo) e o texto informado é
+  preservado exatamente (maiúsculas/minúsculas).
+- Seleção de select com ação própria (type "select"): controle explícito +
+  valor EXATO da opção (sem aproximação); opção inexistente ou divergente
+  falha na verificação.
+- Leitura de tela usa o TEXTO REAL recebido no snapshot (visibleText), não
+  apenas seu tamanho nem uma finalidade estática.
+- Páginas não registradas NUNCA são assumidas como Chat: a superfície é
+  reportada como não identificada (pageIdForRoute + respostas neutras).
+- Superfície /ajuda registrada (app-surface, rotas de percepção e navegação
+  por voz).
+- NixVoiceAssist: executor completo (click, toggle, digitação com setter
+  nativo + evento input, seleção de opção com correspondência exata e
+  navegação), snapshot com valores reais e VERIFICAÇÃO REAL pós-ação:
+  o estado final do DOM é comparado com o esperado
+  (verifyInteractionExpectations) e a confirmação do servidor é exigida —
+  o sucesso ("Interação concluída e confirmada") só é anunciado quando o
+  estado é confirmado; estado divergente, não verificável ou falha de
+  verificação gera "Ação NÃO confirmada". Controles SENSÍVEIS exigem
+  confirmação falada explícita (confirmo/cancela); nada executa sem isso.
+
+### Voz global
+
+- Novo layout do grupo (app): NixVoiceAssist renderiza em TODAS as páginas
+  autenticadas (chat, cockpit, configurações, modelos, planos, artemis,
+  ajuda). O componente saiu do Chat para não duplicar.
+
+### Migrações e testes
+
+- 0032_agent_experiences (Fase 1) e 0033_agentic_capability_snapshots
+  (Fase 2) foram aplicadas no Neon e verificadas pelo mantenedor
+  (27/11/2026). Nenhuma migration adicional foi criada nestas correções.
+- Testes: unitários (dispatch-recovery, knowledge-intake,
+  capability-snapshot, voice-assist, ui-perception) e de integração pg
+  (capability-snapshot.pg.integration.test.ts, padrão dos demais: mock de
+  @/lib/db, node-postgres, bootstrap idempotente, limpeza por ids).

@@ -4,8 +4,12 @@ import {
   executeInteraction,
   findControl,
   planInteraction,
+  resolveTargetControl,
+  verifyInteractionExpectations,
   type InteractionExecutor,
-} from "../ui-perception";
+  type StateExpectation,
+  classifyPostActionVerification } from "../ui-perception";
+import type { AppSurface, SurfaceControl } from "../app-surface";
 
 describe("describePage", () => {
   it("descreve a página com estado declarado", () => {
@@ -20,12 +24,52 @@ describe("describePage", () => {
   it("retorna null para página desconhecida", () => {
     expect(describePage("/xpto")).toBeNull();
   });
+  it("leitura de tela usa o TEXTO REAL recebido, não apenas o tamanho", () => {
+    const d = describePage("/chat", { pageId: "chat", visibleText: "Saldo: R$ 42,00 hoje" });
+    expect(d?.notes.join(" ")).toContain("Saldo: R$ 42,00 hoje");
+  });
 });
 
 describe("findControl", () => {
   it("localiza controle por id e por rótulo", () => {
     expect(findControl("chat", "chat.send")?.id).toBe("chat.send");
     expect(findControl("chat", "mensagem")?.id).toBe("chat.input");
+  });
+});
+
+const duaToggles: AppSurface = {
+  pageId: "teste",
+  route: "/teste",
+  purpose: "página sintética para testes",
+  controls: [
+    { id: "t.faturamento", label: "Faturamento automático", kind: "toggle", testId: "faturamento-toggle" },
+    { id: "t.turbo", label: "Modo turbo", kind: "toggle", testId: "turbo-toggle" },
+  ] as SurfaceControl[],
+};
+
+describe("resolveTargetControl (resolução segura de controles)", () => {
+  it("menciona um controle específico → somente ele é o alvo", () => {
+    const r = resolveTargetControl(duaToggles, "ative o modo turbo");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.control.id).toBe("t.turbo");
+  });
+  it("menção a mais de um controle é ambígua e recusa", () => {
+    const r = resolveTargetControl(duaToggles, "ative o faturamento e o turbo");
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toContain("ambíguos");
+  });
+  it("sem menção e múltiplos candidatos recusa pedindo esclarecimento", () => {
+    const r = resolveTargetControl(duaToggles, "ative");
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toContain("especifique");
+  });
+  it("sem menção e um único candidato aceita", () => {
+    const single: AppSurface = { ...duaToggles, controls: [duaToggles.controls[0]] };
+    const r = resolveTargetControl(single, "ative");
+    expect(r.ok).toBe(true);
   });
 });
 
@@ -39,8 +83,88 @@ describe("planInteraction", () => {
     expect(plan.steps[0].action.type).toBe("toggle");
     expect(plan.steps[0].sensitive).toBe(true);
   });
+  it("SOMENTE o controle pretendido é alterado; os demais ficam intactos", () => {
+    const plan = planInteraction("configuracoes", "ative as notificações push");
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0].action.type).toBe("toggle");
+    if (plan.steps[0].action.type !== "toggle") throw new Error("tipo inesperado");
+    expect(plan.steps[0].action.control).toBe("config.notifications");
+    expect(plan.steps.map((s) => (s.action.type === "toggle" ? s.action.control : ""))).not.toContain("config.autonomy");
+  });
+  it("objetivo ambíguo entre controles é recusado sem executar nada", () => {
+    const plan = planInteraction("configuracoes", "ative");
+    expect(plan.steps).toHaveLength(0);
+    expect(plan.refused).toContain("especifique");
+  });
   it("recusa objetivo não mapeado", () => {
     expect(planInteraction("chat", "delete tudo")?.refused).toBeTruthy();
+  });
+  it("digitação: extrai texto após com e mira campo de entrada", () => {
+    const plan = planInteraction("chat", "escreva no campo de busca com \"plutão\"");
+    const step = plan.steps[0];
+    expect(step.action.type).toBe("type");
+    if (step.action.type !== "type") throw new Error("tipo inesperado");
+    expect(step.action.text).toBe("plutão");
+    expect(step.action.control).toBe("chat.input");
+  });
+  it("digitação PRESERVA maiúsculas, minúsculas e o texto original", () => {
+    const plan = planInteraction("chat", "escreva com \"Plutão OS v2, API-Key=AbC123\"");
+    const step = plan.steps[0];
+    if (step.action.type !== "type") throw new Error("tipo inesperado");
+    expect(step.action.text).toBe("Plutão OS v2, API-Key=AbC123");
+  });
+  it("digitação sem texto especificado é RECUSADA (não limpa o campo)", () => {
+    const plan = planInteraction("chat", "escreva no campo de busca");
+    expect(plan.steps).toHaveLength(0);
+    expect(plan.refused).toContain("não especificado");
+  });
+  it("digitação com texto vazio (aspas vazias) é RECUSADA", () => {
+    const plan = planInteraction("chat", 'escreva com ""');
+    expect(plan.steps).toHaveLength(0);
+    expect(plan.refused).toBeTruthy();
+  });
+  it("seleção de select: controle e valor exato da opção", () => {
+    const plan = planInteraction("modelos", 'selecione o modelo com "gemini"');
+    const step = plan.steps[0];
+    expect(step.action.type).toBe("select");
+    if (step.action.type !== "select") throw new Error("tipo inesperado");
+    expect(step.action.control).toBe("modelos.select");
+    expect(step.action.value).toBe("gemini");
+    expect(step.verify?.expect).toBe("gemini");
+  });
+  it("seleção sem valor especificado é recusada", () => {
+    const plan = planInteraction("modelos", "selecione o modelo");
+    expect(plan.steps).toHaveLength(0);
+    expect(plan.refused).toContain("valor da opção");
+  });
+  it("seleção em página sem select é recusada", () => {
+    const plan = planInteraction("planos", 'selecione com "x"');
+    expect(plan.steps).toHaveLength(0);
+    expect(plan.refused).toBeTruthy();
+  });
+  it("navega para a superfície de ajuda", () => {
+    const plan = planInteraction("chat", "abra a ajuda");
+    expect(plan.steps[0].action).toEqual({ type: "navigate", route: "/ajuda" });
+  });
+});
+
+describe("verifyInteractionExpectations (verificação real pós-ação)", () => {
+  it("sucesso confirmado quando o estado observado é igual ao esperado", () => {
+    const exps: StateExpectation[] = [{ id: "turbo-toggle", expect: true }];
+    const r = verifyInteractionExpectations(exps, [{ id: "turbo-toggle", state: true }]);
+    expect(r.ok).toBe(true);
+  });
+  it("estado divergente NÃO confirma sucesso", () => {
+    const exps: StateExpectation[] = [{ id: "turbo-toggle", expect: true }];
+    const r = verifyInteractionExpectations(exps, [{ id: "turbo-toggle", state: false }]);
+    expect(r.ok).toBe(false);
+    expect(r.mismatches[0]).toContain("turbo-toggle");
+  });
+  it("falha de verificação (estado ausente) é reportada como não verificável", () => {
+    const exps: StateExpectation[] = [{ id: "turbo-toggle", expect: true }];
+    const r = verifyInteractionExpectations(exps, []);
+    expect(r.ok).toBe(false);
+    expect(r.unverifiable).toContain("turbo-toggle");
   });
 });
 
@@ -61,5 +185,40 @@ describe("executeInteraction", () => {
     const out = await executeInteraction("configuracoes", plan.steps, executor, { confirmed: false });
     expect(out.completed).toBe(false);
     expect(out.refused).toContain("sensível");
+  });
+  it("seleção com opção inexistente/divergente falha na verificação pós-ação", async () => {
+    const plan = planInteraction("modelos", 'selecione o modelo com "gemini"');
+    const strict: InteractionExecutor = {
+      execute: async () => ({ ok: true, observed: "valor selecionado: outro-modelo" }),
+    };
+    const out = await executeInteraction("modelos", plan.steps, strict);
+    expect(out.completed).toBe(false);
+    expect(out.refused).toContain("verificação pós-ação falhou");
+  });
+});
+// Bloqueador 2 — verificação pós-ação vinculada à ação original.
+describe("classifyPostActionVerification (bloqueador 2)", () => {
+  it("confirma sucesso APENAS com evidência real do estado observado", () => {
+    const v = classifyPostActionVerification({ ok: true, mismatches: [], unverifiable: [] }, true);
+    expect(v.verdict).toBe("confirmed");
+    expect(v.detail).toContain("confirmadas");
+  });
+  it("resposta OK sem mudança real de estado é DIVERGÊNCIA, não sucesso", () => {
+    const v = classifyPostActionVerification({ ok: false, mismatches: ["cfg.autonomia: esperado false, observado true"], unverifiable: [] }, true);
+    expect(v.verdict).toBe("divergent");
+    expect(v.detail).toContain("divergente");
+  });
+  it("estado final divergente do esperado nunca confirma a ação", () => {
+    const v = classifyPostActionVerification({ ok: false, mismatches: ["a: esperado x, observado y"], unverifiable: [] }, true);
+    expect(v.verdict).toBe("divergent");
+  });
+  it("estado final impossível de verificar é NÃO VERIFICÁVEL (nunca sucesso)", () => {
+    const v = classifyPostActionVerification({ ok: false, mismatches: [], unverifiable: ["cfg.autonomia"] }, true);
+    expect(v.verdict).toBe("unverifiable");
+    expect(v.detail).toContain("cfg.autonomia");
+  });
+  it("ação sem expectativas verificáveis não é declarada sucesso", () => {
+    const v = classifyPostActionVerification({ ok: true, mismatches: [], unverifiable: [] }, false);
+    expect(v.verdict).toBe("unverifiable");
   });
 });

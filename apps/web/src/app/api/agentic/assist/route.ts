@@ -43,6 +43,7 @@ export async function POST(req: Request) {
   const response = respondToVoiceCommand(command, {
     pageId,
     hasPageState: Boolean(body.pageState),
+    visibleText: body.pageState?.visibleText,
   });
 
   const pageState = body.pageState ?? undefined;

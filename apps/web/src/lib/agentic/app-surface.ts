@@ -6,7 +6,7 @@
  * complementa; a base é SEMPRE a informação estruturada.
  */
 
-export type ControlKind = "toggle" | "button" | "input" | "select" | "nav" | "text";
+export type ControlKind = "toggle" | "button" | "input" | "search" | "textarea" | "select" | "nav" | "text";
 
 export type SurfaceControl = {
   id: string;
@@ -55,6 +55,7 @@ export const APP_SURFACES: AppSurface[] = [
     purpose: "Configurações do usuário: preferências, conectores, autonomia do agente.",
     controls: [
       { id: "config.autonomy", label: "Modo de autonomia do agente", kind: "select", stateKey: "users.preferences.autonomyMode", sensitive: true, description: "standard/elevated/full — controla atrito de aprovação de escritas." },
+      { id: "config.notifications", label: "Notificações push", kind: "toggle", testId: "notifications-toggle", stateKey: "users.preferences.pushNotifications" },
     ],
   },
   {
@@ -75,6 +76,12 @@ export const APP_SURFACES: AppSurface[] = [
     pageId: "artemis",
     route: "/artemis",
     purpose: "Painel do dispositivo Artemis (execução em device físico).",
+    controls: [],
+  },
+  {
+    pageId: "ajuda",
+    route: "/ajuda",
+    purpose: "Ajuda e informações do sistema: tutoriais, diagnóstico e documentação.",
     controls: [],
   },
 ];
