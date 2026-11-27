@@ -157,6 +157,20 @@ export function pickFallbackConfig(primary: ModelConfig): ModelConfig | null {
       model: "llama-3.3-70b-versatile",
       baseUrl: "https://api.groq.com/openai/v1",
     });
+    // Quando a primária JÁ é a rota Groq/llama, oferecer um modelo DISTINTO
+    // na MESMA rota (mesma chave), para o fallback não esbarrar em "sem
+    // alternativa" quando só existe uma credencial configurada.
+    if (
+      primary.baseUrl === "https://api.groq.com/openai/v1" &&
+      primary.model !== "deepseek-r1-distill-llama-70b"
+    ) {
+      candidates.push({
+        provider: "openai",
+        apiKey: groqKey,
+        model: "deepseek-r1-distill-llama-70b",
+        baseUrl: "https://api.groq.com/openai/v1",
+      });
+    }
   }
   return (
     candidates.find(
