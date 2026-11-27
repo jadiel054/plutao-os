@@ -7,8 +7,8 @@ import {
   resolveTargetControl,
   verifyInteractionExpectations,
   type InteractionExecutor,
-  type StateExpectation,
-, classifyPostActionVerification } from "../ui-perception";
+  type StateExpectation,,
+  classifyPostActionVerification } from "../ui-perception";
 import type { AppSurface, SurfaceControl } from "../app-surface";
 
 describe("describePage", () => {
