@@ -10,7 +10,7 @@ import { loadConnectorRuntime, runConnectedConnectorTools, type ConnectorRuntime
 import { detectSuggestedConnectors } from "@/lib/chat/suggestConnectors";
 import { buildFollowUps } from "@/lib/chat/buildFollowUps";
 import { getModelConfig } from "@/lib/runtime/model/config";
-import { resolveCloudModelConfig } from "@/lib/runtime/model/resolveConfig";
+import { pickFallbackConfig, resolveCloudModelConfig } from "@/lib/runtime/model/resolveConfig";
 import { chatCompletion, streamChatCompletion } from "@/lib/runtime/model/client";
 import type { ModelConfig, ModelMessage, MultimodalContentPart } from "@/lib/runtime/model/types";
 import { VISION_CAPABLE_PROVIDERS, buildImageParts } from "@/lib/runtime/model/imageParts";
@@ -334,6 +334,7 @@ export async function POST(req: NextRequest) {
         id: users.id,
         plan: users.plan,
         preferredModel: users.preferredModel,
+        preferences: users.preferences,
       })
       .from(users)
       .where(eq(users.id, user.id))
@@ -341,6 +342,9 @@ export async function POST(req: NextRequest) {
 
     const userRecord = userRows[0];
     const planDef = getPlanDefinition(userRecord?.plan);
+    // Preferência do usuário: fallback automático de modelo (default ON).
+    const autoFallbackEnabled =
+      (userRecord?.preferences as { model?: { autoFallback?: boolean } } | null)?.model?.autoFallback !== false;
 
     // 2. Query today's usage_counters
     const todayStr = new Date().toISOString().split("T")[0];
@@ -797,9 +801,8 @@ ${
                 }
               }
             } catch (err) {
-              const isGemini = streamModelConfig.provider === "gemini";
-              const fallbackConfig = isGemini ? getModelConfig() : null;
-              if (isGemini && fallbackConfig) {
+              const fallbackConfig = autoFallbackEnabled ? pickFallbackConfig(streamModelConfig) : null;
+              if (fallbackConfig) {
                 streamModelConfig = fallbackConfig;
                 modelFallback = true;
                 rawFullOutput = "";
@@ -1213,14 +1216,13 @@ ${
     try {
       result = await chatCompletion(effectiveModelConfig, payloadMessages);
     } catch (err) {
-      const isGemini = effectiveModelConfig.provider === "gemini";
-      const fallbackConfig = isGemini ? getModelConfig() : null;
+      const fallbackConfig = autoFallbackEnabled ? pickFallbackConfig(effectiveModelConfig) : null;
 
       const errMsg = sanitizeError(err);
       const isClient4xx = /\b(400|401|403|413|422)\b/.test(errMsg) && !/\b(408|429)\b/.test(errMsg);
 
-      if (isGemini && fallbackConfig && !isClient4xx) {
-        console.warn("[chat] Gemini indisponível, fallback para", fallbackConfig.model, "-", errMsg);
+      if (fallbackConfig && !isClient4xx) {
+        console.warn("[chat] Provedor primário indisponível, fallback para", fallbackConfig.model, "-", errMsg);
 
         if (VISION_CAPABLE_PROVIDERS.includes(fallbackConfig.provider) && validatedArtifacts.length > 0) {
           const imageParts = await buildImageParts(validatedArtifacts);
