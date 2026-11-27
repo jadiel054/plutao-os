@@ -33,8 +33,14 @@ describe("respondToVoiceCommand", () => {
     expect(r.navigateTo).toBe("/cockpit");
   });
   it("toggle em página com controles gera interação; sensível pede confirmação", () => {
-    const r = respondToVoiceCommand(parseVoiceCommand("desative essa configuração"), { pageId: "configuracoes" });
+    const r = respondToVoiceCommand(parseVoiceCommand("desative o modo de autonomia do agente"), { pageId: "configuracoes" });
     expect(r.interaction?.steps.length).toBeGreaterThan(0);
+    expect(r.interaction?.steps[0].sensitive).toBe(true);
+  });
+  it("comando VAGO sem controle identificável é recusado (sem interação)", () => {
+    const r = respondToVoiceCommand(parseVoiceCommand("desative essa configuração"), { pageId: "configuracoes" });
+    expect(r.interaction).toBeUndefined();
+    expect(r.refused).toBeTruthy();
   });
   it("leitura de tela pede snapshot quando não há estado", () => {
     const r = respondToVoiceCommand(parseVoiceCommand("leia o que está escrito"), { pageId: "chat" });
