@@ -17,6 +17,7 @@ import { SettingsMcpGrantsSection } from "@/components/SettingsMcpGrantsSection"
 import { SettingsVoiceSection } from "@/components/SettingsVoiceSection";
 import { SettingsAppearanceSection } from "@/components/SettingsAppearanceSection";
 import { applyFontScale } from "@/components/FontScaleBootstrap";
+import { writeAppearancePrefs } from "@/lib/appearance";
 import { ConsentCenterShortcut } from "@/components/ConsentCenterShortcut";
 import { useModelMode } from "@/hooks/useModelMode";
 
@@ -100,6 +101,9 @@ export default function SettingsPage() {
   const setFontScale = useCallback((value: FontScale) => {
     setFontScaleState(value);
     applyFontScale(value);
+    // Persiste MESCLANDO (preserva tema/densidade/idioma), aplica na hora e
+    // notifica a mesma aba — sem exigir reload.
+    writeAppearancePrefs({ fontScale: value });
   }, []);
 
   const loadData = useCallback(async () => {
@@ -257,11 +261,10 @@ export default function SettingsPage() {
       // Persistir no cache local
       if (typeof window !== "undefined") {
         localStorage.setItem("plutao_pref_notifications", JSON.stringify(notifPayload));
-        localStorage.setItem(
-          "plutao_pref_appearance",
-          JSON.stringify({ theme: themeMode, density: densityMode, language, fontScale })
-        );
       }
+      // Aparência: escrita canônica MESCLANDO, aplicando imediatamente (mesma aba)
+      // e notificando via CustomEvent — tema/densidade/idioma valem sem reload.
+      writeAppearancePrefs({ theme: themeMode, density: densityMode, language, fontScale });
       addToast("Configurações salvas com sucesso!", "success", "Salvo");
     } catch {
       addToast("Erro ao salvar algumas configurações", "error");
