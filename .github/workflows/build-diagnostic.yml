@@ -7,6 +7,9 @@ on:
 env:
   ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 
+permissions:
+  pull-requests: write
+
 jobs:
   diag:
     runs-on: ubuntu-latest
@@ -24,14 +27,26 @@ jobs:
 
       - name: Test (full)
         run: |
-          npm run test 2>&1 | tail -200 > /tmp/t.txt || true
-          cat /tmp/t.txt
-          grep -E "FAIL|Test Files|Tests  " /tmp/t.txt | while read -r line; do echo "::error::$line"; done || true
+          set -o pipefail
+          npm run test 2>&1 | tee /tmp/t.txt > /dev/null
+
+      - name: Comment test log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/t.txt > /tmp/x.txt
+          gh pr comment 209 --body-file /tmp/x.txt || true
 
       - name: Build web
-        if: always()
         run: |
           set -o pipefail
-          NODE_ENV=production npm run build -w apps/web 2>&1 | tail -200 > /tmp/b.txt || true
-          cat /tmp/b.txt
-          grep -iE "error|failed to compile|failed to build" /tmp/b.txt | head -40 | while read -r line; do echo "::error::$line"; done || true
+          NODE_ENV=production npm run build -w apps/web 2>&1 | tee /tmp/b.txt > /dev/null
+
+      - name: Comment build log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 6000 /tmp/b.txt > /tmp/y.txt
+          gh pr comment 209 --body-file /tmp/y.txt || true
