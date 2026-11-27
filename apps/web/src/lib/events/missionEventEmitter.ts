@@ -8,7 +8,8 @@
  * quebrar a execução.
  */
 
-import { appendConversationEvent, type ConversationEventDTO } from "./appendConversationEvent";
+import { appendConversationEvent } from "./appendConversationEvent";
+import type { ConversationEventDTO } from "./types";
 
 export type MissionEventPhase = "started" | "result" | "failed" | "completed" | "linked";
 
