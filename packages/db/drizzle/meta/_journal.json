@@ -30,6 +30,7 @@
     { "idx": 25, "version": "7", "when": 1791374760000, "tag": "0027_artemis_tasks", "breakpoints": true },
     { "idx": 26, "version": "7", "when": 1794299081000, "tag": "0028_mcp_write_consent", "breakpoints": true },
     { "idx": 27, "version": "7", "when": 1794299141000, "tag": "0030_task_graph_node", "breakpoints": true },
-    { "idx": 28, "version": "7", "when": 1795766400000, "tag": "0031_computer_sessions", "breakpoints": true }
+    { "idx": 28, "version": "7", "when": 1795766400000, "tag": "0031_computer_sessions", "breakpoints": true },
+    { "idx": 29, "version": "7", "when": 1795766460000, "tag": "0032_agent_experiences", "breakpoints": true }
   ]
 }

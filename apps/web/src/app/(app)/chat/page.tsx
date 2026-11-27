@@ -31,6 +31,7 @@ import {
 } from "@/lib/chat/chatScroll";
 import { NixAvatar } from "@/components/chat/nix/NixAvatar";
 import { WelcomeHero } from "@/components/chat/WelcomeHero";
+import { NixVoiceAssist } from "@/components/chat/NixVoiceAssist";
 import { SendMessageButton } from "@/components/SendMessageButton";
 import { createMissionIntake } from "@/lib/missions/intakeClient";
 import {
@@ -2184,7 +2185,8 @@ function ChatPageInner() {
         onError={(msg) => addToast(msg, "error")}
       />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-    </div>
+      <NixVoiceAssist />
+  </div>
   );
 }
 

@@ -456,3 +456,37 @@ export const runtimeJobs = pgTable(
     index("runtime_jobs_locked_at_idx").on(t.lockedAt),
   ]
 );
+
+/**
+ * Núcleo agêntico — registro de experiências operacionais
+ * (obstáculos, métodos que funcionaram/falharam, conhecimento operacional).
+ * Migration: 0032_agent_experiences (aplicação manual no Neon pelo mantenedor).
+ */
+export const agentExperiences = pgTable(
+  "agent_experiences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull(),
+    kind: text("kind").notNull(),
+    method: text("method").notNull(),
+    cause: text("cause"),
+    obstacleKind: text("obstacle_kind"),
+    failedMethod: text("failed_method"),
+    alternatives: jsonb("alternatives").notNull().default([]),
+    evidence: jsonb("evidence").notNull().default([]),
+    limitations: jsonb("limitations").notNull().default([]),
+    usefulFor: jsonb("useful_for").notNull().default([]),
+    requirements: jsonb("requirements").notNull().default({}),
+    missionId: uuid("mission_id"),
+    conversationId: uuid("conversation_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("agent_experiences_user_subject_idx").on(t.userId, t.subject),
+    index("agent_experiences_user_id_idx").on(t.userId),
+  ]
+);
