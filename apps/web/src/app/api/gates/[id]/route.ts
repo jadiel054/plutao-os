@@ -25,7 +25,8 @@ import { getOwnedExecution } from "@/lib/runtime/service";
 import { releaseRuntimeJobAfterApproval as releaseDurableRuntimeJob } from "@/lib/runtime/durableJobs";
 import { MISSION_BATCH_CAPABILITY } from "@/lib/missions/missionApproval";
 import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
-import { enqueueChatBuildJob, type ChatBuildPlan } from "@/lib/chat/buildJobs";
+import { enqueueChatBuildJob } from "@/lib/chat/buildJobs";
+import type { ChatBuildPlan } from "@/lib/chat/buildPlan";
 
 export const runtime = "nodejs";
 /** Allow long autonomous cycles post-gate approval on Vercel Pro (Hobby caps lower). */
