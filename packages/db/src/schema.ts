@@ -421,7 +421,7 @@ export const messages = pgTable(
 );
 
 
-/** Fila durável do runtime autônomo; um job por execution, retomável após lease expirar. */
+/** Fila durável do runtime: missions (kind mission_execution) e criação no Chat (kind chat_build, missionId/executionId null — migration 0035). */
 export const runtimeJobs = pgTable(
   "runtime_jobs",
   {
@@ -429,11 +429,15 @@ export const runtimeJobs = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    missionId: uuid("mission_id")
-      .notNull()
-      .references(() => missions.id, { onDelete: "cascade" }),
+    /**
+     * Nullable a partir da migration 0035 (aplicação manual no Neon):
+     * jobs kind="chat_build" (criação de sistemas no Chat) não têm missão
+     * nem execution do Cockpit.
+     */
+    missionId: uuid("mission_id").references(() => missions.id, {
+      onDelete: "cascade",
+    }),
     executionId: uuid("execution_id")
-      .notNull()
       .references(() => executions.id, { onDelete: "cascade" })
       .unique(),
     kind: text("kind").notNull().default("mission_execution"),

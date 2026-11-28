@@ -59,7 +59,7 @@ describe("Chat Build Runtime (criação na conversa, sem missão)", () => {
     if (!traversal.ok) expect(traversal.error).toBe("PATH_TRAVERSAL");
   });
 
-  it("fail-closed: tools de conector/externas não existem no fluxo de criação", async () => {
+  it("tools externas (github) agora fazem parte do fluxo de criação e falham com erro de conector/gate — nunca TOOL_NOT_AVAILABLE_IN_BUILD", async () => {
     const res = await dispatchChatBuildTool({
       name: "github",
       input: JSON.stringify({ action: "repo_create", name: "x" }),
@@ -67,7 +67,7 @@ describe("Chat Build Runtime (criação na conversa, sem missão)", () => {
       conversationId: CONV_ID,
     });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toBe("TOOL_NOT_AVAILABLE_IN_BUILD");
+    if (!res.ok) expect(res.error).not.toBe("TOOL_NOT_AVAILABLE_IN_BUILD");
   });
 
   it("extrai arquivos escritos/gerados do resultado das tools", () => {
