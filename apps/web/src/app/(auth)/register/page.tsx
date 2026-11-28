@@ -34,7 +34,7 @@ export default function RegisterPage() {
       const realEmail =
         typeof data.user?.email === "string" ? data.user.email : email;
       migrateGuestChatLocalStorage(realEmail);
-      router.push("/cockpit");
+      router.push("/chat");
       router.refresh();
     } catch {
       setError("Erro de rede ao cadastrar usuário");

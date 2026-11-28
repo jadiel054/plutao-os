@@ -586,9 +586,8 @@ function ChatPageInner() {
               if (importData.imported) {
                 localStorage.setItem(importFlagKey, "true");
                 await refreshConversations();
-                if (importData.conversationId) {
-                  await selectConversation(importData.conversationId);
-                }
+                // A conversa importada fica preservada no histórico, mas NÃO é
+                // selecionada automaticamente: a entrada continua em um Chat novo.
               }
             }
           } catch { /* ignore import failure */ }
@@ -596,18 +595,19 @@ function ChatPageInner() {
           const fromConvQuery = searchParams.get("conversation");
           if (fromConvQuery && convs.some((c) => c.id === fromConvQuery)) {
             await selectConversation(fromConvQuery);
-          } else {
-            await selectConversation(convs[0].id);
           }
+          // Sem ?conversation= na URL: abre um Chat novo e limpo.
+          // A última conversa NÃO é restaurada automaticamente; o histórico
+          // permanece acessível pelo drawer.
         }
 
-        const savedMission = localStorage.getItem(`plutao_chat_mission_${email}`);
+        // Apenas ?mission= explícito ativa o contexto de missão na entrada.
+        // Uma missão anterior não é restaurada automaticamente do localStorage;
+        // as missões permanecem acessíveis manualmente pelo Cockpit.
         const fromQuery = searchParams.get("mission");
         if (fromQuery) {
           setActiveMissionId(fromQuery);
           localStorage.setItem(`plutao_chat_mission_${email}`, fromQuery);
-        } else if (savedMission) {
-          setActiveMissionId(savedMission);
         }
       }
       await refreshMissions();
@@ -1664,6 +1664,7 @@ function ChatPageInner() {
 
       <main className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden p-4">
         {messages.length === 0 ? (
+          <div className="chat-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <WelcomeHero
             agentName={agentName}
             agentIdentity={agentIdentity}
@@ -1701,6 +1702,7 @@ function ChatPageInner() {
               void handleSend(undefined, action.prompt);
             }}
           />
+          </div>
         ) : (
           <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="chat-scroll min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain pb-5">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)]/40 bg-[var(--bg)]/85 pb-2 text-[10px] text-[var(--text-muted)] backdrop-blur-md">

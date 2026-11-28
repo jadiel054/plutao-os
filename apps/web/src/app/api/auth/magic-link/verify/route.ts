@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
       ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
     });
 
-    const res = NextResponse.redirect(`${baseUrl}/cockpit`);
+    const res = NextResponse.redirect(`${baseUrl}/chat`);
     await setSessionCookie(sessionToken, expiresAt);
 
     return res;

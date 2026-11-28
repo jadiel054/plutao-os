@@ -5,7 +5,7 @@ import { App } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 
 function safeNextPath(value: string | null): string {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/cockpit";
+  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/chat";
 }
 
 /**

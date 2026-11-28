@@ -8,7 +8,7 @@ import { setSessionCookie } from "@/lib/auth/cookies";
 export const runtime = "nodejs";
 
 function safeNextPath(raw: string | null): string {
-  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/cockpit";
+  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/chat";
 }
 
 /**
