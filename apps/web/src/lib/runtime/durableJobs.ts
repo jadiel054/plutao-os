@@ -492,7 +492,8 @@ export async function reconcileRuntimeJobStates(limit = 100) {
     if (updated[0]) {
       repaired.push({
         jobId: row.jobId,
-        executionId: row.executionId,
+        // chat_build não tem execution (migration 0035); reconcile só afeta missões.
+        executionId: row.executionId ?? "",
         from: String(row.jobStatus),
         to: next,
       });
