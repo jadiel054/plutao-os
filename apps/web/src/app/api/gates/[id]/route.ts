@@ -25,6 +25,7 @@ import { getOwnedExecution } from "@/lib/runtime/service";
 import { releaseRuntimeJobAfterApproval as releaseDurableRuntimeJob } from "@/lib/runtime/durableJobs";
 import { MISSION_BATCH_CAPABILITY } from "@/lib/missions/missionApproval";
 import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
+import { enqueueChatBuildJob, type ChatBuildPlan } from "@/lib/chat/buildJobs";
 
 export const runtime = "nodejs";
 /** Allow long autonomous cycles post-gate approval on Vercel Pro (Hobby caps lower). */
@@ -203,6 +204,50 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       }
     }
     return NextResponse.json({ ok: true, status: "executed", output: "Plano da missão autorizado." });
+  }
+
+  // Aprovação inicial da CRIAÇÃO NO CHAT (provider "chat_build"). Não há
+  // provider externo a executar: o gate aprovado é finalizado e a execução
+  // durável do plano é enfileirada (job kind "chat_build", missionId null),
+  // com wake do worker. Idempotente: build ativo existente não é duplicado.
+  if (gate.provider === "chat_build" && gate.capability === "build_plan") {
+    const approvedPlan = await approveGate(id, user.id);
+    if (!approvedPlan) {
+      return NextResponse.json({ error: "gate_not_pending", status: gate.status }, { status: 409 });
+    }
+    await finalizeGateExecution(id, user.id, {
+      ok: true,
+      output: "Plano de criação autorizado. Execução durável iniciada.",
+    });
+    const planPayload = (gate.payload || {}) as {
+      conversationId?: string;
+      plan?: ChatBuildPlan;
+      userText?: string;
+    };
+    const planConversationId =
+      typeof planPayload.conversationId === "string" && planPayload.conversationId
+        ? planPayload.conversationId
+        : gate.target;
+    try {
+      const enqueued = await enqueueChatBuildJob({
+        userId: user.id,
+        conversationId: planConversationId,
+        gateId: gate.id,
+        plan: planPayload.plan ?? null,
+        userText: planPayload.userText ?? "",
+      });
+      await publishRuntimeWorkerWake("mission_enqueued", { delaySeconds: 0 });
+      return NextResponse.json({
+        ok: true,
+        status: "executed",
+        output: "Plano de criação autorizado. Execução durável iniciada em segundo plano.",
+        jobId: enqueued.job.id,
+      });
+    } catch (e) {
+      const message = sanitizeText(e instanceof Error ? e.message : String(e));
+      await failUnconsumedGate(id, user.id, "falha ao enfileirar a execução durável do plano de criação");
+      return NextResponse.json({ ok: false, status: "failed", error: message }, { status: 502 });
+    }
   }
 
   const provider = String(gate.provider || "");

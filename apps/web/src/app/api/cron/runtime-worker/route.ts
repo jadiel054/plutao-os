@@ -25,6 +25,10 @@ import { sanitizeError } from "@/lib/security/sanitize";
 import { getMissionGraphSerialOrder } from "@plutao/domain";
 import { ensurePersistedMissionGraph } from "@/lib/missions/graphPersistence";
 import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
+import { CHAT_BUILD_JOB_KIND, parseChatBuildJobPayload, updateChatBuildJobState } from "@/lib/chat/buildJobs";
+import { runChatBuildFlow } from "@/lib/chat/buildRunner";
+import { emitObservation } from "@/lib/events/appendConversationEvent";
+import { getModelConfig } from "@/lib/runtime/model/config";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -93,6 +97,91 @@ export async function POST(req: NextRequest) {
     });
 
     try {
+      // Execução durável da CRIAÇÃO NO CHAT (kind "chat_build"): não existe
+      // missão nem execution do Cockpit neste caminho. O estado do build é
+      // checkpoint no payload do job; "continuing" re-enfileira com retomada
+      // automática; conclusão exige status terminal do fluxo de criação.
+      if (job.kind === CHAT_BUILD_JOB_KIND) {
+        const cbPayload = parseChatBuildJobPayload(job.payload);
+        if (!cbPayload) throw new Error("CHAT_BUILD_JOB_PAYLOAD_INVALID");
+        if (!(await getOwnedConversation(cbPayload.conversationId, job.userId))) {
+          throw new Error("CONVERSATION_NOT_FOUND");
+        }
+        const buildModelConfig = getModelConfig();
+        if (!buildModelConfig) throw new Error("MODEL_NOT_CONFIGURED");
+        const buildBudgetMs = Math.max(30_000, WORKER_TIME_BUDGET_MS - (Date.now() - startedAt) - 20_000);
+        const run = await runChatBuildFlow({
+          userId: job.userId,
+          conversationId: cbPayload.conversationId,
+          userText: cbPayload.userText,
+          history: [],
+          modelConfig: buildModelConfig,
+          initialState: cbPayload.buildState,
+          budgetMs: buildBudgetMs,
+          maxIterations: 12,
+          heartbeat: async () => {
+            const renewed = await renewRuntimeJobLease(job.id, job.lockToken ?? "");
+            return Boolean(renewed);
+          },
+        });
+
+        if (!run.executed) {
+          if (run.reason === "build_already_running") {
+            // Lock por conversa segurado por outra instância: volta para a fila.
+            const requeued = await continueRuntimeJob(job.id, job.lockToken ?? "");
+            if (requeued?.status === "PENDING") {
+              await publishRuntimeWorkerWake("graph_continued", { delaySeconds: 0 });
+              drainContinuation = true;
+            }
+            processed.push({ id: job.id, status: requeued?.status ?? "PENDING", kind: "chat_build", note: "build_already_running" });
+            continue;
+          }
+          throw new Error("CHAT_BUILD_MODEL_FAILED");
+        }
+
+        if (run.status === "continuing" && run.continuationState) {
+          await updateChatBuildJobState(job.id, { ...cbPayload, buildState: run.continuationState });
+          const continued = await continueRuntimeJob(job.id, job.lockToken ?? "");
+          if (continued?.status === "PENDING") {
+            await publishRuntimeWorkerWake("graph_continued", { delaySeconds: 0 });
+            drainContinuation = true;
+          }
+          try {
+            await emitObservation({
+              conversationId: cbPayload.conversationId,
+              tool: "chat_build",
+              ok: true,
+              outputOrError:
+                "Criação em andamento (execução durável): " + run.iterations + " etapa(s) acumulada(s), " +
+                (run.artifactsPersisted ?? 0) + " arquivo(s) entregue(s) como artifacts. A execução continua automaticamente.",
+              source: "chat_build",
+            });
+          } catch {
+            /* eventos são best-effort */
+          }
+          processed.push({ id: job.id, status: continued?.status ?? "PENDING", kind: "chat_build", note: "continuing" });
+          continue;
+        }
+
+        // completed | paused_for_human → job encerrado (SUCCEEDED). A pausa por
+        // controle humano é reportada nos eventos da conversa; uma retomada
+        // nova passa por nova mensagem/plano na conversa.
+        const buildCompleted = await completeRuntimeJob(job.id, job.lockToken ?? "", "SUCCEEDED");
+        await recordRuntimeTelemetry({
+          userId: job.userId,
+          requestId,
+          missionId: null,
+          executionId: null,
+          jobId: job.id,
+          status: "succeeded",
+          attempt: job.attempts,
+          durationMs: Date.now() - jobStartedAt,
+          metadata: { worker: true, kind: "chat_build", buildStatus: run.status ?? "completed", artifactsPersisted: run.artifactsPersisted ?? 0 },
+        });
+        processed.push({ id: job.id, status: buildCompleted?.status ?? "SUCCEEDED", kind: "chat_build", note: run.status ?? "completed" });
+        continue;
+      }
+
       let graphContinuation = false;
       let waitingApproval = false;
       if (payload.currentTaskId && !(await getOwnedTaskInMission(payload.currentTaskId, job.missionId, job.userId))) {

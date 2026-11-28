@@ -21,7 +21,8 @@ import {
   hasNumberedPlan,
 } from "@/lib/missions/autoMissionRules";
 import { classifyChatIntent } from "@/lib/chat/intent";
-import { runChatBuildFlow, type ChatBuildResult } from "@/lib/chat/buildRunner";
+import type { ChatBuildResult } from "@/lib/chat/buildRunner";
+import { handleChatBuildRequest } from "@/lib/chat/buildJobs";
 import { recordModelError } from "@/lib/missions/recordModelError";
 import { buildReasoningSteps } from "@/lib/chat/buildReasoningSteps";
 import { redactSecrets, secretExposureNotice } from "@/lib/security/credentials";
@@ -499,7 +500,12 @@ export async function POST(req: NextRequest) {
       const buildModelConfig = customModelConfig ?? getModelConfig();
       if (buildModelConfig) {
         try {
-          const flow = await runChatBuildFlow({
+          // Ciclo de vida da criação no Chat: plano → aprovação inicial única
+          // (Write Gate chat_build/build_plan, card no próprio Chat) →
+          // execução durável (job kind "chat_build" com checkpoint e retomada
+          // automática). Nenhuma tool de escrita/execução roda antes da
+          // aprovação; a criação continua separada de missões do Cockpit.
+          const outcome = await handleChatBuildRequest({
             userId: user.id,
             conversationId: activeConversationId,
             userText: lastUserText,
@@ -507,11 +513,43 @@ export async function POST(req: NextRequest) {
             modelConfig: buildModelConfig,
             connectorBlock: connectorSnap.systemBlock,
           });
-          if (flow.executed) {
-            buildResult = flow;
-            buildNotice = "\n\n" + flow.notice;
-          } else if (flow.reason === "model_not_configured" && flow.notice) {
-            buildNotice = "\n" + flow.notice;
+          if (outcome.mode === "queued") {
+            buildResult = {
+              executed: true,
+              iterations: 0,
+              steps: [],
+              files: [],
+              finalText: "",
+              notice:
+                "\n\nRUNTIME NOTICE (CRIAÇÃO NO CHAT): o plano foi APROVADO e a execução durável está enfileirada/em andamento (job " +
+                outcome.jobId +
+                "). O progresso aparece nos eventos desta conversa e os arquivos são entregues como artifacts acessíveis ao usuário. Informe que a criação está rodando em segundo plano com checkpoints e retomada automática; NÃO invente arquivos ou resultados que ainda não chegaram como eventos/artifacts.",
+            };
+          } else if (outcome.mode === "plan_created") {
+            buildResult = {
+              executed: true,
+              iterations: 0,
+              steps: [],
+              files: [],
+              finalText: "",
+              notice:
+                "\n\nRUNTIME NOTICE (CRIAÇÃO NO CHAT): NENHUMA ferramenta de escrita/execução foi executada ainda. Apresente AO USUÁRIO, de forma fiel e completa, o plano aprovável abaixo. Um card de aprovação foi gerado nesta conversa; AGUARDE a aprovação dele antes de qualquer execução e NÃO prometa execução antecipada. Nenhuma missão foi criada; não cite missões nem o Cockpit.\n\nPLANO:\n" +
+                outcome.planText,
+            };
+          } else if (outcome.mode === "awaiting_approval") {
+            buildResult = {
+              executed: true,
+              iterations: 0,
+              steps: [],
+              files: [],
+              finalText: "",
+              notice:
+                "\nRUNTIME NOTICE (CRIAÇÃO NO CHAT): já existe um plano de criação aguardando aprovação (gate " +
+                outcome.gateId +
+                "). Nada foi executado. Oriente o usuário a aprovar ou recusar o card desta conversa.",
+            };
+          } else if (outcome.notice) {
+            buildNotice = "\n" + outcome.notice;
           }
         } catch (e) {
           console.error("[chat build flow]", e);
