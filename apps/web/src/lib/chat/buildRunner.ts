@@ -251,7 +251,7 @@ export async function runChatBuildFlow(opts: {
   /** Teto de iterações desta fatia (default: CHAT_BUILD_MAX_ITERATIONS). */
   maxIterations?: number;
   /** Heartbeat cooperativo: renova o lease do job durável a cada passo. */
-  onHeartbeat?: () => void | Promise<void>;
+  onHeartbeat?: () => unknown;
 }): Promise<ChatBuildResult | ChatBuildSkip> {
   const startedAt = Date.now();
   const deadlineMs = opts.budgetMs ?? CHAT_BUILD_MAX_DURATION_MS;
