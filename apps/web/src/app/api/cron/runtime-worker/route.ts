@@ -184,7 +184,12 @@ export async function POST(req: NextRequest) {
 
       let graphContinuation = false;
       let waitingApproval = false;
-      if (payload.currentTaskId && !(await getOwnedTaskInMission(payload.currentTaskId, job.missionId, job.userId))) {
+      // Jobs de missão exigem missão+execution (chat_build já seguiu outro
+      // caminho acima); estreita os tipos nullable da migration 0035.
+      if (!job.missionId || !job.executionId) throw new Error("MISSION_EXECUTION_FIELDS_REQUIRED");
+      const missionId: string = job.missionId;
+      const executionId: string = job.executionId;
+      if (payload.currentTaskId && !(await getOwnedTaskInMission(payload.currentTaskId, missionId, job.userId))) {
         throw new Error("TASK_NOT_FOUND_IN_MISSION");
       }
       if (payload.conversationId && !(await getOwnedConversation(payload.conversationId, job.userId))) {
@@ -194,7 +199,7 @@ export async function POST(req: NextRequest) {
       let execution = await getOwnedExecution(job.executionId, job.userId);
       if (!execution) throw new Error("EXECUTION_NOT_FOUND");
 
-      const mission = await getOwnedMission(job.missionId, job.userId);
+      const mission = await getOwnedMission(missionId, job.userId);
       if (!mission) throw new Error("MISSION_NOT_FOUND");
 
       // Uma missão cancelada/terminal não deve reanimar uma execution PENDING.
@@ -210,7 +215,7 @@ export async function POST(req: NextRequest) {
           execution = cancelled.execution ?? execution;
         }
       } else {
-        const missionGraph = await ensurePersistedMissionGraph(job.missionId, job.userId);
+        const missionGraph = await ensurePersistedMissionGraph(missionId, job.userId);
         if (!getMissionGraphSerialOrder(missionGraph)) {
           throw new Error("MISSION_GRAPH_SERIAL_LIMIT");
         }
@@ -224,9 +229,9 @@ export async function POST(req: NextRequest) {
 
         if (["RUNNING"].includes(String(execution.status))) {
           const runResult = await runAutonomousMissionServer({
-            missionId: job.missionId,
+            missionId: missionId,
             userId: job.userId,
-            executionId: job.executionId,
+            executionId: executionId,
             currentTaskId: payload.currentTaskId ?? null,
             maxIterations: payload.maxIterations,
             missionGraph,
@@ -241,8 +246,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const finalExecution = await getOwnedExecution(job.executionId, job.userId);
-      const finalMission = await getOwnedMission(job.missionId, job.userId);
+      const finalExecution = await getOwnedExecution(executionId, job.userId);
+      const finalMission = await getOwnedMission(missionId, job.userId);
 
       if (waitingApproval) {
         const waiting = await waitRuntimeJobForApproval(job.id, job.lockToken ?? "");
@@ -357,8 +362,12 @@ export async function POST(req: NextRequest) {
       }
     } catch (error) {
       const message = sanitizeError(error, "WORKER_EXCEPTION");
-      const finalExecution = await getOwnedExecution(job.executionId, job.userId).catch(() => null);
-      const finalMission = await getOwnedMission(job.missionId, job.userId).catch(() => null);
+      const finalExecution = job.executionId
+        ? await getOwnedExecution(job.executionId, job.userId).catch(() => null)
+        : null;
+      const finalMission = job.missionId
+        ? await getOwnedMission(job.missionId, job.userId).catch(() => null)
+        : null;
       const outcome = resolveRuntimeJobOutcome({ error: message }, finalExecution?.status, finalMission?.status);
       if (outcome.action === "cancel") {
         await completeRuntimeJob(job.id, job.lockToken ?? "", "CANCELLED", outcome.reason);
