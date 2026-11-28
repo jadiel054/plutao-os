@@ -22,8 +22,9 @@ function joinPath(dir: string, name: string): string {
 
 async function collectFiles(executionId: string, dir: string, acc: string[]): Promise<void> {
   if (acc.length >= MAX_FILES) return;
+  // storageList retorna um ARRAY de entradas { name, type } (não { entries }).
   const list = await storageList(executionId, { path: dir });
-  for (const entry of list.entries ?? []) {
+  for (const entry of Array.isArray(list) ? list : []) {
     if (acc.length >= MAX_FILES) return;
     const full = joinPath(dir, entry.name);
     if (entry.type === "directory") {
