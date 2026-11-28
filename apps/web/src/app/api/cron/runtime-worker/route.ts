@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
           initialState: cbPayload.buildState,
           budgetMs: buildBudgetMs,
           maxIterations: 12,
-          heartbeat: async () => {
+          onHeartbeat: async () => {
             const renewed = await renewRuntimeJobLease(job.id, job.lockToken ?? "");
             return Boolean(renewed);
           },
