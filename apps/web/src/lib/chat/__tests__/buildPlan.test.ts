@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { formatChatBuildPlan, parseChatBuildPlan } from "../buildPlan";
+import { describe, expect, it, vi } from "vitest";
+
+const createWriteGateMock = vi.fn();
+vi.mock("@/lib/connectors/gates", () => ({
+  createWriteGate: (...args: unknown[]) => createWriteGateMock(...args),
+}));
+vi.mock("@/lib/runtime/model/client", () => ({
+  chatCompletion: vi.fn(),
+}));
+
+import { createChatBuildPlanGate, formatChatBuildPlan, parseChatBuildPlan } from "../buildPlan";
 
 describe("buildPlan (plano + aprovação inicial da criação)", () => {
   it("faz parse de JSON puro do modelo", () => {
@@ -24,6 +33,30 @@ describe("buildPlan (plano + aprovação inicial da criação)", () => {
     expect(parseChatBuildPlan("sem json aqui")).toBeNull();
     expect(parseChatBuildPlan('{"objective":')).toBeNull();
     expect(parseChatBuildPlan('{"scope":["x"]}')).toBeNull();
+  });
+
+  it("createChatBuildPlanGate persiste o pedido original (userText) no payload do gate", async () => {
+    createWriteGateMock.mockResolvedValue({ id: "gate-1" });
+    const plan = {
+      objective: "Site de receitas",
+      scope: [],
+      deliverables: [],
+      steps: [],
+      toolsNeeded: [],
+      limitations: [],
+    };
+    await createChatBuildPlanGate({
+      userId: "11111111-1111-4111-8111-111111111111",
+      conversationId: "22222222-2222-4222-8222-222222222222",
+      plan,
+      userText: "crie um site de receitas",
+    });
+    const arg = createWriteGateMock.mock.calls[0][0] as {
+      payload: Record<string, unknown>;
+    };
+    expect(arg.payload.userText).toBe("crie um site de receitas");
+    expect(arg.payload.conversationId).toBe("22222222-2222-4222-8222-222222222222");
+    expect((arg.payload.plan as { objective: string }).objective).toBe("Site de receitas");
   });
 
   it("formatChatBuildPlan inclui objetivo e aviso de aprovação", () => {

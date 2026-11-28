@@ -6,7 +6,7 @@
  * Best-effort: falha de entrega NUNCA quebra o fluxo de criação.
  */
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { artifacts } from "@plutao/db";
 import { getDb } from "@/lib/db";
 import { storageList, storageRead } from "@/lib/runtime/tools/storage";
@@ -75,16 +75,27 @@ export async function persistChatBuildArtifacts(opts: {
     if (rows.length === 0) return { persisted: 0, paths: [] };
 
     const db = getDb();
-    await db
-      .delete(artifacts)
-      .where(
-        and(
-          eq(artifacts.userId, opts.userId),
-          sql`${artifacts.metadata}->>'source' = 'chat_build'`,
-          sql`${artifacts.metadata}->>'conversationId' = ${opts.conversationId}`
-        )
-      );
+    // Substituição segura do snapshot: insere o novo snapshot PRIMEIRO e só
+    // depois remove os artifacts antigos da mesma conversa (exceto os recém-
+    // inseridos). Se a inserção falhar, a entrega anterior permanece intacta.
     const inserted = await db.insert(artifacts).values(rows).returning({ id: artifacts.id });
+    try {
+      await db
+        .delete(artifacts)
+        .where(
+          and(
+            eq(artifacts.userId, opts.userId),
+            sql`${artifacts.metadata}->>'source' = 'chat_build'`,
+            sql`${artifacts.metadata}->>'conversationId' = ${opts.conversationId}`,
+            notInArray(
+              artifacts.id,
+              inserted.map((r) => r.id)
+            )
+          )
+        );
+    } catch {
+      // Best-effort: duplicação temporária é preferível a perder a entrega.
+    }
     return { persisted: inserted.length, paths: rows.map((r) => r.name) };
   } catch {
     return { persisted: 0, paths: [] };

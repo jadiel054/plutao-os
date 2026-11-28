@@ -167,6 +167,22 @@ export async function getApprovedPlanGate(userId: string, conversationId: string
   return rows[0] ?? null;
 }
 
+/**
+ * Deriva o contexto de execução do worker a partir do payload do job
+ * (fail-closed): sem pedido original E sem checkpoint não há o que executar.
+ * O plano aprovado é incorporado de forma explícita e fiel ao prompt.
+ */
+export function resolveChatBuildRunContext(payload: ChatBuildJobPayload): {
+  userText: string;
+  planText: string | null;
+} | null {
+  if (!payload.userText && !payload.buildState) return null;
+  return {
+    userText: payload.userText,
+    planText: payload.plan ? formatChatBuildPlan(payload.plan) : null,
+  };
+}
+
 export type ChatBuildRequestOutcome =
   | { mode: "plan_created"; gateId: string; planText: string }
   | { mode: "awaiting_approval"; gateId: string }
@@ -240,6 +256,11 @@ export async function handleChatBuildRequest(opts: {
     };
   }
 
-  const gate = await createChatBuildPlanGate({ userId: opts.userId, conversationId, plan });
+  const gate = await createChatBuildPlanGate({
+    userId: opts.userId,
+    conversationId,
+    plan,
+    userText: opts.userText,
+  });
   return { mode: "plan_created", gateId: gate.id, planText: formatChatBuildPlan(plan) };
 }

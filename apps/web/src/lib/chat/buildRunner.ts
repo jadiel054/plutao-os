@@ -240,6 +240,8 @@ export async function runChatBuildFlow(opts: {
   userId: string;
   conversationId: string | null;
   userText: string;
+  /** Plano aprovado (gate build_plan): injetado no prompt para execução fiel. */
+  planText?: string | null;
   history: Array<{ role: string; content: string }>;
   modelConfig: ModelConfig;
   connectorBlock?: string;
@@ -268,6 +270,23 @@ export async function runChatBuildFlow(opts: {
   const historyMessages: ModelMessage[] = opts.history
     .slice(-6)
     .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+
+  // Semente de contexto durável: o pedido original do usuário e o plano
+  // aprovado (gate build_plan) são injetados no prompt em TODAS as fatias
+  // (inclusive retomadas de checkpoint), garantindo que o agente nunca comece
+  // a execução sem o contexto da solicitação nem sem o plano a cumprir.
+  const seedMessages: ModelMessage[] = [];
+  if (opts.userText) {
+    seedMessages.push({ role: "user", content: opts.userText });
+  }
+  if (opts.planText) {
+    seedMessages.push({
+      role: "user",
+      content:
+        "PLANO APROVADO PELO USUÁRIO — execute este plano fielmente, etapa a etapa:\n" +
+        opts.planText,
+    });
+  }
 
   let finalText = "";
   let iterations = opts.initialState?.iterations ?? 0;
@@ -306,6 +325,7 @@ export async function runChatBuildFlow(opts: {
     try {
       step = await chatCompletion(opts.modelConfig, [
         { role: "system", content: systemPrompt },
+        ...seedMessages,
         ...historyMessages,
         ...toolContextMessages,
       ]);

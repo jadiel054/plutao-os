@@ -25,7 +25,13 @@ import { sanitizeError } from "@/lib/security/sanitize";
 import { getMissionGraphSerialOrder } from "@plutao/domain";
 import { ensurePersistedMissionGraph } from "@/lib/missions/graphPersistence";
 import { publishRuntimeWorkerWake } from "@/lib/runtime/workerQueue";
-import { CHAT_BUILD_JOB_KIND, parseChatBuildJobPayload, updateChatBuildJobState } from "@/lib/chat/buildJobs";
+import {
+  CHAT_BUILD_JOB_KIND,
+  parseChatBuildJobPayload,
+  resolveChatBuildRunContext,
+  updateChatBuildJobState,
+} from "@/lib/chat/buildJobs";
+import { formatChatBuildPlan } from "@/lib/chat/buildPlan";
 import { runChatBuildFlow } from "@/lib/chat/buildRunner";
 import { emitObservation } from "@/lib/events/appendConversationEvent";
 import { getModelConfig } from "@/lib/runtime/model/config";
@@ -104,6 +110,10 @@ export async function POST(req: NextRequest) {
       if (job.kind === CHAT_BUILD_JOB_KIND) {
         const cbPayload = parseChatBuildJobPayload(job.payload);
         if (!cbPayload) throw new Error("CHAT_BUILD_JOB_PAYLOAD_INVALID");
+        // Fail-closed: sem pedido original E sem checkpoint não há contexto
+        // para executar — o job falha em vez de rodar com contexto vazio.
+        const buildRunContext = resolveChatBuildRunContext(cbPayload);
+        if (!buildRunContext) throw new Error("CHAT_BUILD_CONTEXT_EMPTY");
         if (!(await getOwnedConversation(cbPayload.conversationId, job.userId))) {
           throw new Error("CONVERSATION_NOT_FOUND");
         }
@@ -113,7 +123,8 @@ export async function POST(req: NextRequest) {
         const run = await runChatBuildFlow({
           userId: job.userId,
           conversationId: cbPayload.conversationId,
-          userText: cbPayload.userText,
+          userText: buildRunContext.userText,
+          planText: buildRunContext.planText ?? undefined,
           history: [],
           modelConfig: buildModelConfig,
           initialState: cbPayload.buildState,

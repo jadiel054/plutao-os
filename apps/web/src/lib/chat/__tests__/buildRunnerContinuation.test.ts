@@ -85,6 +85,42 @@ describe("runChatBuildFlow — estados da execução durável", () => {
     expect(flow.files).toEqual([{ path: "a.txt" }]);
   });
 
+  it("injeta o pedido original e o plano aprovado no prompt (contexto nunca vazio)", async () => {
+    chatCompletionMock.mockResolvedValueOnce({ content: "feito", toolProposal: null });
+    const flow = await runChatBuildFlow({
+      userId: USER_ID,
+      conversationId: CONV_ID,
+      userText: "crie um site de receitas",
+      history: [],
+      modelConfig: MODEL,
+      planText: "Plano de criação\n\nObjetivo: site de receitas\nEtapas previstas:\n- escrever index.html",
+    });
+    if (!flow.executed) throw new Error("esperava fluxo executado");
+    expect(flow.status).toBe("completed");
+    const msgs = chatCompletionMock.mock.calls[0][1] as Array<{ role: string; content: string }>;
+    const joined = msgs.map((m) => m.content).join("\n");
+    expect(joined).toContain("crie um site de receitas");
+    expect(joined).toContain("PLANO APROVADO");
+    expect(joined).toContain("escrever index.html");
+  });
+
+  it("retomada de checkpoint também recebe pedido e plano no prompt", async () => {
+    chatCompletionMock.mockResolvedValueOnce({ content: "fim", toolProposal: null });
+    await runChatBuildFlow({
+      userId: USER_ID,
+      conversationId: CONV_ID,
+      userText: "crie um site",
+      history: [],
+      modelConfig: MODEL,
+      planText: "Objetivo: site",
+      initialState: { iterations: 7, files: [], toolContextMessages: [] },
+    });
+    const msgs = chatCompletionMock.mock.calls[0][1] as Array<{ role: string; content: string }>;
+    const joined = msgs.map((m) => m.content).join("\n");
+    expect(joined).toContain("crie um site");
+    expect(joined).toContain("PLANO APROVADO");
+  });
+
   it("orçamento de tempo esgotado (budgetMs=0) → 'continuing' preservando o checkpoint anterior", async () => {
     const flow = await runChatBuildFlow({
       userId: USER_ID,

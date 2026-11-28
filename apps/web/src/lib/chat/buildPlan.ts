@@ -110,6 +110,8 @@ export async function createChatBuildPlanGate(opts: {
   userId: string;
   conversationId: string;
   plan: ChatBuildPlan;
+  /** Pedido original do usuário: preservado no payload para a execução durável. */
+  userText: string;
 }) {
   const planText = formatChatBuildPlan(opts.plan);
   return await createWriteGate({
@@ -120,7 +122,11 @@ export async function createChatBuildPlanGate(opts: {
     capability: CHAT_BUILD_PLAN_CAPABILITY,
     target: opts.conversationId,
     summary: "Aprovar plano de criação: " + opts.plan.objective.slice(0, 140),
-    payload: { conversationId: opts.conversationId, plan: opts.plan },
+    payload: {
+      conversationId: opts.conversationId,
+      plan: opts.plan,
+      userText: opts.userText,
+    },
     contentPreview: planText.slice(0, 2000),
     ttlMs: CHAT_BUILD_PLAN_TTL_MS,
   });
