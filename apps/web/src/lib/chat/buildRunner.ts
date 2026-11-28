@@ -22,6 +22,9 @@ import { runFilesystem } from "@/lib/runtime/tools/filesystem";
 import { runProcess } from "@/lib/runtime/tools/process";
 import { runExportTool } from "@/lib/runtime/tools/export";
 import { runComputerAgentStep } from "./computerAgentTool";
+import { runGithub } from "@/lib/runtime/tools/github";
+import { runVercel } from "@/lib/runtime/tools/vercel";
+import { persistChatBuildArtifacts } from "./buildDelivery";
 import type { ToolResult } from "@/lib/runtime/tools/types";
 import { buildChatBuildSystemPrompt } from "./buildPrompt";
 import {
@@ -63,6 +66,8 @@ export const CHAT_BUILD_TOOLS = [
   "files.export_markdown",
   "files.export_html",
   "computer",
+  "github",
+  "vercel",
 ] as const;
 
 export type BuildStep = {
@@ -80,6 +85,26 @@ export type ChatBuildResult = {
   notice: string;
   /** True quando o usuário assumiu o controle e o fluxo parou na fronteira de passo. */
   pausedForHuman?: boolean;
+  /**
+   * Estado do ciclo de vida (execução durável):
+   *  - completed: critério natural de parada (modelo sem nova tool);
+   *  - continuing: orçamento esgotado com trabalho pendente → retomada
+   *    automática via job durável (kind "chat_build") com checkpoint;
+   *  - paused_for_human: usuário assumiu o controle;
+   *  - failed: falha terminal reportada pelo worker.
+   */
+  status?: "completed" | "continuing" | "paused_for_human" | "failed";
+  /** Checkpoint para retomada automática quando status === "continuing". */
+  continuationState?: PersistedChatBuildState | null;
+  /** Arquivos entregues como artifacts acessíveis (tabela artifacts). */
+  artifactsPersisted?: number;
+};
+
+/** Estado serializável do build, persistido no payload do runtime job. */
+export type PersistedChatBuildState = {
+  iterations: number;
+  files: Array<{ path: string; size?: number }>;
+  toolContextMessages: ModelMessage[];
 };
 
 export type ChatBuildSkip =
@@ -168,6 +193,26 @@ export async function dispatchChatBuildTool(opts: {
       return await runExportTool(opts.name, opts.input, executionId, opts.userId);
     case "computer":
       return await runComputerAgentStep({ userId: opts.userId, conversationId: opts.conversationId, input: opts.input, tool: opts.name });
+    case "github":
+    case "vercel": {
+      // Escritas externas dentro do escopo aprovado: runGithub/runVercel
+      // aplicam os gates de escrita existentes (fail-closed) — a pendência
+      // volta como GATE_PENDING para aprovação no próprio Chat. O erro nunca
+      // derruba o fluxo de criação.
+      try {
+        return opts.name === "github"
+          ? await runGithub(opts.input, opts.userId, executionId)
+          : await runVercel(opts.input, opts.userId, executionId);
+      } catch (error) {
+        return {
+          ok: false,
+          tool: opts.name,
+          input: opts.input,
+          error: error instanceof Error ? error.message : "CONNECTOR_TOOL_FAILED",
+          durationMs: 0,
+        };
+      }
+    }
     default:
       return {
         ok: false,
@@ -199,11 +244,21 @@ export async function runChatBuildFlow(opts: {
   modelConfig: ModelConfig;
   connectorBlock?: string;
   onStep?: (step: BuildStep) => void | Promise<void>;
+  /** Checkpoint de retomada (execução durável kind "chat_build"). */
+  initialState?: PersistedChatBuildState | null;
+  /** Orçamento de tempo desta fatia (worker usa o restante do seu budget). */
+  budgetMs?: number;
+  /** Teto de iterações desta fatia (default: CHAT_BUILD_MAX_ITERATIONS). */
+  maxIterations?: number;
+  /** Heartbeat cooperativo: renova o lease do job durável a cada passo. */
+  onHeartbeat?: () => void | Promise<void>;
 }): Promise<ChatBuildResult | ChatBuildSkip> {
   const startedAt = Date.now();
+  const deadlineMs = opts.budgetMs ?? CHAT_BUILD_MAX_DURATION_MS;
+  const maxIterations = opts.maxIterations ?? CHAT_BUILD_MAX_ITERATIONS;
   const steps: BuildStep[] = [];
-  const files: Array<{ path: string; size?: number }> = [];
-  const toolContextMessages: ModelMessage[] = [];
+  const files: Array<{ path: string; size?: number }> = [...(opts.initialState?.files ?? [])];
+  const toolContextMessages: ModelMessage[] = [...(opts.initialState?.toolContextMessages ?? [])];
 
   const systemPrompt = buildChatBuildSystemPrompt({
     connectorBlock: opts.connectorBlock ?? "",
@@ -215,7 +270,7 @@ export async function runChatBuildFlow(opts: {
     .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
 
   let finalText = "";
-  let iterations = 0;
+  let iterations = opts.initialState?.iterations ?? 0;
   let pausedForHuman = false;
 
   if (opts.conversationId && !tryAcquireConversationBuild(opts.conversationId)) {
@@ -233,8 +288,9 @@ export async function runChatBuildFlow(opts: {
   }
 
   const loopConversationId = opts.conversationId;
-  while (iterations < CHAT_BUILD_MAX_ITERATIONS) {
-    if (Date.now() - startedAt > CHAT_BUILD_MAX_DURATION_MS) break;
+  while (iterations < maxIterations) {
+    if (Date.now() - startedAt > deadlineMs) break;
+    await opts.onHeartbeat?.();
     if (loopConversationId && (await isHumanInControl(loopConversationId, opts.userId))) {
       pausedForHuman = true;
       await emitComputerState(
@@ -359,13 +415,26 @@ export async function runChatBuildFlow(opts: {
     finalText = pausedForHuman
       ? "Controle assumido por você — o agente pausou. Devolva o controle e peça para continuar a criação."
       : steps.length
-        ? `Criação em andamento: ${steps.filter((st) => st.ok).length}/${steps.length} etapas concluídas.`
+        ? `Criação em andamento (execução durável com checkpoint): ${steps.filter((st) => st.ok).length}/${steps.length} etapas concluídas. A execução continua automaticamente — isto NÃO é o resultado final.`
         : "Não foi possível iniciar a criação agora.";
   }
 
   const createdFiles = files.length
     ? files.map((f) => `${f.path}${typeof f.size === "number" ? ` (${f.size} bytes)` : ""}`).join(", ")
     : "nenhum arquivo consistente registrado";
+
+  // Entrega persistente: snapshot dos arquivos do sandbox na tabela
+  // artifacts (best-effort; a entrega nunca mascara o resultado do build).
+  let artifactsPersisted = 0;
+  if (!pausedForHuman) {
+    try {
+      const delivery = await persistChatBuildArtifacts({ userId: opts.userId, conversationId: opts.conversationId });
+      artifactsPersisted = delivery.persisted;
+    } catch {
+      artifactsPersisted = 0;
+    }
+  }
+  const continuing = !pausedForHuman && !finalText && iterations > 0;
 
   return {
     executed: true,
@@ -374,11 +443,21 @@ export async function runChatBuildFlow(opts: {
     files,
     finalText,
     ...(pausedForHuman ? { pausedForHuman: true } : {}),
+    status: pausedForHuman
+      ? ("paused_for_human" as const)
+      : continuing
+        ? ("continuing" as const)
+        : ("completed" as const),
+    ...(continuing
+      ? { continuationState: { iterations, files, toolContextMessages } as PersistedChatBuildState }
+      : {}),
+    artifactsPersisted,
     notice:
       `RUNTIME NOTICE (CRIAÇÃO NO CHAT): fluxo de criação executado NA CONVERSA via Software Factory sandboxada. ` +
       `Nenhuma missão foi criada — não cite missões nem o Cockpit. ` +
       `Etapas executadas: ${steps.map((s) => `${s.tool}:${s.ok ? "ok" : s.detail}`).join("; ") || "nenhuma"}. ` +
-      `Arquivos no sandbox da conversa: ${createdFiles}. ` +
+      `Arquivos no sandbox da conversa: ${createdFiles}. `
+      + `Arquivos entregues como artifacts acessíveis ao usuário: ${artifactsPersisted}. ` +
       `Use esses dados reais para responder com o progresso e o resultado; convide o usuário a continuar/pedir ajustes na conversa.` +
       (pausedForHuman
         ? ` O fluxo foi PAUSADO porque o usuário assumiu o controle do Computador (mouse/teclado dele); administre apenas o que já foi executado e NÃO invente etapas futuras. Quando o usuário devolver o controle e pedir, continue de onde parou usando o sandbox persistido.`
