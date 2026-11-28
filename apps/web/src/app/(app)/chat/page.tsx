@@ -586,9 +586,8 @@ function ChatPageInner() {
               if (importData.imported) {
                 localStorage.setItem(importFlagKey, "true");
                 await refreshConversations();
-                if (importData.conversationId) {
-                  await selectConversation(importData.conversationId);
-                }
+                // A conversa importada fica preservada no histórico, mas NÃO é
+                // selecionada automaticamente: a entrada continua em um Chat novo.
               }
             }
           } catch { /* ignore import failure */ }
@@ -602,13 +601,13 @@ function ChatPageInner() {
           // permanece acessível pelo drawer.
         }
 
-        const savedMission = localStorage.getItem(`plutao_chat_mission_${email}`);
+        // Apenas ?mission= explícito ativa o contexto de missão na entrada.
+        // Uma missão anterior não é restaurada automaticamente do localStorage;
+        // as missões permanecem acessíveis manualmente pelo Cockpit.
         const fromQuery = searchParams.get("mission");
         if (fromQuery) {
           setActiveMissionId(fromQuery);
           localStorage.setItem(`plutao_chat_mission_${email}`, fromQuery);
-        } else if (savedMission) {
-          setActiveMissionId(savedMission);
         }
       }
       await refreshMissions();
