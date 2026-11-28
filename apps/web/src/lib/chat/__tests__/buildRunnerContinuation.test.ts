@@ -92,7 +92,9 @@ describe("runChatBuildFlow — estados da execução durável", () => {
       userText: "continue",
       history: [],
       modelConfig: MODEL,
-      budgetMs: 0,
+      // Negativo garante que o orçamento já nasceu esgotado (Date.now() -
+      // startedAt === 0 não seria > 0).
+      budgetMs: -1,
       initialState: { iterations: 2, files: [], toolContextMessages: [] },
     });
     if (!flow.executed) throw new Error("esperava fluxo executado");

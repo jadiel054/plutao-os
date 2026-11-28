@@ -411,6 +411,11 @@ export async function runChatBuildFlow(opts: {
     );
   }
 
+  // Orçamento esgotado com trabalho pendente, calculado ANTES do fallback de
+  // finalText (que preenche o texto de "em andamento"): não é conclusão — é
+  // continuação automática com checkpoint no job durável.
+  const budgetExhausted = !pausedForHuman && !finalText && iterations > 0;
+
   if (!finalText) {
     finalText = pausedForHuman
       ? "Controle assumido por você — o agente pausou. Devolva o controle e peça para continuar a criação."
@@ -434,7 +439,7 @@ export async function runChatBuildFlow(opts: {
       artifactsPersisted = 0;
     }
   }
-  const continuing = !pausedForHuman && !finalText && iterations > 0;
+  const continuing = budgetExhausted;
 
   return {
     executed: true,
